@@ -1,14 +1,12 @@
-import type { Request } from "express";
-
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 
-export const profilePictureUploader = (userId: number | string) => {
+const profilePictureUploader = (userId) => {
   const BASE_DIR = path.resolve(__dirname, "..", "..", "uploads", "profiles");
 
   const storage = multer.diskStorage({
-    destination: (req: Request, file, cb) => {
+    destination: (req, file, cb) => {
       //ساخت پوشه جدت برای هرکاربر
       const userDir = path.join(BASE_DIR, `user_${userId}`);
 
@@ -16,7 +14,7 @@ export const profilePictureUploader = (userId: number | string) => {
       cb(null, userDir);
     },
 
-    filename: (req: Request, file, cb) => {
+    filename: (req, file, cb) => {
       cb(null, `${crypto.randomUUID()}${path.extname(file.originalname)}`);
     },
   });
@@ -24,7 +22,7 @@ export const profilePictureUploader = (userId: number | string) => {
   return multer({
     storage,
     limits: { fileSize: 4 * 1024 * 1024 }, // 4MB
-    fileFilter: (req: Request, file, cb) => {
+    fileFilter: (req, file, cb) => {
       const allowed = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
       if (allowed.includes(file.mimetype)) {
         cb(null, true);
@@ -34,3 +32,5 @@ export const profilePictureUploader = (userId: number | string) => {
     },
   });
 };
+
+module.exports = { profilePictureUploader };

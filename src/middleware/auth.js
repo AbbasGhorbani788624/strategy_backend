@@ -1,10 +1,8 @@
-import type { Request, Response, NextFunction } from "express";
-
 const { errorResponse } = require("../utils/responses");
 const jwt = require("jsonwebtoken");
 const prisma = require("../prismaClient");
 
-exports.auth = async (req: Request, res: Response, next: NextFunction) => {
+const auth = async (req, res, next) => {
   try {
     const token = req.cookies.access_token;
     if (!token) {
@@ -20,7 +18,7 @@ exports.auth = async (req: Request, res: Response, next: NextFunction) => {
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { id: true, email: true, role: true },
+      select: { id: true, role: true },
     });
 
     if (!user) {
@@ -33,3 +31,5 @@ exports.auth = async (req: Request, res: Response, next: NextFunction) => {
     next(err);
   }
 };
+
+module.exports = auth;

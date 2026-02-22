@@ -1,12 +1,14 @@
-import type { Request, Response } from "express";
-
 const express = require("express");
 const path = require("path");
 const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-const analysisRouter = require("./routes/analysis");
 const errorHandler = require("./middleware/errorHandler");
+const analysisRouter = require("./routes/analysis");
+const companyRoutes = require("./routes/companyRoutes");
+const authRouter = require("./routes/auth");
+const companyUserRouter = require("./routes/companyUserRoutes");
+const profileRouter = require("./routes/profileRoutes");
 
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000,
@@ -31,9 +33,13 @@ app.use(
   express.static(path.join(__dirname, "..", "uploads", "profiles")),
 );
 
-app.use("/api/analysis", analysisRouter);
+// app.use("/api/analysis", analysisRouter);
+app.use("/api/company", companyRoutes);
+app.use("/api/auth", authRouter);
+app.use("/api/companyuser", companyUserRouter);
+app.use("/api/profile", profileRouter);
 
-app.use((req: Request, res: Response) => {
+app.use((req, res) => {
   console.log("This path is not found:", req.path);
   return res.status(404).json({
     message: "404! Path Not Found. Please double check the path / method",

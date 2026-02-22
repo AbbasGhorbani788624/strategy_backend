@@ -1,11 +1,4 @@
-import type { Request, Response, NextFunction } from "express";
-
-const errorHandler = (
-  err: any,
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) => {
+const errorHandler = (err, req, res, next) => {
   console.error("🔥 Error:", err);
 
   if (res.headersSent) {

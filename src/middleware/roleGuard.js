@@ -1,10 +1,7 @@
-import type { Request, Response, NextFunction } from "express";
 const { errorResponse } = require("../utils/responses");
 
-type Role = "SUPER_ADMIN" | "COMPANY" | "MEMBER";
-
-exports.roleGuard = (allowedRoles: Role[]) => {
-  return (req: Request, res: Response, next: NextFunction) => {
+const roleGuard = (allowedRoles) => {
+  return (req, res, next) => {
     try {
       if (!req.user) {
         return errorResponse(res, 401, "احراز هویت نشده است");
@@ -20,3 +17,5 @@ exports.roleGuard = (allowedRoles: Role[]) => {
     }
   };
 };
+
+module.exports = { roleGuard };
