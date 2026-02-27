@@ -4,11 +4,15 @@ const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const errorHandler = require("./middleware/errorHandler");
-const analysisRouter = require("./routes/analysis");
-const companyRoutes = require("./routes/companyRoutes");
+const companyRoutes = require("./routes/superAdmin/companyRoutes");
 const authRouter = require("./routes/auth");
-const companyUserRouter = require("./routes/companyUserRoutes");
+const companyUserRouter = require("./routes/company/companyUserRoutes");
 const profileRouter = require("./routes/profileRoutes");
+const analysisFormRoutes = require("./routes/superAdmin/analysisFormRoutes");
+const stepFlow = require("./routes/superAdmin/stepFlow");
+const analysisRouter = require("./routes/analysisForm");
+const companyAdmin = require("./routes/superAdmin/companyAdmin");
+const chatRouter = require("./routes/chatRoutes");
 
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000,
@@ -33,16 +37,20 @@ app.use(
   express.static(path.join(__dirname, "..", "uploads", "profiles")),
 );
 
-// app.use("/api/analysis", analysisRouter);
 app.use("/api/company", companyRoutes);
 app.use("/api/auth", authRouter);
+app.use("/api/analysis", analysisRouter);
 app.use("/api/companyuser", companyUserRouter);
 app.use("/api/profile", profileRouter);
+app.use("/api/analysis-forms", analysisFormRoutes);
+app.use("/api/stepflow", stepFlow);
+app.use("/api/admin-data", companyAdmin);
+app.use("/api/chat", chatRouter);
 
 app.use((req, res) => {
   console.log("This path is not found:", req.path);
   return res.status(404).json({
-    message: "404! Path Not Found. Please double check the path / method",
+    message: "404! مسیر یافت نشد. لطفاً مسیر/متد را دوباره بررسی کنید.",
   });
 });
 

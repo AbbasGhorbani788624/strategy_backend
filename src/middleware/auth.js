@@ -18,13 +18,12 @@ const auth = async (req, res, next) => {
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { id: true, role: true },
+      select: { id: true, companyId: true, role: true },
     });
 
     if (!user) {
       return errorResponse(res, 404, "کاربری یافت نشد!");
     }
-
     req.user = user;
     next();
   } catch (err) {

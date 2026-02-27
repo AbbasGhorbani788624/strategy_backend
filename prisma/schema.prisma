@@ -31,8 +31,15 @@ enum Outcome {
   NO
 }
 
+enum StepSessionStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
 model User {
   id               String   @id @default(uuid())
+  avatar           String?
   username         String   @unique
   password         String
   role             Role
@@ -80,8 +87,19 @@ model Company {
   members             User[]              @relation("CompanyMembers") // کارکنان شرکت
   projects            Project[] // پروژه‌های شرکت و اعضا
   profileViewAccesses ProfileViewAccess[]
+  adminData           CompanyAdminData?
 
   @@index([id]) // معمولاً primary key index خودکار
+}
+
+model CompanyAdminData {
+  id        String   @id @default(uuid())
+  companyId String   @unique
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model Project {
@@ -169,35 +187,17 @@ model ChatMessage {
   @@index([createdAt])
 }
 
-model FormCategory {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  forms AnalysisForm[]
-
-  @@index([isActive])
-}
-
 model AnalysisForm {
-  id             String  @id @default(uuid())
+  id             String         @id @default(uuid())
   title          String
   info           String?
   promptTemplate String
   order          Int?
-  isActive       Boolean @default(true)
-
-  categoryId String
-  category   FormCategory @relation(fields: [categoryId], references: [id])
-
-  questions FormQuestion[]
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-
-  @@index([categoryId])
+  isActive       Boolean        @default(true)
+  questions      FormQuestion[]
+  stepFlowItems  StepFlowItem[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 }
 
 model FormQuestion {
@@ -214,16 +214,22 @@ model FormQuestion {
 }
 
 model StepSession {
-  id          String   @id @default(uuid())
+  id          String            @id @default(uuid())
   userId      String
+  flowId      String
   currentStep Int
   data        Json
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status      StepSessionStatus @default(ACTIVE)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([userId]) // پیدا کردن session های کاربر
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  flow StepFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([flowId])
+  @@index([status])
 }
 
 model RefreshToken {
@@ -237,4 +243,28 @@ model RefreshToken {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model StepFlowItem {
+  id       String  @id @default(uuid())
+  flowId   String
+  formId   String
+  order    Int
+  required Boolean @default(true)
+
+  flow StepFlow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  form AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([flowId, order])
+}
+
+model StepFlow {
+  id        String   @id @default(uuid())
+  title     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  steps    StepFlowItem[]
+  sessions StepSession[]
 }

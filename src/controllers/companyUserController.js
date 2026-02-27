@@ -15,3 +15,5 @@ exports.createCompanyUser = async (req, res, next) => {
     next(err);
   }
 };
+
+//delete user

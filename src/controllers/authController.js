@@ -1,4 +1,3 @@
-const loginSchema = require("../validations/loginValidation");
 const {
   loginService,
   getMeService,

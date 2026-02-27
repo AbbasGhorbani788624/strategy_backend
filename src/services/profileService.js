@@ -3,7 +3,7 @@ const userRepo = require("../repositories/userRepository");
 // اپدیت پروفایل با دسترسی بر اساس نقش
 const props = ["companyId", "profile", "username"];
 
-const updateProfile = async (currentUser, targetUserId, profileData) => {
+const updateProfileService = async (currentUser, targetUserId, profileData) => {
   const user = await userRepo.findById(targetUserId, props);
   if (!user) {
     const err = new Error("کاربر پیدا نشد");
@@ -66,4 +66,4 @@ const updateProfile = async (currentUser, targetUserId, profileData) => {
   return await userRepo.update(targetUserId, updateData);
 };
 
-module.exports = { updateProfile };
+module.exports = { updateProfileService };
