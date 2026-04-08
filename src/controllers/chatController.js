@@ -3,6 +3,7 @@ const {
   sendMessageToChatService,
 } = require("../services/chatService");
 const { errorResponse, successResponse } = require("../utils/responses");
+
 exports.generateSummary = async (req, res, next) => {
   try {
     const { analysisText } = req.body;

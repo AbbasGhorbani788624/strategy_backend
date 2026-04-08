@@ -4,6 +4,7 @@ const {
   refreshService,
   logoutService,
 } = require("../services/authService");
+const setAuthCookies = require("../utils/cookie");
 const { successResponse, errorResponse } = require("../utils/responses");
 
 exports.login = async function (req, res, next) {
@@ -14,19 +15,7 @@ exports.login = async function (req, res, next) {
       password,
     );
 
-    res.cookie("access_token", accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 1 * 24 * 60 * 60 * 1000,
-    });
-
-    res.cookie("refresh_token", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    setAuthCookies(res, accessToken, refreshToken);
 
     return successResponse(res, 200, { user });
   } catch (err) {
@@ -54,19 +43,7 @@ exports.refresh = async function (req, res) {
     const { accessToken, refreshToken: newRefreshToken } =
       await refreshService(refreshToken);
 
-    res.cookie("access_token", accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 1 * 24 * 60 * 60 * 1000,
-    });
-
-    res.cookie("refresh_token", newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    setAuthCookies(res, accessToken, newRefreshToken);
 
     return successResponse(res, 200, {
       message: "Access token refreshed",

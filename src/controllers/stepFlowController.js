@@ -3,6 +3,10 @@ const {
   updateStepFlowService,
   deleteStepFlowService,
   getAllStepFlowsService,
+  getActiveFlowsService,
+  startStepSessionService,
+  analyzeStepService,
+  generateFinalAnalysisService,
 } = require("../services/stepFlowService");
 const { successResponse } = require("../utils/responses");
 
@@ -57,6 +61,57 @@ exports.getAllStepFlows = async (req, res, next) => {
   try {
     const result = await getAllStepFlowsService(req.query);
 
+    return successResponse(res, 200, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+// دریافت لیست مسیرهای مرحله‌ای
+exports.getActiveFlows = async (req, res, next) => {
+  try {
+    const flows = await getActiveFlowsService();
+    return successResponse(res, 200, flows);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+// شروع جلسه مرحله‌ای
+exports.startStepSession = async (req, res, next) => {
+  try {
+    const result = await startStepSessionService(req.user, req.body.flowId);
+    return successResponse(res, 201, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+// ارسال پاسخ هر مرحله و دریافت تحلیل
+exports.analyzeStep = async (req, res, next) => {
+  try {
+    const result = await analyzeStepService(
+      req.user,
+      req.params.sessionId,
+      req.body.answers,
+    );
+    return successResponse(res, 200, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+// دریافت تحلیل نهایی
+exports.getFinalAnalysis = async (req, res, next) => {
+  try {
+    const result = await generateFinalAnalysisService(
+      req.user,
+      req.params.sessionId,
+    );
     return successResponse(res, 200, result);
   } catch (err) {
     console.error(err);

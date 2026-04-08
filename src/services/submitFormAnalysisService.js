@@ -1,6 +1,7 @@
 const OpenAI = require("openai");
 const { getFormById } = require("../repositories/analysisFormRepository");
 const prisma = require("../prismaClient");
+const {} = require("../utils");
 
 const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -16,9 +17,7 @@ const submitFormAnalysisService = async (currentUser, body) => {
   });
 
   if (!form) {
-    const err = new Error("فرم یافت نشد");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("فرم یافت نشد", 404);
   }
 
   // پروفایل شرکت و AdminData
@@ -76,16 +75,12 @@ What would a top 1% expert notice here that others wouldn’t?
 
 const getFormForUserService = async (formId) => {
   if (!formId) {
-    const err = new Error("یدی فرم الزامی است");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("ایدی فرم الزامی است");
   }
   const form = await getFormById(formId);
 
   if (!form) {
-    const err = new Error("فرم یافت نشد");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("فرم یافت نشد", 404);
   }
 
   return form;

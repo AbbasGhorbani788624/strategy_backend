@@ -135,10 +135,129 @@ const getAllStepFlows = async ({ page = 1, limit = 10, search = "" }) => {
   };
 };
 
+const getActiveStepFlows = async () => {
+  return prisma.stepFlow.findMany({
+    where: { isActive: true },
+    include: {
+      steps: {
+        orderBy: { order: "asc" },
+        include: {
+          form: {
+            select: {
+              id: true,
+              title: true,
+              info: true,
+            },
+          },
+        },
+      },
+    },
+  });
+};
+
+// دریافت StepFlow با جزئیات کامل
+const getStepFlowByIdWidthDetail = async (flowId) => {
+  return prisma.stepFlow.findUnique({
+    where: { id: flowId },
+    include: {
+      steps: {
+        orderBy: { order: "asc" },
+        include: {
+          form: {
+            select: {
+              id: true,
+              title: true,
+              info: true,
+              promptTemplate: true,
+              questions: {
+                orderBy: { order: "asc" },
+                select: {
+                  id: true,
+                  label: true,
+                  type: true,
+                  options: true,
+                  required: true,
+                  order: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+};
+
+// ایجاد StepSession
+const createStepSession = async (data) => {
+  return prisma.stepSession.create({
+    data: {
+      userId: data.userId,
+      flowId: data.flowId,
+      currentStep: 1,
+      data: {
+        completedSteps: [],
+        stepAnalyses: {},
+      },
+      status: "ACTIVE",
+    },
+  });
+};
+
+// دریافت StepSession
+const getStepSessionById = async (sessionId) => {
+  return prisma.stepSession.findUnique({
+    where: { id: sessionId },
+    include: {
+      flow: {
+        include: {
+          steps: {
+            orderBy: { order: "asc" },
+            include: {
+              form: {
+                select: {
+                  id: true,
+                  title: true,
+                  info: true,
+                  promptTemplate: true,
+                  questions: {
+                    orderBy: { order: "asc" },
+                    select: {
+                      id: true,
+                      label: true,
+                      type: true,
+                      options: true,
+                      required: true,
+                      order: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+};
+
+// آپدیت StepSession بعد از هر مرحله
+const updateStepSession = async (sessionId, updateData) => {
+  return prisma.stepSession.update({
+    where: { id: sessionId },
+    data: updateData,
+  });
+};
+
 module.exports = {
   createStepFlow,
   updateStepFlow,
   deleteStepFlow,
   getStepFlowById,
   getAllStepFlows,
+  getActiveStepFlows,
+  getStepFlowByIdWidthDetail,
+  createStepSession,
+  getStepSessionById,
+  updateStepSession,
 };

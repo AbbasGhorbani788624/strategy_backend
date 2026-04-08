@@ -14,13 +14,13 @@ const comparePassword = async (password, hash) => {
 
 const signAccessToken = (payload) => {
   return jwt.sign(payload, process.env.ACCESS_TOKEN_SECRET_KEY, {
-    expiresIn: "1d",
+    expiresIn: "10d",
   });
 };
 
 const signRefreshToken = (payload) => {
   return jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET_KEY, {
-    expiresIn: "7d",
+    expiresIn: "20d",
   });
 };
 

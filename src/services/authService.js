@@ -6,20 +6,17 @@ const {
 } = require("../utils/auth");
 
 const userRepo = require("../repositories/userRepository");
+const { createBadRequestError } = require("../utils");
 
 const loginService = async (username, password) => {
   const user = await userRepo.findUserByUsername(username);
   if (!user) {
-    const err = new Error("کاربر پیدا نشد");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("کاربر پیدا نشد", 404);
   }
 
   const isValid = await comparePassword(password, user.password);
   if (!isValid) {
-    const err = new Error("نام کاربری یا رمز عبور صحیح نیست");
-    err.statusCode = 401;
-    throw err;
+    createBadRequestError("نام کاربری یا رمز عبور صحیح نیست", 401);
   }
 
   const payload = { userId: user.id, role: user.role };
@@ -41,40 +38,31 @@ const loginService = async (username, password) => {
 const getMeService = async (userId) => {
   const user = await userRepo.findById(userId);
   if (!user) {
-    const err = new Error("کاربر پیدا نشد");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("کاربر پیدا نشد", 404);
   }
   return user;
 };
 
 const refreshService = async (refreshToken) => {
   if (!refreshToken) {
-    const err = new Error("توکن refresh وجود ندارد");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("توکن refresh وجود ندارد", 404);
   }
+
   let decoded;
   try {
     decoded = verifyToken(refreshToken, process.env.REFRESH_TOKEN_SECRET_KEY);
   } catch {
-    const err = new Error("refresh token نامعتبر است");
-    err.statusCode = 401;
-    throw err;
+    createBadRequestError("refresh token نامعتبر است", 401);
   }
 
   const storedToken = await userRepo.findRefreshToken(refreshToken);
 
   if (!storedToken || storedToken.revoked) {
-    const err = new Error("refresh token معتبر نیست");
-    err.statusCode = 401;
-    throw err;
+    createBadRequestError("refresh token معتبر نیست", 401);
   }
 
   if (storedToken.expiresAt < new Date()) {
-    const err = new Error("refresh token منقضی شده است");
-    err.statusCode = 401;
-    throw err;
+    createBadRequestError("refresh token منقضی شده است", 401);
   }
 
   // Rotation: توکن قدیمی را revoke کن

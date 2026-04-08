@@ -1,5 +1,6 @@
 const companyRepository = require("../repositories/companyRepository");
 const userRepo = require("../repositories/userRepository");
+const { createBadRequestError } = require("../utils");
 const { hashPassword } = require("../utils/auth");
 //سرویس  ایجاد شرکت و ادمین ان
 
@@ -13,16 +14,12 @@ const createCompanyService = async (
   // بررسی وجود داشتن اسم شرکت
   const existingCompany = await companyRepository.findCompanyByName(name);
   if (existingCompany) {
-    const err = new Error("این اسم شرکت قبلاً ثبت شده است");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("این اسم شرکت قبلاً ثبت شده است");
   }
   //بررسی وجود داشتن کاربر بررسی یوزرنیم
   const existingUser = await userRepo.findUserByUsername(username);
   if (existingUser) {
-    const err = new Error("این یوزرنیم قبلاً ثبت شده است");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("این یوزرنیم قبلاً ثبت شده است");
   }
 
   // هش کردن پسورد

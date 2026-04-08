@@ -6,22 +6,21 @@ const {
   updateStepFlow,
   getStepFlowById,
   deleteStepFlow,
+  getStepFlowByIdWidthDetail,
   getAllStepFlows,
+  createStepSession,
+  getStepSessionById,
+  updateStepSession,
 } = require("../repositories/stepFlowRepository");
+const { createBadRequestError } = require("../utils");
+const OpenAI = require("openai");
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: "https://openrouter.ai/api/v1",
+});
 
 const createStepFlowService = async (input) => {
-  if (!input.title || input.title.trim() === "") {
-    const err = new Error("عنوان مسیر مرحله‌ای الزامی است");
-    err.statusCode = 400;
-    throw err;
-  }
-
-  if (!input.steps || input.steps.length === 0) {
-    const err = new Error("حداقل یک مرحله باید تعریف شود");
-    err.statusCode = 400;
-    throw err;
-  }
-
   // چک order تکراری
   const orders = input.steps.map((s) => s.order);
   const uniqueOrders = new Set(orders);
@@ -55,22 +54,12 @@ const createStepFlowService = async (input) => {
 
 const updateStepFlowService = async (id, input) => {
   if (!id) {
-    const err = new Error("شناسه مسیر مرحله‌ای الزامی است");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("شناسه مسیر مرحله‌ای الزامی است");
   }
 
   const existingStepFlow = await getStepFlowById(id);
   if (!existingStepFlow) {
-    const err = new Error("مسیر مرحله‌ای با شناسه داده شده یافت نشد");
-    err.statusCode = 404;
-    throw err;
-  }
-
-  if (input.title && input.title.trim() === "") {
-    const err = new Error("عنوان مسیر مرحله‌ای الزامی است");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("مسیر مرحله‌ای با شناسه داده شده یافت نشد", 404);
   }
 
   if (input.steps && input.steps.length > 0) {
@@ -108,16 +97,12 @@ const updateStepFlowService = async (id, input) => {
 
 const deleteStepFlowService = async (id) => {
   if (!id) {
-    const err = new Error("شناسه مسیر مرحله‌ای الزامی است");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("شناسه مسیر مرحله‌ای الزامی است");
   }
 
   const existingStepFlow = await getStepFlowById(id);
   if (!existingStepFlow) {
-    const err = new Error("مسیر مرحله‌ای با شناسه داده شده یافت نشد");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("شناسه مسیر مرحله‌ای الزامی است", 404);
   }
   return await deleteStepFlow(id);
 };
@@ -135,9 +120,296 @@ const getAllStepFlowsService = async (query) => {
   return await getAllStepFlows({ page, limit, search });
 };
 
+// دریافت لیست مسیرهای مرحله‌ای فعال
+const getActiveFlowsService = async () => {
+  const flows = await getActiveStepFlows();
+
+  return flows.map((flow) => ({
+    id: flow.id,
+    title: flow.title,
+    stepsCount: flow.steps.length,
+    steps: flow.steps.map((s) => ({
+      order: s.order,
+      formTitle: s.form.title,
+      required: s.required,
+    })),
+  }));
+};
+
+//  شروع جلسه مرحله‌ای
+const startStepSessionService = async (currentUser, flowId) => {
+  // بررسی وجود flow
+  const flow = await getStepFlowByIdWidthDetail(flowId);
+  if (!flow) {
+    createBadRequestError("مسیر مرحله‌ای یافت نشد", 404);
+  }
+
+  // بررسی تعداد مراحل
+  if (!flow.steps || flow.steps.length === 0) {
+    createBadRequestError("این مسیر هیچ مرحله‌ای ندارد", 400);
+  }
+
+  // ایجاد جلسه
+  const session = await createStepSession({
+    userId: currentUser.id,
+    flowId: flow.id,
+  });
+
+  const allForms = flow.steps.map((step, index) => ({
+    stepNumber: index + 1,
+    formId: step.form.id,
+    formTitle: step.form.title,
+    formInfo: step.form.info,
+    promptTemplate: step.form.promptTemplate,
+    questions: step.form.questions,
+  }));
+
+  return {
+    sessionId: session.id,
+    currentStep: 1,
+    totalSteps: flow.steps.length,
+    forms: allForms,
+    completedSteps: [],
+    isCompleted: false,
+  };
+};
+
+//  تحلیل هر مرحله (مرحله‌ای)
+const analyzeStepService = async (currentUser, sessionId, answers) => {
+  // دریافت جلسه
+  const session = await getStepSessionById(sessionId);
+  if (!session) {
+    createBadRequestError("جلسه یافت نشد", 404);
+  }
+
+  if (session.userId !== currentUser.id) {
+    createBadRequestError("دسترسی غیرمجاز", 403);
+  }
+
+  // یافتن مرحله فعلی
+  const currentStepIndex = session.currentStep - 1;
+  const currentStep = session.flow.steps[currentStepIndex];
+
+  if (!currentStep) {
+    createBadRequestError("مرحله یافت نشد", 400);
+  }
+
+  // دریافت پروفایل شرکت
+  const company = await prisma.company.findUnique({
+    where: { id: currentUser.companyId },
+    select: {
+      profile: true,
+      adminData: { select: { data: true } },
+    },
+  });
+
+  const companyProfile = company?.profile || {};
+  const companyAdminData = company?.adminData?.data || null;
+
+  // ساخت prompt
+  const questionsAndAnswers = currentStep.form.questions
+    .map((q) => {
+      const answerRaw = answers[q.id];
+      const answer = Array.isArray(answerRaw)
+        ? answerRaw.join(" | ")
+        : (answerRaw ?? "No Answer");
+      return `Q: ${q.label}\nA: ${answer}`;
+    })
+    .join("\n\n");
+
+  const promptText = `
+Form: ${currentStep.form.title}
+Prompt Template: ${currentStep.form.promptTemplate}
+  
+Questions and Answers:
+${questionsAndAnswers}
+  
+Company Profile:
+${JSON.stringify(companyProfile, null, 2)}
+  
+Company Admin Data:
+${companyAdminData ? JSON.stringify(companyAdminData, null, 2) : "Not Provided"}
+  
+Analyze this step strategically.
+`;
+
+  // ارسال به AI
+  const completion = await openai.chat.completions.create({
+    model: "openrouter/free",
+    messages: [{ role: "user", content: promptText }],
+    max_tokens: 1000,
+  });
+
+  const stepAnalysis = completion.choices[0].message.content;
+
+  // ذخیره در session data
+  const sessionData = session.data || { completedSteps: [], stepAnalyses: {} };
+  sessionData.completedSteps.push({
+    step: session.currentStep,
+    formId: currentStep.form.id,
+    formTitle: currentStep.form.title,
+    answers,
+    analysis: stepAnalysis,
+  });
+  sessionData.stepAnalyses[session.currentStep] = stepAnalysis;
+
+  // آپدیت جلسه
+  const nextStep = session.currentStep + 1;
+  const isCompleted = nextStep > session.flow.steps.length;
+
+  await updateStepSession(sessionId, {
+    currentStep: isCompleted ? session.currentStep : nextStep,
+    data: sessionData,
+    status: isCompleted ? "COMPLETED" : "ACTIVE",
+  });
+
+  // اگر آخرین مرحله نیست، فقط stepNumber رو برگردون
+  if (!isCompleted) {
+    return {
+      sessionId: session.id,
+      currentStep: nextStep,
+      totalSteps: session.flow.steps.length,
+      stepAnalysis,
+      nextStepNumber: nextStep, // فقط شماره مرحله بعد
+      completedSteps: sessionData.completedSteps.length,
+      isCompleted: false,
+    };
+  }
+
+  // اگر آخرین مرحله است
+  return {
+    sessionId: session.id,
+    currentStep: session.flow.steps.length,
+    totalSteps: session.flow.steps.length,
+    stepAnalysis,
+    isCompleted: true,
+    allStepsData: sessionData.completedSteps,
+  };
+};
+
+//  تحلیل نهایی (وقتی همه مراحل پر شدند)
+const generateFinalAnalysisService = async (currentUser, sessionId) => {
+  const session = await getStepSessionById(sessionId);
+  if (!session) {
+    createBadRequestError("جلسه یافت نشد", 404);
+  }
+
+  if (session.userId !== currentUser.id) {
+    createBadRequestError("دسترسی غیرمجاز", 403);
+  }
+
+  if (session.status !== "COMPLETED") {
+    createBadRequestError("همه مراحل تکمیل نشده‌اند", 400);
+  }
+
+  // دریافت پروفایل شرکت و adminData
+  const company = await prisma.company.findUnique({
+    where: { id: currentUser.companyId },
+    select: {
+      profile: true,
+      adminData: { select: { data: true } },
+    },
+  });
+
+  const companyProfile = company?.profile || {};
+  const companyAdminData = company?.adminData?.data || null;
+
+  // ساخت prompt نهایی با همه مراحل
+  const allStepsText = session.data.completedSteps
+    .map((step) => {
+      const qa = Object.entries(step.answers || {})
+        .map(([q, a]) => `Q: ${q}\nA: ${Array.isArray(a) ? a.join(" | ") : a}`)
+        .join("\n");
+      return `
+=== مرحله ${step.step}: ${step.formTitle} ===
+${qa}
+
+تحلیل این مرحله:
+${step.analysis}
+`;
+    })
+    .join("\n\n");
+
+  const finalPrompt = `
+شما یک مشاور استراتژیک کسب‌وکار هستید. تحلیل کامل و جامعی از تمام مراحل زیر ارائه دهید.
+
+${allStepsText}
+
+پروفایل شرکت:
+${JSON.stringify(companyProfile, null, 2)}
+
+اطلاعات مدیریت:
+${companyAdminData ? JSON.stringify(companyAdminData, null, 2) : "Not Provided"}
+
+لطفا تحلیل نهایی جامعی ارائه دهید که شامل:
+1. خلاصه وضعیت کلی
+2. نقاط قوت و ضعف
+3. ریسک‌ها و فرصت‌ها
+4. راهکارهای پیشنهادی
+5. توصیه‌های کوتاه‌مدت و بلندمدت
+`;
+
+  const completion = await openai.chat.completions.create({
+    model: "openrouter/free",
+    messages: [{ role: "user", content: finalPrompt }],
+    max_tokens: 2000,
+  });
+
+  const finalAnalysis = completion.choices[0].message.content;
+
+  return {
+    sessionId: session.id,
+    finalAnalysis,
+    allStepsData: session.data.completedSteps,
+    canCreateProject: true,
+  };
+};
+
 module.exports = {
   createStepFlowService,
   updateStepFlowService,
   deleteStepFlowService,
   getAllStepFlowsService,
+  getActiveFlowsService,
+  startStepSessionService,
+  analyzeStepService,
+  generateFinalAnalysisService,
 };
+
+//دادن فرم های به صورت تک زمان شروع شدن پرکردن فرم های مرحله ای اگر تعداد فرم ها زیاد بود ازش استفاده کن و روند رو کلا عوض کن
+// const startStepSessionService = async (currentUser, flowId) => {
+//   // بررسی وجود flow
+//   const flow = await getStepFlowByIdWidthDetail(flowId);
+//   if (!flow) {
+//     createBadRequestError("مسیر مرحله‌ای یافت نشد", 404);
+//   }
+
+//   // بررسی تعداد مراحل
+//   if (!flow.steps || flow.steps.length === 0) {
+//     createBadRequestError("این مسیر هیچ مرحله‌ای ندارد", 400);
+//   }
+
+//   // ایجاد جلسه
+//   const session = await createStepSession({
+//     userId: currentUser.id,
+//     flowId: flow.id,
+//   });
+
+// اولین فرم
+// const firstStep = flow.steps[0];
+
+// return {
+//   sessionId: session.id,
+//   currentStep: 1,
+//   totalSteps: flow.steps.length,
+//   currentForm: {
+//     formId: firstStep.form.id,
+//     formTitle: firstStep.form.title,
+//     formInfo: firstStep.form.info,
+//     promptTemplate: firstStep.form.promptTemplate,
+//     questions: firstStep.form.questions,
+//   },
+//   completedSteps: [],
+//   isCompleted: false,
+// };
+// };

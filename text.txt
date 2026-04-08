@@ -61,3 +61,8 @@ POST /step-sessions/:id/submit
 POST /step-sessions/:id/cancel
 اتمام کامل مسیر
 POST /step-sessions/:id/complete
+
+
+
+
+npm install adminjs@6.11.1

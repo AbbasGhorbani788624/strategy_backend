@@ -1,4 +1,5 @@
 const OpenAI = require("openai");
+const { createBadRequestError } = require("../utils");
 const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
   baseURL: "https://openrouter.ai/api/v1",
@@ -22,11 +23,8 @@ ${analysisText}
 };
 
 const sendMessageToChatService = async (messages) => {
-  // حداکثر تعداد پیام کل: 31
   if (messages.length > 31) {
-    const err = new Error("حداکثر 30 پیام مجاز است");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("حداکثر 30 پیام مجاز است");
   }
 
   const completion = await openai.chat.completions.create({

@@ -1,5 +1,6 @@
 const userRepo = require("../repositories/userRepository");
 const prisma = require("../prismaClient");
+const { createBadRequestError } = require("../utils");
 
 // ایجاد کاربر برای شرکت توسط ادمین شرکت
 const createCompanyUserService = async (creatorId, username, password) => {
@@ -10,17 +11,13 @@ const createCompanyUserService = async (creatorId, username, password) => {
   });
 
   if (!creator || creator.role !== "COMPANY") {
-    const err = new Error("دسترسی غیرمجاز");
-    err.statusCode = 401;
-    throw err;
+    createBadRequestError("دسترسی غیرمجاز", 401);
   }
 
   const companyId = creator.companyId;
 
   if (!companyId) {
-    const err = new Error("کاربر مربوط به هیچ شرکتی نیست");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("کاربر مربوط به هیچ شرکتی نیست", 404);
   }
 
   // پیدا کردن محدودیت شرکت
@@ -30,9 +27,7 @@ const createCompanyUserService = async (creatorId, username, password) => {
   });
 
   if (!company) {
-    const err = new Error("شرکت پیدا نشد");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("شرکت پیدا نشد", 404);
   }
 
   // تعداد کاربران موجود
@@ -48,9 +43,7 @@ const createCompanyUserService = async (creatorId, username, password) => {
 
   const existingUser = await userRepo.findUserByUsername(username);
   if (existingUser) {
-    const err = new Error("این یوزرنیم قبلاً ثبت شده است");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("این یوزرنیم قبلاً ثبت شده است");
   }
 
   // ایجاد کاربر

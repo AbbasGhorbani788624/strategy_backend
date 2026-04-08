@@ -1,4 +1,5 @@
 const userRepo = require("../repositories/userRepository");
+const { createBadRequestError } = require("../utils");
 
 // اپدیت پروفایل با دسترسی بر اساس نقش
 const props = ["companyId", "profile", "username"];
@@ -6,27 +7,25 @@ const props = ["companyId", "profile", "username"];
 const updateProfileService = async (currentUser, targetUserId, profileData) => {
   const user = await userRepo.findById(targetUserId, props);
   if (!user) {
-    const err = new Error("کاربر پیدا نشد");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("کاربر پیدا نشد", 404);
   }
 
   // چک دسترسی
   if (currentUser.role === "MEMBER" && targetUserId !== currentUser.id) {
-    const err = new Error("شما فقط می‌توانید پروفایل خودتان را ویرایش کنید");
-    err.statusCode = 403;
-    throw err;
+    createBadRequestError(
+      "شما فقط می‌توانید پروفایل خودتان را ویرایش کنید",
+      403,
+    );
   }
 
   if (
     currentUser.role === "COMPANY" &&
     user.companyId !== currentUser.companyId
   ) {
-    const err = new Error(
+    createBadRequestError(
       "شما فقط می‌توانید پروفایل اعضای شرکت خود را ویرایش کنید",
+      403,
     );
-    err.statusCode = 403;
-    throw err;
   }
 
   // محاسبه profileCompleted

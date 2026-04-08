@@ -9,37 +9,22 @@ const {
   getStepFlows,
 } = require("../repositories/analysisFormRepository");
 const { findById } = require("../repositories/userRepository");
+const { createBadRequestError } = require("../utils");
 
 //ساخت فرم تحلیل
 const createForm = async (data) => {
-  if (!data.title) {
-    const err = new Error("تیتر الزامی است");
-    err.statusCode = 400;
-    throw err;
-  }
-
-  if (!Array.isArray(data.questions) || data.questions.length === 0) {
-    const err = new Error("حداقل یک  سوال الزامی است");
-    err.statusCode = 400;
-    throw err;
-  }
-
   return createWithQuestions(data);
 };
 
 //ویرایش قرم تحلیل
 const updateForm = async (id, data) => {
   if (!id) {
-    const err = new Error("آیدی فرم ارسال نشده");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("آیدی فرم ارسال نشده");
   }
   const existing = await getFormById(id);
 
   if (!existing) {
-    const err = new Error("فرم پیدا نشد");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("فرم پیدا نشد", 404);
   }
 
   return updateFormWithQuestions(id, data);
@@ -48,16 +33,12 @@ const updateForm = async (id, data) => {
 // حذف فرم تحلیل
 const deleteForm = async (id) => {
   if (!id) {
-    const err = new Error("آیدی فرم ارسال نشده");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("آیدی فرم ارسال نشده");
   }
 
   const existing = await getFormById(id);
   if (!existing) {
-    const err = new Error("فرم پیدا نشد");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("فرم پیدا نشد", 404);
   }
 
   return deleteFormRepo(id);
@@ -77,17 +58,13 @@ const getAllAnalysisFormsService = async (query) => {
 
 const getAnalysisFormByIdService = async (id) => {
   if (!id) {
-    const err = new Error("شناسه فرم الزامی است");
-    err.statusCode = 400;
-    throw err;
+    createBadRequestError("شناسه فرم الزامی است");
   }
 
   const form = await getAnalysisFormById(id);
 
   if (!form) {
-    const err = new Error("فرم مورد نظر یافت نشد");
-    err.statusCode = 404;
-    throw err;
+    createBadRequestError("فرم مورد نظر یافت نشد", 404);
   }
 
   return form;
