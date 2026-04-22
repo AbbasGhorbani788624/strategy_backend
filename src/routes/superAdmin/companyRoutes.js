@@ -20,4 +20,8 @@ router.post(
   createCompanyWithAdmin,
 );
 
+// ویرایش اکانت شرکت
+
+// حذف شخصی از افراد شرکت
+
 module.exports = router;

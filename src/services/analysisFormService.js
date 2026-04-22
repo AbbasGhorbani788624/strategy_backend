@@ -71,8 +71,9 @@ const getAnalysisFormByIdService = async (id) => {
 };
 
 const props = ["profileCompleted"];
-const getAnalysisModesService = async (query, currentUser) => {
-  const singleForms = await getSingleForms(query);
+
+const getAnalysisModesService = async (currentUser) => {
+  const singleForms = await getSingleForms();
   const stepFlows = await getStepFlows();
   const user = await findById(currentUser?.id, props);
 

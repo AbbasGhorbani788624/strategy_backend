@@ -1,11 +1,11 @@
-const userRepo = require("../repositories/userRepository");
+const { findById, update } = require("../repositories/userRepository");
 const { createBadRequestError } = require("../utils");
 
 // اپدیت پروفایل با دسترسی بر اساس نقش
 const props = ["companyId", "profile", "username"];
 
 const updateProfileService = async (currentUser, targetUserId, profileData) => {
-  const user = await userRepo.findById(targetUserId, props);
+  const user = await findById(targetUserId, props);
   if (!user) {
     createBadRequestError("کاربر پیدا نشد", 404);
   }
@@ -62,7 +62,7 @@ const updateProfileService = async (currentUser, targetUserId, profileData) => {
     updateData.password = hashed;
   }
 
-  return await userRepo.update(targetUserId, updateData);
+  return await update(targetUserId, updateData);
 };
 
 module.exports = { updateProfileService };

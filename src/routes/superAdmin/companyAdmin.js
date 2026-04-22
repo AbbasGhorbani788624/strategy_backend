@@ -7,6 +7,7 @@ const {
   companyAdminSchema,
 } = require("../../validations/companyAdminValidation");
 
+//ساخت اطلاعاتی که مدیر اصلی برای  هر اکانت شرکت وارد میکند تا  برای تحلیل ها فرستاده شود
 router.post(
   "/companies/:companyId/admin-data",
   auth,

@@ -155,36 +155,18 @@ const getAnalysisFormById = async (id) => {
   return form;
 };
 
-const getSingleForms = async ({ page = 1, limit = 10, search = "" }) => {
-  const skip = (page - 1) * limit;
-
-  const where = search ? { title: { contains: search } } : {};
-
-  const [forms, total] = await Promise.all([
-    prisma.analysisForm.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        title: true,
-        order: true,
-        isActive: true,
-      },
-    }),
-    prisma.analysisForm.count({ where }),
-  ]);
-
-  return {
-    data: forms,
-    meta: {
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+const getSingleForms = async () => {
+  const forms = await prisma.analysisForm.findMany({
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      title: true,
+      order: true,
+      isActive: true,
     },
-  };
+  });
+
+  return forms;
 };
 
 // روش‌های مرحله‌ای با فرم‌های هر step

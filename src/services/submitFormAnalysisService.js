@@ -1,7 +1,7 @@
 const OpenAI = require("openai");
 const { getFormById } = require("../repositories/analysisFormRepository");
 const prisma = require("../prismaClient");
-const {} = require("../utils");
+const { createBadRequestError } = require("../utils");
 
 const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,

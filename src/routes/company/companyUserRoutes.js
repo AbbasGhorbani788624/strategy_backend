@@ -18,4 +18,6 @@ router.post(
   createCompanyUser,
 );
 
+// ویرایش فرد توسط ادمین شرکت
+// حذف فرد توسط ادمین شرکت
 module.exports = router;

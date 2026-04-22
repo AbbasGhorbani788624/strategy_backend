@@ -10,6 +10,8 @@ const {
 } = require("../../controllers/stepFlowController");
 const { stepFlowSchema } = require("../../validations/stepFlowVaidation");
 
+//لیست همه روش‌های مرحله‌ای
+
 router.get("/", auth, roleGuard(["SUPER_ADMIN"]), getAllStepFlows);
 
 //ساخت ترتیب مراحل فرم های مرحله ای

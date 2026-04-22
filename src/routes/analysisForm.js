@@ -23,17 +23,16 @@ const { roleGuard } = require("../middleware/roleGuard");
 
 const router = express.Router();
 
-//پرکردن فرم
+//پرکردن فرم تکی
 router.post("/", auth, validateFormSubmission, submitFormAnalysis);
 
 //گرفتن فرم
 router.get("/:formId", auth, getFormForUser);
 
-//فرستادن  نوع فرم ها
+//فرستادن  نوع فرم ها لیست فرم های تکی و مرحله ای
 router.get("/modes", auth, getAnalysisModes);
 
 // دریافت لیست مسیرهای مرحله‌ای فعال
-
 router.get("/flows", auth, getActiveFlows);
 
 // شروع جلسه مرحله‌ای

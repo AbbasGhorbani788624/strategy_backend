@@ -12,6 +12,7 @@ const {
 } = require("../validations/projectFromStepSchema");
 const { createProjectFromStep } = require("../controllers/projectController");
 
+//ذخیره پروژه از فرم تکی
 router.post(
   "/",
   auth,
@@ -20,6 +21,7 @@ router.post(
   saveProject,
 );
 
+//ذخیره پروژه از فرم مرحله ای
 router.post(
   "/flow/create-project",
   auth,

@@ -60,7 +60,7 @@ exports.getAnalysisFormById = async (req, res, next) => {
 
 exports.getAnalysisModes = async (req, res, next) => {
   try {
-    const result = await getAnalysisModesService(req.query, req.user);
+    const result = await getAnalysisModesService(req.user);
     return successResponse(res, 200, result);
   } catch (err) {
     console.error(err);

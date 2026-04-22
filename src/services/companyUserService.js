@@ -1,4 +1,8 @@
-const userRepo = require("../repositories/userRepository");
+const {
+  countUsersByCompany,
+  findUserByUsername,
+  createUser,
+} = require("../repositories/userRepository");
 const prisma = require("../prismaClient");
 const { createBadRequestError } = require("../utils");
 
@@ -31,7 +35,7 @@ const createCompanyUserService = async (creatorId, username, password) => {
   }
 
   // تعداد کاربران موجود
-  const currentUsersCount = await userRepo.countUsersByCompany(companyId);
+  const currentUsersCount = await countUsersByCompany(companyId);
 
   if (currentUsersCount >= company.userLimit) {
     const err = new Error(
@@ -41,13 +45,13 @@ const createCompanyUserService = async (creatorId, username, password) => {
     throw err;
   }
 
-  const existingUser = await userRepo.findUserByUsername(username);
+  const existingUser = await findUserByUsername(username);
   if (existingUser) {
     createBadRequestError("این یوزرنیم قبلاً ثبت شده است");
   }
 
   // ایجاد کاربر
-  const newUser = await userRepo.createUser({
+  const newUser = await createUser({
     username,
     password,
     role: "MEMBER",

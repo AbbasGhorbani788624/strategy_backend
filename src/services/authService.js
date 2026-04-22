@@ -5,11 +5,19 @@ const {
   comparePassword,
 } = require("../utils/auth");
 
-const userRepo = require("../repositories/userRepository");
+const {
+  findUserByUsername,
+  revokeAllRefreshTokensByUserId,
+  createRefreshToken,
+  findById,
+  findRefreshToken,
+  revokeRefreshToken,
+  revokeRefreshTokenByHash,
+} = require("../repositories/userRepository");
 const { createBadRequestError } = require("../utils");
 
 const loginService = async (username, password) => {
-  const user = await userRepo.findUserByUsername(username);
+  const user = await findUserByUsername(username);
   if (!user) {
     createBadRequestError("کاربر پیدا نشد", 404);
   }
@@ -23,11 +31,11 @@ const loginService = async (username, password) => {
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
 
-  // 🔹 revoke توکن‌های قبلی
-  await userRepo.revokeAllRefreshTokensByUserId(user.id);
+  //  revoke توکن‌های قبلی
+  await revokeAllRefreshTokensByUserId(user.id);
 
   // ذخیره refresh جدید
-  await userRepo.createRefreshToken(user.id, refreshToken);
+  await createRefreshToken(user.id, refreshToken);
 
   const safeUser = { ...user };
   delete safeUser.password;
@@ -36,7 +44,7 @@ const loginService = async (username, password) => {
 };
 
 const getMeService = async (userId) => {
-  const user = await userRepo.findById(userId);
+  const user = await findById(userId);
   if (!user) {
     createBadRequestError("کاربر پیدا نشد", 404);
   }
@@ -55,7 +63,7 @@ const refreshService = async (refreshToken) => {
     createBadRequestError("refresh token نامعتبر است", 401);
   }
 
-  const storedToken = await userRepo.findRefreshToken(refreshToken);
+  const storedToken = await findRefreshToken(refreshToken);
 
   if (!storedToken || storedToken.revoked) {
     createBadRequestError("refresh token معتبر نیست", 401);
@@ -66,20 +74,20 @@ const refreshService = async (refreshToken) => {
   }
 
   // Rotation: توکن قدیمی را revoke کن
-  await userRepo.revokeRefreshTokenByHash(storedToken.tokenHash);
+  await revokeRefreshTokenByHash(storedToken.tokenHash);
 
   const payload = { userId: decoded.userId, role: decoded.role };
   const newAccessToken = signAccessToken(payload);
   const newRefreshToken = signRefreshToken(payload);
 
-  await userRepo.createRefreshToken(decoded.userId, newRefreshToken);
+  await createRefreshToken(decoded.userId, newRefreshToken);
 
   return { accessToken: newAccessToken, refreshToken: newRefreshToken };
 };
 
 const logoutService = async (refreshToken) => {
   if (!refreshToken) return;
-  await userRepo.revokeRefreshToken(refreshToken);
+  await revokeRefreshToken(refreshToken);
 };
 
 module.exports = {
