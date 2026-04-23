@@ -1,13 +1,16 @@
-const profileService = require("../services/profileService");
-const { errorResponse, successResponse } = require("../utils/responses");
+const { updateProfileService } = require("../services/profileService");
+const { successResponse } = require("../utils/responses");
 
 exports.updateProfile = async (req, res, next) => {
   try {
     const currentUser = req.user; // کاربر لاگین شده
-    const targetUserId = req.body.userId || currentUser.id; // اگر SUPER_ADMIN بخواد کاربر دیگه رو آپدیت کنه
+    const targetUserId = req.body.userId || currentUser.id;
     const profileData = req.body;
 
-    const updatedUser = await profileService.updateProfileService(
+    if (req.file) {
+      profileData.avatar = req.file.filename;
+    }
+    const updatedUser = await updateProfileService(
       currentUser,
       targetUserId,
       profileData,

@@ -16,7 +16,7 @@ router.get("/", auth, roleGuard(["SUPER_ADMIN"]), getAllStepFlows);
 
 //ساخت ترتیب مراحل فرم های مرحله ای
 router.post(
-  "/create",
+  "/",
   auth,
   roleGuard(["SUPER_ADMIN"]),
   stepFlowSchema,
@@ -25,7 +25,7 @@ router.post(
 
 //ویرایش
 router.put(
-  "/edit/:id",
+  "/:id",
   auth,
   roleGuard(["SUPER_ADMIN"]),
   stepFlowSchema,
@@ -33,6 +33,6 @@ router.put(
 );
 
 //جذف
-router.delete("/delete/:id", auth, roleGuard(["SUPER_ADMIN"]), deleteStepFlow);
+router.delete("/:id", auth, roleGuard(["SUPER_ADMIN"]), deleteStepFlow);
 
 module.exports = router;

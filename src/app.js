@@ -35,8 +35,8 @@ app.use(express.static(path.resolve(__dirname, "..", "public", "images")));
 
 app.use("/profile", express.static(path.join(__dirname, "..", "uploads")));
 
-app.use("/api/company", companyRoutes);
 app.use("/api/auth", authRouter);
+app.use("/api/company", companyRoutes);
 app.use("/api/analysis", analysisRouter);
 app.use("/api/companyuser", companyUserRouter);
 app.use("/api/profile", profileRouter);

@@ -13,6 +13,7 @@ const {
   findRefreshToken,
   revokeRefreshToken,
   revokeRefreshTokenByHash,
+  changePassword,
 } = require("../repositories/userRepository");
 const { createBadRequestError } = require("../utils");
 
@@ -49,6 +50,11 @@ const getMeService = async (userId) => {
     createBadRequestError("کاربر پیدا نشد", 404);
   }
   return user;
+};
+
+const changePasseordService = async (userId, oldPassword, newPassword) => {
+  await revokeAllRefreshTokensByUserId(userId);
+  await changePassword(userId, oldPassword, newPassword);
 };
 
 const refreshService = async (refreshToken) => {
@@ -95,4 +101,5 @@ module.exports = {
   getMeService,
   refreshService,
   logoutService,
+  changePasseordService,
 };

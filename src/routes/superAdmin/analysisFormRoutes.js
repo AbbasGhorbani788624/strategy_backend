@@ -22,7 +22,7 @@ router.get("/:id", auth, roleGuard(["SUPER_ADMIN"]), getAnalysisFormById);
 
 //ساخت فرم تحلیل
 router.post(
-  "/create",
+  "/",
   auth,
   roleGuard(["SUPER_ADMIN"]),
   analysisFormSchema,

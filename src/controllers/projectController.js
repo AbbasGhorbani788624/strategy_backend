@@ -2,7 +2,7 @@ const {
   saveProjectService,
   createProjectFromStepService,
 } = require("../services/projectService");
-const { successResponse, errorResponse } = require("../utils");
+const { successResponse } = require("../utils/responses");
 
 exports.saveProject = async (req, res, next) => {
   try {

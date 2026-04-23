@@ -2,12 +2,12 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 
-const profilePictureUploader = () => {
+const multerStorage = () => {
   const BASE_DIR = path.resolve(__dirname, "..", "..", "uploads", "profiles");
 
   const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-      const userDir = path.join(BASE_DIR, `usersprofile`);
+      const userDir = path.join(BASE_DIR);
 
       fs.mkdirSync(userDir, { recursive: true });
       cb(null, userDir);
@@ -32,4 +32,4 @@ const profilePictureUploader = () => {
   });
 };
 
-module.exports = { profilePictureUploader };
+module.exports = { multerStorage };

@@ -15,7 +15,7 @@ const schema = yup.object().shape({
         formId: yup
           .string()
           .required("شناسه فرم الزامی است")
-          .matches(/^[0-9a-fA-F-]{36}$/, "شناسه فرم معتبر نیست"),
+          .uuid("formId باید یک UUID معتبر باشد"),
         order: yup
           .number()
           .required("ترتیب مرحله الزامی است")

@@ -103,9 +103,9 @@ const deleteStepFlowService = async (id) => {
 
   const existingStepFlow = await getStepFlowById(id);
   if (!existingStepFlow) {
-    createBadRequestError("شناسه مسیر مرحله‌ای الزامی است", 404);
+    createBadRequestError("فرم مرحله ای با این ایدی وجود ندارد", 404);
   }
-  return await deleteStepFlow(id);
+  await deleteStepFlow(id);
 };
 
 //گرفتن لیست فرم های مرحله ای

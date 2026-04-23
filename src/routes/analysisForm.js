@@ -26,15 +26,13 @@ const router = express.Router();
 //پرکردن فرم تکی
 router.post("/", auth, validateFormSubmission, submitFormAnalysis);
 
-//گرفتن فرم
-router.get("/:formId", auth, getFormForUser);
-
 //فرستادن  نوع فرم ها لیست فرم های تکی و مرحله ای
 router.get("/modes", auth, getAnalysisModes);
 
-// دریافت لیست مسیرهای مرحله‌ای فعال
-router.get("/flows", auth, getActiveFlows);
+//گرفتن فرم تکی
+router.get("/:formId", auth, getFormForUser);
 
+//این قسمت و قسمتیکه مال چت هست هم چنین قسمت پرکردن فرم تکی زمانی که یک  ai پبدا کردی تست کن
 // شروع جلسه مرحله‌ای
 router.post(
   "/flow/start",
@@ -63,24 +61,5 @@ router.get(
 
 module.exports = router;
 
-// router.post("/chat", async (req, res) => {
-//   const { conversation } = req.body;
-
-//   if (!conversation || !Array.isArray(conversation)) {
-//     return res.status(400).json({ error: "conversation array is required" });
-//   }
-
-//   try {
-//     const completion = await openai.chat.completions.create({
-//       model: "openrouter/free",
-//       messages: conversation,
-//       max_tokens: 500,
-//     });
-
-//     const aiReply = completion.choices[0].message?.content;
-//     res.json({ reply: aiReply });
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ error: "AI error" });
-//   }
-// });
+// دریافت لیست مسیرهای مرحله‌ای فعال
+// router.get("/flows", auth, getActiveFlows);

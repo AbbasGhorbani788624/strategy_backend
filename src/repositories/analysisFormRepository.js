@@ -118,13 +118,14 @@ const getAllAnalysisForms = async ({ page = 1, limit = 10, search = "" }) => {
         title: true,
         order: true,
         isActive: true,
+        info: true,
       },
     }),
     prisma.analysisForm.count({ where }),
   ]);
 
   return {
-    data: forms,
+    forms,
     meta: {
       total,
       page,
@@ -177,19 +178,19 @@ const getStepFlows = async () => {
       id: true,
       title: true,
       isActive: true,
-      steps: {
-        orderBy: { order: "asc" },
-        select: {
-          form: {
-            select: {
-              id: true,
-              title: true,
-              order: true,
-              isActive: true,
-            },
-          },
-        },
-      },
+      // steps: {
+      //   orderBy: { order: "asc" },
+      //   select: {
+      //     form: {
+      //       select: {
+      //         id: true,
+      //         title: true,
+      //         order: true,
+      //         isActive: true,
+      //       },
+      //     },
+      //   },
+      // },
     },
   });
 
@@ -198,12 +199,12 @@ const getStepFlows = async () => {
     id: flow.id,
     title: flow.title,
     isActive: flow.isActive,
-    steps: flow.steps.map((s) => ({
-      id: s.form.id,
-      title: s.form.title,
-      order: s.form.order,
-      isActive: s.form.isActive,
-    })),
+    // steps: flow.steps.map((s) => ({
+    //   id: s.form.id,
+    //   title: s.form.title,
+    //   order: s.form.order,
+    //   isActive: s.form.isActive,
+    // })),
   }));
 
   return formattedStepFlows;

@@ -6,6 +6,7 @@ const auth = require("../../middleware/auth");
 const { roleGuard } = require("../../middleware/roleGuard");
 const {
   createCompanyWithAdmin,
+  updateCompanyWithAdmin,
 } = require("../../controllers/companyController");
 const {
   createCompanySchema,
@@ -13,7 +14,7 @@ const {
 
 //ساخت اکانت شرکت
 router.post(
-  "/create",
+  "/",
   auth,
   roleGuard(["SUPER_ADMIN"]),
   createCompanySchema,
@@ -22,6 +23,13 @@ router.post(
 
 // ویرایش اکانت شرکت
 
-// حذف شخصی از افراد شرکت
+//  اگر به تعداد کاربران  قرار داده شده اکانت ساخته شده بود  و میخواستیم تعداد رو عوض کنیم باید ارور بده  که  کاربرانی بیشتر از حد  تعیین شده وجود دارد
+router.put(
+  "/:id",
+  auth,
+  roleGuard(["SUPER_ADMIN"]),
+  createCompanySchema,
+  updateCompanyWithAdmin,
+);
 
 module.exports = router;

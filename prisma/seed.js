@@ -12,9 +12,8 @@ async function main() {
     throw new Error("ADMIN_USERNAME or ADMIN_PASSWORD not set in .env");
   }
 
-  // بررسی اینکه ادمین وجود داره یا نه
   const existingAdmin = await prisma.user.findFirst({
-    where: { role: "SUPER_ADMIN" }, // حتماً string "ADMIN"
+    where: { role: "SUPER_ADMIN" },
   });
 
   if (!existingAdmin) {
@@ -23,7 +22,7 @@ async function main() {
       data: {
         username: adminUsername,
         password: hashed,
-        role: "SUPER_ADMIN", // string مطابق enum Prisma
+        role: "SUPER_ADMIN",
         profileCompleted: true,
       },
     });

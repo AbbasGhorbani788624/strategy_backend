@@ -29,7 +29,7 @@ const createProjectSchema = yup.object().shape({
     .array()
     .of(chatMessageSchema)
     .min(1, "حداقل یک پیام باید وجود داشته باشد")
-    .optional("پیام‌ها الزامی است"),
+    .optional(),
 });
 
 exports.createProjectValidation = async (req, res, next) => {

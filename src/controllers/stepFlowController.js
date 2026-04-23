@@ -45,11 +45,10 @@ exports.deleteStepFlow = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const stepFlow = await deleteStepFlowService(id);
+    await deleteStepFlowService(id);
 
     return successResponse(res, 200, {
       message: "مسیر مرحله‌ای با موفقیت حذف شد",
-      stepFlow,
     });
   } catch (err) {
     console.error(err);

@@ -9,10 +9,11 @@ const {
 
 //ساخت اطلاعاتی که مدیر اصلی برای  هر اکانت شرکت وارد میکند تا  برای تحلیل ها فرستاده شود
 router.post(
-  "/companies/:companyId/admin-data",
+  "/company/:companyId",
   auth,
   roleGuard(["SUPER_ADMIN"]),
   companyAdminSchema,
   upsertCompanyAdminData,
 );
+
 module.exports = router;

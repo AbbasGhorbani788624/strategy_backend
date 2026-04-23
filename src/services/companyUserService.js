@@ -2,9 +2,12 @@ const {
   countUsersByCompany,
   findUserByUsername,
   createUser,
+  findById,
+  deleteUser,
+  revokeAllRefreshTokensByUserId,
 } = require("../repositories/userRepository");
 const prisma = require("../prismaClient");
-const { createBadRequestError } = require("../utils");
+const { createBadRequestError, findUserAndDeleteImage } = require("../utils");
 
 // ایجاد کاربر برای شرکت توسط ادمین شرکت
 const createCompanyUserService = async (creatorId, username, password) => {
@@ -14,17 +17,13 @@ const createCompanyUserService = async (creatorId, username, password) => {
     select: { id: true, role: true, companyId: true },
   });
 
-  if (!creator || creator.role !== "COMPANY") {
-    createBadRequestError("دسترسی غیرمجاز", 401);
-  }
-
   const companyId = creator.companyId;
 
   if (!companyId) {
     createBadRequestError("کاربر مربوط به هیچ شرکتی نیست", 404);
   }
 
-  // پیدا کردن محدودیت شرکت
+  // پیدا کردن  شرکت
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     select: { userLimit: true },
@@ -63,4 +62,29 @@ const createCompanyUserService = async (creatorId, username, password) => {
   return { newUser: safeNewUser };
 };
 
-module.exports = { createCompanyUserService };
+const deleteCompanyUserService = async (userId, creator) => {
+  const user = await findById(userId);
+
+  if (!user) {
+    throw createBadRequestError("کاربر یافت نشد");
+  }
+
+  if (creator.role === "COMPANY") {
+    if (user.companyId !== creator.companyId) {
+      throw createBadRequestError(
+        "شما فقط می‌توانید اعضای شرکت خود را حذف کنید",
+        403,
+      );
+    }
+
+    if (user.role === "COMPANY" && user.id === creator.id) {
+      throw createBadRequestError("ادمین اصلی نمی‌تواند خودش را حذف کند");
+    }
+  }
+
+  await deleteUser(userId);
+  await revokeAllRefreshTokensByUserId(userId);
+  await findUserAndDeleteImage(userId);
+};
+
+module.exports = { createCompanyUserService, deleteCompanyUserService };

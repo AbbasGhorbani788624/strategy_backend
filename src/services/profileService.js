@@ -1,68 +1,51 @@
 const { findById, update } = require("../repositories/userRepository");
-const { createBadRequestError } = require("../utils");
-
-// اپدیت پروفایل با دسترسی بر اساس نقش
-const props = ["companyId", "profile", "username"];
+const { createBadRequestError, deleteImage } = require("../utils");
 
 const updateProfileService = async (currentUser, targetUserId, profileData) => {
-  const user = await findById(targetUserId, props);
+  const user = await findById(targetUserId);
+
   if (!user) {
     createBadRequestError("کاربر پیدا نشد", 404);
   }
 
-  // چک دسترسی
-  if (currentUser.role === "MEMBER" && targetUserId !== currentUser.id) {
-    createBadRequestError(
-      "شما فقط می‌توانید پروفایل خودتان را ویرایش کنید",
-      403,
-    );
+  const isSelf = currentUser.id === targetUserId;
+
+  if (currentUser.role === "MEMBER") {
+    if (!isSelf) {
+      throw createBadRequestError(
+        "شما فقط می‌توانید پروفایل خودتان را ویرایش کنید",
+        403,
+      );
+    }
+  } else if (currentUser.role === "COMPANY") {
+    if (!isSelf && user.companyId !== currentUser.companyId) {
+      throw createBadRequestError(
+        "شما فقط می‌توانید پروفایل اعضای شرکت خود را ویرایش کنید",
+        403,
+      );
+    }
   }
 
-  if (
-    currentUser.role === "COMPANY" &&
-    user.companyId !== currentUser.companyId
-  ) {
-    createBadRequestError(
-      "شما فقط می‌توانید پروفایل اعضای شرکت خود را ویرایش کنید",
-      403,
-    );
-  }
+  const { username, email, phoneNumber, avatar, fullName, profile } =
+    profileData;
 
-  // محاسبه profileCompleted
-  let profileCompleted = false;
-
-  if (user.role === "SUPER_ADMIN") {
-    user.profile = {
-      avatar: profileData.avatar,
-      fullName: profileData.full_name,
-      username: user.username,
-    };
-    profileCompleted = true;
-  } else {
-    user.profile = {
-      ...user.profile,
-      ...profileData,
-    };
-
-    // اطلاعات اصلی مورد نیاز پروفایل
-    const requiredFields = ["full_name", "email", "phone"];
-    profileCompleted = requiredFields.every((f) => user.profile[f]);
+  if (avatar && user.avatar) {
+    deleteImage(user.avatar);
   }
 
   const updateData = {
-    profile: user.profile,
-    profileCompleted,
+    username,
+    email,
+    phoneNumber,
+    avatar,
+    fullname: fullName,
+    profile,
+    profileCompleted: !!(username && email && phoneNumber && fullName),
   };
 
-  // آپدیت username و password اگر ارسال شده
-  if (profileData.username) updateData.username = profileData.username;
-  if (profileData.password) {
-    const salt = await bcrypt.genSalt(10);
-    const hashed = await bcrypt.hash(profileData.password, salt);
-    updateData.password = hashed;
-  }
+  const updatedUser = update(targetUserId, updateData);
 
-  return await update(targetUserId, updateData);
+  return updatedUser;
 };
 
 module.exports = { updateProfileService };

@@ -1,5 +1,6 @@
 const prisma = require("../prismaClient");
-const { hashToken, hashPassword } = require("../utils/auth");
+const { createBadRequestError } = require("../utils");
+const { hashToken, hashPassword, comparePassword } = require("../utils/auth");
 
 const findUserByUsername = async (username) => {
   return prisma.user.findUnique({ where: { username } });
@@ -11,6 +12,14 @@ const findById = async (id, props = []) => {
     id: true,
     username: true,
     role: true,
+    avatar: true,
+    profileCompleted: true,
+    company: true,
+    fullname: true,
+    email: true,
+    profileViewAccesses: true,
+    companyId: true,
+    phoneNumber: true,
   };
 
   // تبدیل props به شی select با مقدار true
@@ -85,6 +94,54 @@ const createUser = async ({ username, password, role, companyId }) => {
   });
 };
 
+const verifyOldPassword = async (userId, oldPassword) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { password: true },
+  });
+
+  if (!user) {
+    createBadRequestError("کاربر یافت نشد");
+  }
+
+  const isMatch = await comparePassword(oldPassword, user.password);
+
+  if (!isMatch) {
+    createBadRequestError("رمز عبور فعلی اشتباه است");
+  }
+
+  return true;
+};
+
+const updatePassword = async (userId, newPassword) => {
+  const hashedPassword = await hashPassword(newPassword);
+
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      password: hashedPassword,
+    },
+    select: {
+      id: true,
+      username: true,
+    },
+  });
+
+  return updatedUser;
+};
+
+const changePassword = async (userId, oldPassword, newPassword) => {
+  await verifyOldPassword(userId, oldPassword);
+
+  await updatePassword(userId, newPassword);
+};
+
+const deleteUser = async (userId) => {
+  await prisma.user.delete({
+    where: { id: userId },
+  });
+};
+
 module.exports = {
   findUserByUsername,
   findById,
@@ -96,4 +153,6 @@ module.exports = {
   countUsersByCompany,
   createUser,
   update,
+  changePassword,
+  deleteUser,
 };

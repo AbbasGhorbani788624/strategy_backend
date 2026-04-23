@@ -61,12 +61,10 @@ const updateStepFlow = async (id, data) => {
 };
 
 const deleteStepFlow = async (id) => {
-  const stepFlow = await prisma.stepFlow.delete({
+  await prisma.stepFlow.delete({
     where: { id },
     include: { steps: true },
   });
-
-  return stepFlow;
 };
 
 // چک وجود  یک flow
@@ -125,7 +123,7 @@ const getAllStepFlows = async ({ page = 1, limit = 10, search = "" }) => {
   ]);
 
   return {
-    data: stepFlows,
+    stepFlows,
     meta: {
       total,
       page,

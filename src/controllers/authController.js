@@ -3,6 +3,7 @@ const {
   getMeService,
   refreshService,
   logoutService,
+  changePasseordService,
 } = require("../services/authService");
 const setAuthCookies = require("../utils/cookie");
 const { successResponse, errorResponse } = require("../utils/responses");
@@ -25,12 +26,21 @@ exports.login = async function (req, res, next) {
 
 exports.getMe = async function (req, res, next) {
   try {
-    if (!req.user) {
-      return errorResponse(res, 401, "احراز هویت نشده است");
-    }
-
     const user = await getMeService(req.user.id);
     return successResponse(res, 200, user);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.changePassword = async function (req, res, next) {
+  try {
+    const { oldPassword, newPassword } = req.body;
+
+    await changePasseordService(req.user.id, oldPassword, newPassword);
+    return successResponse(res, 200, {
+      message: "رمز عبور با موفقیت تغییر کرد",
+    });
   } catch (err) {
     next(err);
   }
@@ -46,7 +56,7 @@ exports.refresh = async function (req, res) {
     setAuthCookies(res, accessToken, newRefreshToken);
 
     return successResponse(res, 200, {
-      message: "Access token refreshed",
+      message: "توکن دسترسی با موفقیت رفرش شد",
     });
   } catch (err) {
     return errorResponse(res, 401, err.message);

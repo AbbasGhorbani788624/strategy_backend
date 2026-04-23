@@ -4,6 +4,7 @@ const auth = require("../../middleware/auth");
 const { roleGuard } = require("../../middleware/roleGuard");
 const {
   createCompanyUser,
+  deleteCompanyUser,
 } = require("../../controllers/companyUserController");
 const {
   createCompanyuserSchema,
@@ -17,7 +18,7 @@ router.post(
   createCompanyuserSchema,
   createCompanyUser,
 );
+//اگر پروژه داشت با نزار حذف کنه یا ابشاری حذف کنه
+router.delete("/:id", auth, roleGuard(["COMPANY"]), deleteCompanyUser);
 
-// ویرایش فرد توسط ادمین شرکت
-// حذف فرد توسط ادمین شرکت
 module.exports = router;

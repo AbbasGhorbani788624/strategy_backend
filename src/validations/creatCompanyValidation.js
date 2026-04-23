@@ -4,10 +4,10 @@ const schema = yup.object().shape({
   name: yup
     .string()
     .required("نام شرکت الزامی است")
-    .min(1, "نام شرکت الزامی است"),
+    .min(4, "نام شرکت حداقل باید 4 کاراکتر باشد"),
   industry: yup.string().optional(),
   userLimit: yup
-    .number()
+    .number("تعداد کاربران باید یک عدد باشد")
     .required("حداقل یک عضو باید باشد")
     .min(1, "حداقل یک عضو باید باشد"),
   username: yup
