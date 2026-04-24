@@ -17,8 +17,8 @@ const { createBadRequestError } = require("../utils");
 const OpenAI = require("openai");
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: "ollama",
+  baseURL: "http://localhost:11434/v1",
 });
 
 const createStepFlowService = async (input) => {
@@ -236,9 +236,10 @@ Analyze this step strategically.
 
   // ارسال به AI
   const completion = await openai.chat.completions.create({
-    model: "openrouter/free",
+    model: "qwen2.5-coder:7b",
     messages: [{ role: "user", content: promptText }],
     max_tokens: 1000,
+    temperature: 0.7,
   });
 
   const stepAnalysis = completion.choices[0].message.content;
@@ -322,38 +323,33 @@ const generateFinalAnalysisService = async (currentUser, sessionId) => {
         .map(([q, a]) => `Q: ${q}\nA: ${Array.isArray(a) ? a.join(" | ") : a}`)
         .join("\n");
       return `
-=== مرحله ${step.step}: ${step.formTitle} ===
+=== step ${step.step}: ${step.formTitle} ===
 ${qa}
 
-تحلیل این مرحله:
+Analysis of this step:
 ${step.analysis}
 `;
     })
     .join("\n\n");
 
   const finalPrompt = `
-شما یک مشاور استراتژیک کسب‌وکار هستید. تحلیل کامل و جامعی از تمام مراحل زیر ارائه دهید.
-
 ${allStepsText}
 
-پروفایل شرکت:
+Company Profile:
 ${JSON.stringify(companyProfile, null, 2)}
 
-اطلاعات مدیریت:
+Company Admin Data:
 ${companyAdminData ? JSON.stringify(companyAdminData, null, 2) : "Not Provided"}
 
-لطفا تحلیل نهایی جامعی ارائه دهید که شامل:
-1. خلاصه وضعیت کلی
-2. نقاط قوت و ضعف
-3. ریسک‌ها و فرصت‌ها
-4. راهکارهای پیشنهادی
-5. توصیه‌های کوتاه‌مدت و بلندمدت
+Analyze this strategically.
+
 `;
 
   const completion = await openai.chat.completions.create({
-    model: "openrouter/free",
+    model: "qwen2.5-coder:7b",
     messages: [{ role: "user", content: finalPrompt }],
     max_tokens: 2000,
+    temperature: 0.7,
   });
 
   const finalAnalysis = completion.choices[0].message.content;

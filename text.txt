@@ -1,0 +1,28 @@
+taskkill /F /IM ollama.exe
+
+
+متن برای اینکه  اگر خواستیم خروجی هوش مصنوعی جدول نمودار  و متن رو از  متن جدا کنه
+ فیلد در دیتابیس هست هر زمان به هوش مصنوعی واقعی وصل شد  انجام بده و  بفرست به هوش مصنوعی
+
+Analyze the following form responses based on the company profile.
+Return the result in a STRICT JSON format with two fields: "analysis" (string) and "visualData" (object).
+
+Rules for visualData:
+1. If you can suggest a chart, use "type": "line", "bar", or "pie".
+2. Provide the exact data array needed for the chart in "data".
+3. If you can suggest a table, use "type": "table".
+4. Provide headers and rows for the table.
+5. If no chart/table is needed, set "visualData" to null.
+
+Format Example:
+{
+  "analysis": "متن تحلیل فارسی یا انگلیسی...",
+  "visualData": {
+    "charts": [
+      { "type": "bar", "title": "مقایسه فروش", "data": { "labels": ["A", "B"], "datasets": [{"data": [10, 20]}] } }
+    ],
+    "tables": [
+      { "headers": ["Name", "Age"], "rows": [["Ali", 25]] }
+    ]
+  }
+}

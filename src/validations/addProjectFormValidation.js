@@ -16,8 +16,6 @@ const createProjectSchema = yup.object().shape({
     .uuid("فرمت شناسه معتبر نیست")
     .required("شناسه فرم الزامی است"),
 
-  formTitle: yup.string().trim().required("عنوان فرم الزامی است"),
-
   analysis: yup.string().trim().required("تحلیل الزامی است"),
 
   mode: yup

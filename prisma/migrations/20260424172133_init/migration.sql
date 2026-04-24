@@ -3,6 +3,9 @@ CREATE TABLE `User` (
     `id` VARCHAR(191) NOT NULL,
     `avatar` VARCHAR(191) NULL,
     `username` VARCHAR(191) NOT NULL,
+    `fullname` VARCHAR(191) NULL,
+    `email` VARCHAR(191) NULL,
+    `phoneNumber` VARCHAR(191) NULL,
     `password` VARCHAR(191) NOT NULL,
     `role` ENUM('SUPER_ADMIN', 'COMPANY', 'MEMBER') NOT NULL,
     `companyId` VARCHAR(191) NULL,
@@ -12,6 +15,8 @@ CREATE TABLE `User` (
     `updatedAt` DATETIME(3) NOT NULL,
 
     UNIQUE INDEX `User_username_key`(`username`),
+    UNIQUE INDEX `User_email_key`(`email`),
+    UNIQUE INDEX `User_phoneNumber_key`(`phoneNumber`),
     INDEX `User_role_idx`(`role`),
     INDEX `User_companyId_idx`(`companyId`),
     PRIMARY KEY (`id`)
@@ -65,17 +70,13 @@ CREATE TABLE `Project` (
     `mode` ENUM('SINGLE', 'STEP') NOT NULL,
     `outcome` ENUM('YES', 'NO') NULL,
     `outcomeSetAt` DATETIME(3) NULL,
-    `solution` VARCHAR(191) NULL,
-    `rating` INTEGER NULL,
-    `ratingComment` VARCHAR(191) NULL,
-    `ratedByAdminId` VARCHAR(191) NULL,
+    `solution` TEXT NULL,
     `ratedAt` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
     INDEX `Project_companyId_idx`(`companyId`),
     INDEX `Project_creatorId_idx`(`creatorId`),
-    INDEX `Project_rating_idx`(`rating`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -102,10 +103,12 @@ CREATE TABLE `ProjectItem` (
     `formId` VARCHAR(191) NOT NULL,
     `formTitle` VARCHAR(191) NOT NULL,
     `responses` JSON NULL,
-    `analysis` VARCHAR(191) NOT NULL,
-    `solution` VARCHAR(191) NULL,
+    `visualData` JSON NULL,
+    `analysis` TEXT NOT NULL,
+    `solution` TEXT NULL,
     `order` INTEGER NOT NULL,
     `isFinal` BOOLEAN NOT NULL DEFAULT false,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `ProjectItem_projectId_idx`(`projectId`),
     INDEX `ProjectItem_formId_idx`(`formId`),
@@ -228,9 +231,6 @@ ALTER TABLE `Project` ADD CONSTRAINT `Project_creatorId_fkey` FOREIGN KEY (`crea
 
 -- AddForeignKey
 ALTER TABLE `Project` ADD CONSTRAINT `Project_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `Project` ADD CONSTRAINT `Project_ratedByAdminId_fkey` FOREIGN KEY (`ratedByAdminId`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `ProjectRatingHistory` ADD CONSTRAINT `ProjectRatingHistory_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

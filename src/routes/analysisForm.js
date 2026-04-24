@@ -32,7 +32,6 @@ router.get("/modes", auth, getAnalysisModes);
 //گرفتن فرم تکی
 router.get("/:formId", auth, getFormForUser);
 
-//این قسمت و قسمتیکه مال چت هست هم چنین قسمت پرکردن فرم تکی زمانی که یک  ai پبدا کردی تست کن
 // شروع جلسه مرحله‌ای
 router.post(
   "/flow/start",

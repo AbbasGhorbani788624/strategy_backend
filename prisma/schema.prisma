@@ -56,7 +56,6 @@ model User {
   createdProjects Project[]
   stepSessions    StepSession[]
 
-  ratedProjects       Project[]              @relation("AdminProjectRating")
   ratingHistory       ProjectRatingHistory[]
   profileViewAccesses ProfileViewAccess[]
   chatMessages        ChatMessage[]
@@ -111,30 +110,21 @@ model Project {
   creatorId String
   companyId String?
   mode      ProjectMode
-
   outcome      Outcome?
   outcomeSetAt DateTime?
   solution     String? @db.Text
-
-  rating         Int?
-  ratingComment  String?
-  ratedByAdminId String?
   ratedAt        DateTime?
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
   creator      User          @relation(fields: [creatorId], references: [id])
   company      Company?      @relation(fields: [companyId], references: [id])
   items        ProjectItem[]
   chatMessages ChatMessage[]
 
-  ratedByAdmin           User?                  @relation("AdminProjectRating", fields: [ratedByAdminId], references: [id])
   projectRatingHistories ProjectRatingHistory[]
 
   @@index([companyId])
   @@index([creatorId])
-  @@index([rating])
 }
 
 model ProjectRatingHistory {
@@ -160,6 +150,8 @@ model ProjectItem {
   formId    String
   formTitle String
   responses Json?
+    //  داده‌های بصری (نمودار، جدول، چارت)
+  visualData Json? 
   analysis  String @db.Text
   solution  String? @db.Text
   order     Int

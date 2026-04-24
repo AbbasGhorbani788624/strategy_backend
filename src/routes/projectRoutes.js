@@ -10,7 +10,16 @@ const { roleGuard } = require("../middleware/roleGuard");
 const {
   createProjectFromStepValidation,
 } = require("../validations/projectFromStepSchema");
-const { createProjectFromStep } = require("../controllers/projectController");
+const {
+  createProjectFromStep,
+  getAllProjects,
+  getProject,
+} = require("../controllers/projectController");
+
+//گرفتن همه پروژه ها
+router.get("/", auth, getAllProjects);
+
+router.get("/:id", auth, getProject);
 
 //ذخیره پروژه از فرم تکی
 router.post(

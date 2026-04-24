@@ -1,22 +1,23 @@
 const OpenAI = require("openai");
 const { createBadRequestError } = require("../utils");
 const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: "ollama",
+  baseURL: "http://localhost:11434/v1",
 });
 
 const generateSummaryService = async (analysisText) => {
   const prompt = `
-شما یک تحلیل کامل دریافت کرده‌اید. لطفا یک خلاصه دقیق، واضح و مفید از این تحلیل ارائه دهید 
-که کاربر بتواند با استفاده از آن در چت با AI ادامه دهد. 
-تحلیل:
+  You have received a complete analysis. Please provide a concise, clear, and useful summary of this analysis 
+that the user can use to continue chatting with the AI. 
+Analysis:
 ${analysisText}
 `;
 
   const completion = await openai.chat.completions.create({
-    model: "openrouter/free",
+    model: "qwen2.5-coder:7b",
     messages: [{ role: "user", content: prompt }],
     max_tokens: 1000,
+    temperature: 0.7,
   });
 
   return completion.choices[0].message.content;
@@ -28,7 +29,7 @@ const sendMessageToChatService = async (messages) => {
   }
 
   const completion = await openai.chat.completions.create({
-    model: "openrouter/free",
+    model: "qwen2.5-coder:7b",
     messages,
     max_tokens: 1000,
   });

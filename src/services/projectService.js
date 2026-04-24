@@ -5,11 +5,22 @@ const {
   createProjectWithDetails,
   getProjectById,
   createProjectFromStepSession,
+  getAllProjects,
 } = require("../repositories/projectRepository");
 const { getFormById } = require("../repositories/analysisFormRepository");
 
+const getAllProjectsService = async (userId, userRole, companyId, query) => {
+  const projects = await getAllProjects(userId, userRole, companyId, query);
+  return projects;
+};
+
+const getProjectService = async (projectId, userId, userRole, companyId) => {
+  const project = await getProjectById(projectId, userId, userRole, companyId);
+  return project;
+};
+
 const saveProjectService = async (currentUser, body) => {
-  const { title, formId, formTitle, analysis, mode, messages } = body;
+  const { title, formId, analysis, mode, messages, answers } = body;
 
   // بررسی وجود فرم
   const formExists = await getFormById(formId);
@@ -19,21 +30,14 @@ const saveProjectService = async (currentUser, body) => {
   }
 
   // ساخت پروژه
-  const project = await createProjectWithDetails({
-    creatorId: currentUser.id,
-    companyId: currentUser.companyId,
+  await createProjectWithDetails(currentUser, {
     title,
     formId,
-    formTitle,
     analysis,
     mode,
     messages,
+    answers,
   });
-
-  // دریافت پروژه با جزئیات کامل
-  const fullProject = await getProjectById(project.id);
-
-  return fullProject;
 };
 
 const createProjectFromStepService = async (currentUser, body) => {
@@ -57,18 +61,18 @@ const createProjectFromStepService = async (currentUser, body) => {
   }
 
   // ساخت پروژه
-  const project = await createProjectFromStepSession({
+  await createProjectFromStepSession({
     sessionId,
     title,
     messages,
     creatorId: currentUser.id,
     companyId: currentUser.companyId,
   });
-
-  // دریافت پروژه با جزئیات کامل
-  const fullProject = await getProjectById(project.id);
-
-  return fullProject;
 };
 
-module.exports = { saveProjectService, createProjectFromStepService };
+module.exports = {
+  saveProjectService,
+  createProjectFromStepService,
+  getAllProjectsService,
+  getProjectService,
+};
