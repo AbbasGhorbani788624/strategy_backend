@@ -10,17 +10,12 @@ const findCompanyByName = async (name) => {
   });
 };
 
-const findCompanyById = async (id) => {
+const findCompanyById = (companyId) => {
   return prisma.company.findUnique({
-    where: { id },
-    include: {
-      members: {
-        where: { role: "COMPANY" },
-        take: 1,
-      },
-    },
+    where: { id: companyId },
   });
 };
+
 const createUser = async (data) => {
   return prisma.user.create({ data });
 };

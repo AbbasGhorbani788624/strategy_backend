@@ -45,7 +45,7 @@ const loginService = async (username, password) => {
 };
 
 const getMeService = async (userId) => {
-  const user = await findById(userId);
+  const user = await findById(userId, ["profile"]);
   if (!user) {
     createBadRequestError("کاربر پیدا نشد", 404);
   }

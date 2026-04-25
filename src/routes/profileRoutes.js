@@ -7,7 +7,6 @@ const { multerStorage } = require("../utils/multerConfigs");
 const upload = multerStorage();
 
 //اپدیت پروفایل
-
 router.put("/", auth, upload.single("avatar"), profileSchema, updateProfile);
 
 module.exports = router;

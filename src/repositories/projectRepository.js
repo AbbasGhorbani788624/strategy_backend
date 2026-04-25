@@ -19,6 +19,7 @@ const createProjectWithDetails = async (currentUser, body) => {
       data: {
         projectId: project.id,
         formId: formId,
+        formTitle: project.title,
         responses: answers || {},
         analysis: analysis,
         order: 1,
@@ -129,7 +130,6 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     ...(search && {
       title: {
         contains: search,
-        mode: "insensitive",
       },
     }),
   };
@@ -164,11 +164,6 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
       mode: true,
       createdAt: true,
 
-      rating: true,
-      ratingComment: true,
-      ratedByAdminId: true,
-      ratedAt: true,
-
       // 2. رابطه creator
       creator: {
         select: {
@@ -182,6 +177,19 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
         select: {
           id: true,
           name: true,
+        },
+      },
+      projectRatingHistories: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          admin: {
+            select: {
+              id: true,
+              username: true,
+              fullname: true,
+              role: true,
+            },
+          },
         },
       },
     },
@@ -202,7 +210,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
   };
 };
 
-const getProjectById = async (projectId, userId, userRole, companyId) => {
+const getProject = async (projectId, userId, userRole, companyId) => {
   // 1. تنظیم شرط دسترسی (Authorization Logic)
   let whereClause = { id: projectId };
 
@@ -368,9 +376,42 @@ const getProjectById = async (projectId, userId, userRole, companyId) => {
   };
 };
 
+const getProjectById = async (projectId) => {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true, companyId: true },
+  });
+  return project;
+};
+
+const giveRateAndProject = async (userId, projectId, body) => {
+  const { comment, score = 1 } = body;
+
+  await prisma.projectRatingHistory.upsert({
+    where: {
+      projectId_adminId: {
+        projectId: projectId,
+        adminId: userId,
+      },
+    },
+    create: {
+      projectId: projectId,
+      adminId: userId,
+      score: parseInt(score, 10),
+      comment: comment || null,
+    },
+    update: {
+      score: parseInt(score, 10),
+      comment: comment !== undefined ? comment : null,
+    },
+  });
+};
+
 module.exports = {
   createProjectWithDetails,
-  getProjectById,
+  getProject,
   createProjectFromStepSession,
   getAllProjects,
+  giveRateAndProject,
+  getProjectById,
 };

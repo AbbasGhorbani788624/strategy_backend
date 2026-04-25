@@ -7,7 +7,7 @@ const {
   companyAdminSchema,
 } = require("../../validations/companyAdminValidation");
 
-//ساخت اطلاعاتی که مدیر اصلی برای  هر اکانت شرکت وارد میکند تا  برای تحلیل ها فرستاده شود
+//ساخت اطلاعاتی که مدیر اصلی برای  هر اکانت شرکت وارد میکند تا  برای تحلیل ها فرستاده شود نیاز به put  ندارد چون ازupsert استفاده کردم
 router.post(
   "/company/:companyId",
   auth,

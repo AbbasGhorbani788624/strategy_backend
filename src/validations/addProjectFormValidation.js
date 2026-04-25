@@ -22,6 +22,7 @@ const createProjectSchema = yup.object().shape({
     .string()
     .oneOf(["SINGLE", "STEP"], "حالت پروژه معتبر نیست")
     .required("حالت پروژه الزامی است"),
+  answers: yup.object().nullable().required("ایدی سوالات و جواب ها الزامی است"),
 
   messages: yup
     .array()
@@ -34,7 +35,6 @@ exports.createProjectValidation = async (req, res, next) => {
   try {
     const validated = await createProjectSchema.validate(req.body, {
       abortEarly: false,
-      stripUnknown: true,
     });
 
     req.body = validated;

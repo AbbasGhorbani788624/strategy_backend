@@ -10,7 +10,7 @@ const openai = new OpenAI({
 
 const submitFormAnalysisService = async (currentUser, body) => {
   const { formId, answers } = body;
-
+  console.log("currentUser =>", currentUser);
   // 1. دریافت فرم و سوالات
   const form = await prisma.analysisForm.findUnique({
     where: { id: formId },
@@ -52,7 +52,7 @@ Questions and Answers:
 ${questionsAndAnswers}
   
 Company Profile:
-${JSON.stringify(companyProfile, null, 2)}
+${companyProfile ? JSON.stringify(companyProfile, null, 2) : "Not Provided"}
   
 Company Admin Data:
 ${companyAdminData ? JSON.stringify(companyAdminData, null, 2) : "Not Provided"}

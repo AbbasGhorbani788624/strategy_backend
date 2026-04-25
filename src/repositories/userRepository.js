@@ -14,7 +14,11 @@ const findById = async (id, props = []) => {
     role: true,
     avatar: true,
     profileCompleted: true,
-    company: true,
+    company: {
+      select: {
+        name: true,
+      },
+    },
     fullname: true,
     email: true,
     profileViewAccesses: true,

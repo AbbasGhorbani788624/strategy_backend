@@ -61,21 +61,12 @@ const updateCompanyService = async (
   name,
   industry,
   userLimit,
-  username,
   profileCompany,
-  profileUser,
-  password,
+  userRole,
 ) => {
   const existingCompany = await findCompanyById(id);
-  console.log("existingCompany =>", existingCompany);
   if (!existingCompany) {
     throw createBadRequestError("شرکت مورد نظر یافت نشد");
-  }
-
-  const adminUser = existingCompany.members[0];
-
-  if (!adminUser) {
-    throw createBadRequestError("ادمین این شرکت یافت نشد");
   }
 
   if (name && name !== existingCompany.name) {
@@ -85,57 +76,156 @@ const updateCompanyService = async (
     }
   }
 
-  if (username && username !== adminUser.username) {
-    const userWithSameUsername = await findUserByUsername(username);
-    if (userWithSameUsername) {
-      throw createBadRequestError("این یوزرنیم قبلاً ثبت شده است");
-    }
-  }
-
   const companyUpdateData = {};
+
   if (name) companyUpdateData.name = name;
   if (industry) companyUpdateData.industry = industry;
-  if (userLimit) companyUpdateData.userLimit = parseInt(userLimit);
   if (profileCompany) companyUpdateData.profile = profileCompany;
 
-  const adminUpdateData = {};
-  if (username) adminUpdateData.username = username;
-
-  if (password) {
-    adminUpdateData.password = await hashPassword(password);
+  if (
+    userRole === "SUPER_ADMIN" &&
+    userLimit !== undefined &&
+    userLimit !== null
+  ) {
+    companyUpdateData.userLimit = parseInt(userLimit);
   }
 
-  if (profileUser) adminUpdateData.profile = profileUser;
-
-  const result = await prisma.$transaction(async (tx) => {
-    const updatedCompany = await tx.company.update({
-      where: { id },
-      data: companyUpdateData,
-    });
-
-    const updatedAdmin = await tx.user.update({
-      where: { id: adminUser.id },
-      data: adminUpdateData,
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        companyId: true,
-        profile: true,
-        profileCompleted: true,
-        createdAt: true,
-        updatedAt: true,
-        avatar: true,
-      },
-    });
-
-    return {
-      company: updatedCompany,
-      adminUser: updatedAdmin,
-    };
+  const updatedCompany = await prisma.company.update({
+    where: { id },
+    data: companyUpdateData,
   });
 
-  return result;
+  return {
+    company: updatedCompany,
+  };
 };
 
-module.exports = { createCompanyService, updateCompanyService };
+const getCompaniesService = async (query) => {
+  const { page = 1, limit = 10, search } = query;
+
+  const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const take = parseInt(limit, 10);
+
+  const whereCondition = search
+    ? {
+        name: {
+          contains: search,
+        },
+      }
+    : {};
+
+  const [companies, total] = await Promise.all([
+    prisma.company.findMany({
+      where: whereCondition,
+      select: {
+        id: true,
+        name: true,
+        industry: true,
+        createdAt: true,
+        updatedAt: true,
+        userLimit: true,
+      },
+      skip: skip,
+      take: take,
+      orderBy: {
+        createdAt: "desc",
+      },
+    }),
+    prisma.company.count({
+      where: whereCondition,
+    }),
+  ]);
+
+  return {
+    companies,
+    pagination: {
+      total: total,
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+      totalPages: Math.ceil(total / parseInt(limit, 10)),
+    },
+  };
+};
+
+//لیست اعضای هر شرکت
+const getCompanyMembersService = async (id, companyId, query) => {
+  const company = await findCompanyById(id);
+  if (!company) {
+    throw new Error("شرکتی با این ایدی وجود ندارد");
+  }
+  if (companyId !== company.id) {
+    throw new Error("شما فقط میتوانید اعضای شرکت خود را ببینید", 401);
+  }
+
+  const { page = 1, limit = 10, search } = query;
+  const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const take = parseInt(limit, 10);
+
+  const whereCondition = search
+    ? {
+        OR: [
+          {
+            fullname: {
+              contains: search,
+            },
+          },
+          {
+            username: {
+              contains: search,
+            },
+          },
+        ],
+      }
+    : {};
+
+  const [members, total] = await Promise.all([
+    prisma.company.findUnique({
+      where: { id: id },
+      select: {
+        members: {
+          where: whereCondition,
+          skip: skip,
+          take: take,
+          orderBy: {
+            createdAt: "desc",
+          },
+          select: {
+            id: true,
+            username: true,
+            fullname: true,
+            email: true,
+            phoneNumber: true,
+            avatar: true,
+            role: true,
+            profileCompleted: true,
+            createdAt: true,
+            // profile: true,
+          },
+        },
+      },
+    }),
+    prisma.user.count({
+      where: {
+        companyId: id,
+        ...whereCondition,
+      },
+    }),
+  ]);
+
+  return {
+    data: members?.members || [],
+    pagination: {
+      total: total,
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+      totalPages: Math.ceil(total / parseInt(limit, 10)),
+    },
+  };
+};
+
+module.exports = {
+  createCompanyService,
+  updateCompanyService,
+  getCompaniesService,
+  getCompanyMembersService,
+};

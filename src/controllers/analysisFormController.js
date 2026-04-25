@@ -6,7 +6,7 @@ const {
   getAnalysisFormByIdService,
   getAnalysisModesService,
 } = require("../services/analysisFormService");
-const { errorResponse, successResponse } = require("../utils/responses");
+const { successResponse } = require("../utils/responses");
 
 exports.createAnalysisForm = async (req, res, next) => {
   try {

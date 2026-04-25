@@ -58,7 +58,6 @@ exports.analysisFormSchema = async (req, res, next) => {
   try {
     const validated = await schema.validate(req.body, {
       abortEarly: false,
-      stripUnknown: true,
     });
 
     req.body = validated;

@@ -3,9 +3,11 @@ const prisma = require("../prismaClient");
 
 const {
   createProjectWithDetails,
-  getProjectById,
   createProjectFromStepSession,
   getAllProjects,
+  giveRateAndProject,
+  getProjectById,
+  getProject,
 } = require("../repositories/projectRepository");
 const { getFormById } = require("../repositories/analysisFormRepository");
 
@@ -15,7 +17,7 @@ const getAllProjectsService = async (userId, userRole, companyId, query) => {
 };
 
 const getProjectService = async (projectId, userId, userRole, companyId) => {
-  const project = await getProjectById(projectId, userId, userRole, companyId);
+  const project = await getProject(projectId, userId, userRole, companyId);
   return project;
 };
 
@@ -70,9 +72,19 @@ const createProjectFromStepService = async (currentUser, body) => {
   });
 };
 
+const giveRateToProjectService = async (userId, projectId, body) => {
+  const project = await getProjectById(projectId);
+  if (!project) {
+    throw createBadRequestError("پروژه ای با این ایدی وجود ندارد", 404);
+  }
+
+  await giveRateAndProject(userId, projectId, body);
+};
+
 module.exports = {
   saveProjectService,
   createProjectFromStepService,
   getAllProjectsService,
   getProjectService,
+  giveRateToProjectService,
 };

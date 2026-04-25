@@ -201,7 +201,7 @@ model FormQuestion {
   label    String
   type     String
   options  Json?
-  required Boolean      @default(false)
+  required Boolean      @default(true)
   order    Int
   form     AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
 

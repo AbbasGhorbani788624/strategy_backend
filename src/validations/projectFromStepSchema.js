@@ -32,7 +32,6 @@ exports.createProjectFromStepValidation = async (req, res, next) => {
   try {
     const validated = await createProjectFromStepSchema.validate(req.body, {
       abortEarly: false,
-      stripUnknown: true,
     });
     req.body = validated;
     next();

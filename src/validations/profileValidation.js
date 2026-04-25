@@ -10,8 +10,11 @@ const schema = yup.object().shape({
     .string()
     .required("شماره موبایل الزامی است")
     .matches(/^09\d{9}$/, "فرمت شماره موبایل باید 09xxxxxxxxx باشد"),
-  username: yup.string().min(3, "یوزرنیم معتبر نیست").notRequired(),
-  userId: yup.string().optional(),
+  username: yup
+    .string()
+    .min(3, "یوزرنیم معتبر نیست")
+    .required("نام کاربری الزامی است"),
+  userId: yup.string().uuid("userId باید یک UUID معتبر باشد").optional(),
 });
 
 exports.profileSchema = async (req, res, next) => {

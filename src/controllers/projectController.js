@@ -3,6 +3,7 @@ const {
   createProjectFromStepService,
   getProjectService,
   getAllProjectsService,
+  giveRateToProjectService,
 } = require("../services/projectService");
 const { successResponse } = require("../utils/responses");
 
@@ -33,7 +34,7 @@ exports.getProject = async (req, res, next) => {
     const userRole = req.user.role;
     const companyId = req.user.companyId;
 
-    const project = await getProjectService(id, userId, userRole);
+    const project = await getProjectService(id, userId, userRole, companyId);
 
     if (!project) {
       return res.status(404).json({
@@ -62,6 +63,18 @@ exports.createProjectFromStep = async (req, res, next) => {
   try {
     await createProjectFromStepService(req.user, req.body);
     return successResponse(res, 201, { meesgae: "پروژه با موفقیت ساخته شد" });
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.giveReteAndComment = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    await giveRateToProjectService(userId, id, req.body);
+    return successResponse(res, 201, { message: "نظر با موفقیت ثبت شد" });
   } catch (err) {
     console.error(err);
     next(err);

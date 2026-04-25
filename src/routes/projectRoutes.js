@@ -14,11 +14,16 @@ const {
   createProjectFromStep,
   getAllProjects,
   getProject,
+  giveReteAndComment,
 } = require("../controllers/projectController");
+const {
+  rateCommentSchema,
+} = require("../validations/giveRateAndCommentValidation");
 
 //گرفتن همه پروژه ها
 router.get("/", auth, getAllProjects);
 
+//گرفتن پروژه
 router.get("/:id", auth, getProject);
 
 //ذخیره پروژه از فرم تکی
@@ -37,6 +42,16 @@ router.post(
   roleGuard(["COMPANY", "MEMBER"]),
   createProjectFromStepValidation,
   createProjectFromStep,
+);
+
+//دادن امتیاز به پروژه
+
+router.post(
+  "/:id",
+  auth,
+  roleGuard(["COMPANY", "SUPER_ADMIN"]),
+  rateCommentSchema,
+  giveReteAndComment,
 );
 
 module.exports = router;

@@ -11,7 +11,6 @@ exports.analyzeStepValidation = async (req, res, next) => {
   try {
     const validated = await startStepSessionSchema.validate(req.body, {
       abortEarly: false,
-      stripUnknown: true,
     });
     req.body = validated;
     next();

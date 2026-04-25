@@ -1,7 +1,5 @@
-const {
-  findCompanyById,
-  upsertCompanyAdminData,
-} = require("../repositories/companyAdmin");
+const { upsertCompanyAdminData } = require("../repositories/companyAdmin");
+const { findCompanyById } = require("../repositories/companyRepository");
 const { createBadRequestError } = require("../utils");
 
 const upsertCompanyAdminDataService = async (companyId, data) => {
