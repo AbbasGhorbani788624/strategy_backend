@@ -4,7 +4,6 @@ const {
 const {
   createStepFlow,
   updateStepFlow,
-  getStepFlowById,
   deleteStepFlow,
   getStepFlowByIdWidthDetail,
   getAllStepFlows,
@@ -12,6 +11,7 @@ const {
   getStepSessionById,
   updateStepSession,
   getActiveStepFlows,
+  isStepFlowExists,
 } = require("../repositories/stepFlowRepository");
 const { createBadRequestError } = require("../utils");
 const OpenAI = require("openai");
@@ -58,7 +58,7 @@ const updateStepFlowService = async (id, input) => {
     createBadRequestError("شناسه مسیر مرحله‌ای الزامی است");
   }
 
-  const existingStepFlow = await getStepFlowById(id);
+  const existingStepFlow = await isStepFlowExists(id);
   if (!existingStepFlow) {
     createBadRequestError("مسیر مرحله‌ای با شناسه داده شده یافت نشد", 404);
   }
@@ -101,7 +101,7 @@ const deleteStepFlowService = async (id) => {
     createBadRequestError("شناسه مسیر مرحله‌ای الزامی است");
   }
 
-  const existingStepFlow = await getStepFlowById(id);
+  const existingStepFlow = await isStepFlowExists(id);
   if (!existingStepFlow) {
     createBadRequestError("فرم مرحله ای با این ایدی وجود ندارد", 404);
   }

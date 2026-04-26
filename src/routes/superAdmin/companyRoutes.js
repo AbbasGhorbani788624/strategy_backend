@@ -7,6 +7,8 @@ const { roleGuard } = require("../../middleware/roleGuard");
 const {
   createCompanyWithAdmin,
   getAllCompany,
+  deleteCompany,
+  getCompany,
 } = require("../../controllers/companyController");
 const {
   createCompanySchema,
@@ -23,5 +25,11 @@ router.post(
 
 //دریافت همه شرکت ها
 router.get("/", auth, roleGuard(["SUPER_ADMIN"]), getAllCompany);
+
+//حذف شرکت
+router.get("/id", auth, roleGuard(["SUPER_ADMIN"]), getCompany);
+
+//دریافت شرکت
+router.delete("/id", auth, roleGuard(["SUPER_ADMIN"]), deleteCompany);
 
 module.exports = router;

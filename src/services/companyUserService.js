@@ -4,7 +4,6 @@ const {
   createUser,
   findById,
   deleteUser,
-  revokeAllRefreshTokensByUserId,
 } = require("../repositories/userRepository");
 const prisma = require("../prismaClient");
 const { createBadRequestError, findUserAndDeleteImage } = require("../utils");
@@ -83,7 +82,6 @@ const deleteCompanyUserService = async (userId, creator) => {
   }
 
   await deleteUser(userId);
-  await revokeAllRefreshTokensByUserId(userId);
   await findUserAndDeleteImage(userId);
 };
 

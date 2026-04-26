@@ -5,6 +5,8 @@ const {
   updateCompanyService,
   getCompaniesService,
   getCompanyMembersService,
+  deleteCompanyService,
+  getCompanyService,
 } = require("../services/companyService");
 const { createBadRequestError } = require("../utils");
 
@@ -81,6 +83,26 @@ exports.getCompanyMemebers = async (req, res, next) => {
     const companyId = req.user.companyId;
     const conpamies = await getCompanyMembersService(id, companyId, req.query);
     return successResponse(res, 200, conpamies);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteCompany = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await deleteCompanyService(id);
+    return successResponse(res, 200, { message: "شرکت با موفقیت حذف شد" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getCompany = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const company = await getCompanyService(id);
+    return successResponse(res, 200, company);
   } catch (err) {
     next(err);
   }

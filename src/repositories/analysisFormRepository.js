@@ -30,7 +30,7 @@ const updateFormWithQuestions = async (id, data) => {
 
   return prisma.$transaction(async (tx) => {
     // آپدیت فرم
-    const form = await tx.analysisForm.update({
+    await tx.analysisForm.update({
       where: { id },
       data: formData,
     });
@@ -79,6 +79,10 @@ const getFormById = async (id) => {
       questions: true,
     },
   });
+};
+
+const isFromExists = async (id) => {
+  return await prisma.analysisForm.count({ where: { id } });
 };
 
 //چک وجود فرم های تحلیل
@@ -178,19 +182,6 @@ const getStepFlows = async () => {
       id: true,
       title: true,
       isActive: true,
-      // steps: {
-      //   orderBy: { order: "asc" },
-      //   select: {
-      //     form: {
-      //       select: {
-      //         id: true,
-      //         title: true,
-      //         order: true,
-      //         isActive: true,
-      //       },
-      //     },
-      //   },
-      // },
     },
   });
 
@@ -199,12 +190,6 @@ const getStepFlows = async () => {
     id: flow.id,
     title: flow.title,
     isActive: flow.isActive,
-    // steps: flow.steps.map((s) => ({
-    //   id: s.form.id,
-    //   title: s.form.title,
-    //   order: s.form.order,
-    //   isActive: s.form.isActive,
-    // })),
   }));
 
   return formattedStepFlows;
@@ -220,4 +205,5 @@ module.exports = {
   getAnalysisFormById,
   getSingleForms,
   getStepFlows,
+  isFromExists,
 };

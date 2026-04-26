@@ -51,16 +51,13 @@ model User {
   profileCompleted Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-
-  company         Company?      @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: SetNull)
+  company         Company?      @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: Cascade)
   createdProjects Project[]
   stepSessions    StepSession[]
-
   ratingHistory       ProjectRatingHistory[]
   profileViewAccesses ProfileViewAccess[]
   chatMessages        ChatMessage[]
   refreshTokens       RefreshToken[]
-
   @@index([role])
   @@index([companyId])
 }
@@ -70,10 +67,8 @@ model ProfileViewAccess {
   userId    String
   companyId String
   section   ProfileSection
-
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
   @@unique([userId, section])
   @@index([companyId])
 }
@@ -90,7 +85,6 @@ model Company {
   projects            Project[] // پروژه‌های شرکت و اعضا
   profileViewAccesses ProfileViewAccess[]
   adminData           CompanyAdminData?
-
   @@index([id]) // معمولاً primary key index خودکار
 }
 
@@ -100,7 +94,6 @@ model CompanyAdminData {
   data      Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
@@ -116,13 +109,11 @@ model Project {
   ratedAt        DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  creator      User          @relation(fields: [creatorId], references: [id])
-  company      Company?      @relation(fields: [companyId], references: [id])
+  creator      User          @relation(fields: [creatorId], references: [id],onDelete: Cascade)
+  company      Company?      @relation(fields: [companyId], references: [id],onDelete: Cascade)
   items        ProjectItem[]
   chatMessages ChatMessage[]
-
   projectRatingHistories ProjectRatingHistory[]
-
   @@index([companyId])
   @@index([creatorId])
 }
@@ -134,10 +125,8 @@ model ProjectRatingHistory {
   score     Int
   comment   String?
   createdAt DateTime @default(now())
-
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   admin   User    @relation(fields: [adminId], references: [id])
-
   @@unique([projectId, adminId])
   @@index([projectId])
   @@index([adminId])
@@ -169,14 +158,11 @@ model ChatMessage {
   id        String  @id @default(uuid())
   projectId String
   userId    String?
-
   role      String // "user" | "assistant" | "system"
   content   String
   createdAt DateTime @default(now())
-
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
-
   @@index([projectId])
   @@index([userId])
   @@index([createdAt])
@@ -204,7 +190,6 @@ model FormQuestion {
   required Boolean      @default(true)
   order    Int
   form     AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-
   @@index([formId, order]) // مرتب‌سازی سوالات فرم
 }
 
@@ -215,13 +200,10 @@ model StepSession {
   currentStep Int
   data        Json
   status      StepSessionStatus @default(ACTIVE)
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
   user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   flow StepFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
-
   @@index([userId])
   @@index([flowId])
   @@index([status])
@@ -232,10 +214,8 @@ model RefreshToken {
   tokenHash String @unique
   userId    String
   user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
   expiresAt DateTime
   revoked   Boolean  @default(false)
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -246,10 +226,8 @@ model StepFlowItem {
   formId   String
   order    Int
   required Boolean @default(true)
-
   flow StepFlow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
   form AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-
   @@index([flowId, order])
 }
 
@@ -259,7 +237,6 @@ model StepFlow {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
   steps    StepFlowItem[]
   sessions StepSession[]
 }

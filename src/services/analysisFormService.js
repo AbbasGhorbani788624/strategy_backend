@@ -1,12 +1,12 @@
 const {
   createWithQuestions,
-  getFormById,
   updateFormWithQuestions,
   deleteFormRepo,
   getAllAnalysisForms,
   getAnalysisFormById,
   getSingleForms,
   getStepFlows,
+  isFromExists,
 } = require("../repositories/analysisFormRepository");
 const { findById } = require("../repositories/userRepository");
 const { createBadRequestError } = require("../utils");
@@ -21,7 +21,7 @@ const updateForm = async (id, data) => {
   if (!id) {
     createBadRequestError("آیدی فرم ارسال نشده");
   }
-  const existing = await getFormById(id);
+  const existing = await isFromExists(id);
 
   if (!existing) {
     createBadRequestError("فرم پیدا نشد", 404);
@@ -36,7 +36,7 @@ const deleteForm = async (id) => {
     createBadRequestError("آیدی فرم ارسال نشده");
   }
 
-  const existing = await getFormById(id);
+  const existing = await isFromExists(id);
   if (!existing) {
     createBadRequestError("فرم پیدا نشد", 404);
   }

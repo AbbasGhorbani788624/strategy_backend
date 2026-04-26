@@ -3,8 +3,12 @@ const {
   createCompany,
   createUser,
   findCompanyById,
+  isCompanyExists,
 } = require("../repositories/companyRepository");
-const { findUserByUsername } = require("../repositories/userRepository");
+const {
+  findUserByUsername,
+  countUsersByCompany,
+} = require("../repositories/userRepository");
 const { createBadRequestError } = require("../utils");
 const { hashPassword } = require("../utils/auth");
 const prisma = require("../prismaClient");
@@ -87,7 +91,16 @@ const updateCompanyService = async (
     userLimit !== undefined &&
     userLimit !== null
   ) {
-    companyUpdateData.userLimit = parseInt(userLimit);
+    const limitToSet = parseInt(userLimit);
+
+    const currentUsersCount = await countUsersByCompany(id);
+
+    if (currentUsersCount > limitToSet) {
+      throw createBadRequestError(
+        `تعداد کاربران فعلی شرکت (${currentUsersCount}) بیشتر از محدودیت جدید (${limitToSet}) است. لطفاً ابتدا تعداد کاربران را کاهش دهید.`,
+      );
+    }
+    companyUpdateData.userLimit = limitToSet;
   }
 
   const updatedCompany = await prisma.company.update({
@@ -223,9 +236,27 @@ const getCompanyMembersService = async (id, companyId, query) => {
   };
 };
 
+const deleteCompanyService = async (id) => {
+  const company = await isCompanyExists(id);
+  if (!company) {
+    throw createBadRequestError("شرکتی با این ایدی وجود ندارد", 404);
+  }
+  await prisma.company.delete({ where: { id } });
+};
+
+const getCompanyService = async (id) => {
+  const company = await findCompanyById(id);
+  if (!company) {
+    throw createBadRequestError("شرکتی با این ایدی وجود ندارد", 404);
+  }
+  return company;
+};
+
 module.exports = {
   createCompanyService,
   updateCompanyService,
   getCompaniesService,
+  deleteCompanyService,
+  getCompanyService,
   getCompanyMembersService,
 };

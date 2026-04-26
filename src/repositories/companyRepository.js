@@ -16,6 +16,12 @@ const findCompanyById = (companyId) => {
   });
 };
 
+const isCompanyExists = async (companyId) => {
+  return await prisma.company.count({
+    where: { id: companyId },
+  });
+};
+
 const createUser = async (data) => {
   return prisma.user.create({ data });
 };
@@ -25,4 +31,5 @@ module.exports = {
   createUser,
   findCompanyByName,
   findCompanyById,
+  isCompanyExists,
 };

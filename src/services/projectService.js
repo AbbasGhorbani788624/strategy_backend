@@ -6,10 +6,10 @@ const {
   createProjectFromStepSession,
   getAllProjects,
   giveRateAndProject,
-  getProjectById,
   getProject,
+  isProjectExists,
 } = require("../repositories/projectRepository");
-const { getFormById } = require("../repositories/analysisFormRepository");
+const { isFromExists } = require("../repositories/analysisFormRepository");
 
 const getAllProjectsService = async (userId, userRole, companyId, query) => {
   const projects = await getAllProjects(userId, userRole, companyId, query);
@@ -25,7 +25,7 @@ const saveProjectService = async (currentUser, body) => {
   const { title, formId, analysis, mode, messages, answers } = body;
 
   // بررسی وجود فرم
-  const formExists = await getFormById(formId);
+  const formExists = await isFromExists(formId);
 
   if (!formExists) {
     createBadRequestError("فرم یافت نشد", 404);
@@ -73,7 +73,7 @@ const createProjectFromStepService = async (currentUser, body) => {
 };
 
 const giveRateToProjectService = async (userId, projectId, body) => {
-  const project = await getProjectById(projectId);
+  const project = await isProjectExists(projectId);
   if (!project) {
     throw createBadRequestError("پروژه ای با این ایدی وجود ندارد", 404);
   }

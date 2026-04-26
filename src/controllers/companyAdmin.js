@@ -1,7 +1,7 @@
 const {
   upsertCompanyAdminDataService,
 } = require("../services/upsertCompanyAdminDataService");
-const { successResponse, errorResponse } = require("../utils/responses");
+const { successResponse } = require("../utils/responses");
 
 exports.upsertCompanyAdminData = async (req, res, next) => {
   try {

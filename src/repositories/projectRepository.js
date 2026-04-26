@@ -211,7 +211,6 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
 };
 
 const getProject = async (projectId, userId, userRole, companyId) => {
-  // 1. تنظیم شرط دسترسی (Authorization Logic)
   let whereClause = { id: projectId };
 
   if (userRole === "MEMBER") {
@@ -225,7 +224,6 @@ const getProject = async (projectId, userId, userRole, companyId) => {
   // SUPER_ADMIN محدودیتی ندارد
 
   // 2. دریافت اطلاعات پروژه
-  // نکته: ratedByAdmin دیگر در include نیست چون در مدل دیتابیس وجود ندارد
   const project = await prisma.project.findUnique({
     where: whereClause,
     include: {
@@ -384,6 +382,10 @@ const getProjectById = async (projectId) => {
   return project;
 };
 
+const isProjectExists = async (projectId) => {
+  return await prisma.project.count({ where: { id: projectId } });
+};
+
 const giveRateAndProject = async (userId, projectId, body) => {
   const { comment, score = 1 } = body;
 
@@ -414,4 +416,5 @@ module.exports = {
   getAllProjects,
   giveRateAndProject,
   getProjectById,
+  isProjectExists,
 };

@@ -75,6 +75,12 @@ const getStepFlowById = async (id) => {
   });
 };
 
+const isStepFlowExists = async (id) => {
+  return await prisma.stepFlow.count({
+    where: { id },
+  });
+};
+
 const getAllStepFlows = async ({ page = 1, limit = 10, search = "" }) => {
   const skip = (page - 1) * limit;
 
@@ -258,4 +264,5 @@ module.exports = {
   createStepSession,
   getStepSessionById,
   updateStepSession,
+  isStepFlowExists,
 };

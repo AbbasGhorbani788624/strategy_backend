@@ -25,7 +25,7 @@ router.get(
   getCompanyMemebers,
 );
 
-// ساخت کاربران شرکت توسط ادمین ان
+// ساخت کاربران شرکت توسط ادمین ان اون شرکت
 router.post(
   "/",
   auth,
@@ -33,11 +33,16 @@ router.post(
   createCompanyuserSchema,
   createCompanyUser,
 );
-//اگر پروژه داشت با نزار حذف کنه یا ابشاری حذف کنه
-router.delete("/:id", auth, roleGuard(["COMPANY"]), deleteCompanyUser);
+
+// حذف کاربر
+router.delete(
+  "/:id",
+  auth,
+  roleGuard(["COMPANY", "SUPER_ADMIN"]),
+  deleteCompanyUser,
+);
 
 // ویرایش اکانت شرکت
-//  اگر به تعداد کاربران  قرار داده شده اکانت ساخته شده بود  و میخواستیم تعداد رو عوض کنیم باید ارور بده  که  کاربرانی بیشتر از حد  تعیین شده وجود دارد
 router.put(
   "/:id",
   auth,

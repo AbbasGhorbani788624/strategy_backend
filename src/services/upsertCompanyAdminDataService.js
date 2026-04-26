@@ -1,5 +1,8 @@
 const { upsertCompanyAdminData } = require("../repositories/companyAdmin");
-const { findCompanyById } = require("../repositories/companyRepository");
+const {
+  findCompanyById,
+  isCompanyExists,
+} = require("../repositories/companyRepository");
 const { createBadRequestError } = require("../utils");
 
 const upsertCompanyAdminDataService = async (companyId, data) => {
@@ -7,7 +10,7 @@ const upsertCompanyAdminDataService = async (companyId, data) => {
     createBadRequestError("ایدی شرکت الزامی است");
   }
 
-  const company = await findCompanyById(companyId);
+  const company = await isCompanyExists(companyId);
 
   if (!company) {
     createBadRequestError("شرکت یافت نشد", 404);
