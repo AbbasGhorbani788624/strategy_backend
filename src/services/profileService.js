@@ -12,14 +12,14 @@ const updateProfileService = async (currentUser, targetUserId, profileData) => {
 
   if (currentUser.role === "MEMBER") {
     if (!isSelf) {
-      throw createBadRequestError(
+      createBadRequestError(
         "شما فقط می‌توانید پروفایل خودتان را ویرایش کنید",
         403,
       );
     }
   } else if (currentUser.role === "COMPANY") {
     if (!isSelf && user.companyId !== currentUser.companyId) {
-      throw createBadRequestError(
+      createBadRequestError(
         "شما فقط می‌توانید پروفایل اعضای شرکت خود را ویرایش کنید",
         403,
       );

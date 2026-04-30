@@ -26,6 +26,14 @@ enum ProjectMode {
   STEP
 }
 
+enum ProjectStatus {
+  DRAFT           // پروژه ساخته شده، آماده شروع
+  REVIEWING       // فرضیات آماده، منتظر تایید/رد کاربر
+  CHAT_MODE       // در حال گفتگو برای شفاف‌سازی (پس از رد فرضیات)
+  RISK_ANALYSIS   // تحلیل ریسک آماده، منتظر تایید برای نهایی
+  FINAL_ANALYSIS  // تحلیل نهایی آماده
+}
+
 enum Outcome {
   YES
   NO
@@ -36,6 +44,18 @@ enum StepSessionStatus {
   COMPLETED
   CANCELLED
 }
+
+enum FeedbackStatus {
+  PENDING   
+  REVIEWED   
+}
+
+enum NotificationType {
+  ADMIN_FEEDBACK      // پاسخ ادمین به درخواست بازخورد کاربر
+  PROJECT_RATED       // وقتی کسی پروژه شما را ریت کرد 
+  PROJECT_ACCESS_GRANTED      
+}
+
 
 model User {
   id               String   @id @default(uuid())
@@ -54,10 +74,13 @@ model User {
   company         Company?      @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: Cascade)
   createdProjects Project[]
   stepSessions    StepSession[]
-  ratingHistory       ProjectRatingHistory[]
+  ratingHistory   ProjectRatingHistory[]
   profileViewAccesses ProfileViewAccess[]
   chatMessages        ChatMessage[]
   refreshTokens       RefreshToken[]
+  notifications       Notification[]
+  feedbackRequests    ProjectFeedbackRequest[]
+
   @@index([role])
   @@index([companyId])
 }
@@ -98,71 +121,82 @@ model CompanyAdminData {
 }
 
 model Project {
-  id        String      @id @default(uuid())
-  title     String
+  id String @id @default(uuid())
+  title String
   creatorId String
   companyId String?
-  mode      ProjectMode
-  outcome      Outcome?
-  outcomeSetAt DateTime?
-  solution     String? @db.Text
-  ratedAt        DateTime?
+  mode ProjectMode @default(SINGLE)
+  status ProjectStatus @default(DRAFT)
+  formResponses Json?
+  formId String?
+  items ProjectItem[]
+  chatMessages ChatMessage[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  creator      User          @relation(fields: [creatorId], references: [id],onDelete: Cascade)
-  company      Company?      @relation(fields: [companyId], references: [id],onDelete: Cascade)
-  items        ProjectItem[]
-  chatMessages ChatMessage[]
-  projectRatingHistories ProjectRatingHistory[]
+  allowedViewerIds Json?
+  creator User @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  initialAnalysis String? @db.Text 
+  riskAnalysis String? @db.Text    
+  finalAnalysis String? @db.Text
+  ratings           ProjectRatingHistory[]
+  feedbackRequests  ProjectFeedbackRequest[]
+
+  @@index([status])
   @@index([companyId])
-  @@index([creatorId])
 }
 
 model ProjectRatingHistory {
-  id        String   @id @default(uuid())
+  id String @id @default(uuid())
   projectId String
-  adminId   String
-  score     Int
-  comment   String?
+  raterId String // کسی که امتیاز داده (ریتِر)
+  score Int
+  comment String?
   createdAt DateTime @default(now())
+  
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  admin   User    @relation(fields: [adminId], references: [id])
-  @@unique([projectId, adminId])
+  rater User @relation(fields: [raterId], references: [id]) // رابطه با کاربر ریتِر
+  
+  
+  // اطمینان از اینکه یک نفر فقط یک بار به یک پروژه امتیاز می‌دهد
+  @@unique([projectId, raterId])
   @@index([projectId])
-  @@index([adminId])
-  @@index([createdAt])
+  @@index([raterId])
 }
 
 model ProjectItem {
-  id        String  @id @default(uuid())
+  id String @id @default(uuid())
   projectId String
-  formId    String
-  formTitle String
-  responses Json?
-    //  داده‌های بصری (نمودار، جدول، چارت)
-  visualData Json? 
-  analysis  String @db.Text
-  solution  String? @db.Text
-  order     Int
-  isFinal   Boolean @default(false)
-  createdAt DateTime @default(now()) 
+  
+  formTitle String 
+  
+  analysis String @db.Text
+  
+  // ترتیب مراحل (۱، ۲، ۳، ...)
+  order Int 
+  
+  // آیا این مرحله نهایی است؟
+  isFinal Boolean @default(false)
+  
+  createdAt DateTime @default(now())
+  
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([projectId]) // سریع پیدا کردن آیتم‌های پروژه
-  @@index([formId]) // سریع پیدا کردن آیتم‌های یک فرم خاص
-  @@index([isFinal]) // برای تحلیل نهایی در STEP mode
-  @@index([order]) // مرتب‌سازی مراحل در STEP mode
+  
+  @@index([projectId])
+  @@index([order])
 }
 
 model ChatMessage {
-  id        String  @id @default(uuid())
+  id String @id @default(uuid())
   projectId String
-  userId    String?
-  role      String // "user" | "assistant" | "system"
-  content   String
+  userId String?
+  role String // "user" | "assistant" | "system"
+  content String @db.Text 
   createdAt DateTime @default(now())
+  
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
   @@index([projectId])
   @@index([userId])
   @@index([createdAt])
@@ -239,4 +273,39 @@ model StepFlow {
   updatedAt DateTime @updatedAt
   steps    StepFlowItem[]
   sessions StepSession[]
+}
+
+model ProjectFeedbackRequest {
+  id String @id @default(uuid())
+  projectId String
+  userId String 
+  adminResponseText String? // متنی که ادمین پاسخ می‌دهد
+  status FeedbackStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+  
+  // اطمینان از اینکه برای یک پروژه خاص، فقط یک درخواست بازخورد فعال وجود دارد
+  @@unique([projectId])
+  @@index([status])
+  @@index([userId])
+}
+
+model Notification {
+  id String @id @default(uuid())
+  userId String 
+  type NotificationType
+  title String 
+  message String 
+  isRead Boolean @default(false) 
+  referenceId String? 
+  referenceType String?
+  createdAt DateTime @default(now())
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId, isRead]) 
+  @@index([createdAt])
 }

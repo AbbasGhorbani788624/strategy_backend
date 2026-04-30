@@ -1,48 +1,6 @@
 const prisma = require("../prismaClient");
 const { createBadRequestError } = require("../utils");
 
-const createProjectWithDetails = async (currentUser, body) => {
-  const { title, formId, analysis, mode, messages, answers } = body;
-
-  return prisma.$transaction(async (tx) => {
-    const project = await tx.project.create({
-      data: {
-        title: title,
-        creatorId: currentUser.id,
-        companyId: currentUser.companyId,
-        mode: mode || "SINGLE",
-        solution: analysis,
-      },
-    });
-
-    await tx.projectItem.create({
-      data: {
-        projectId: project.id,
-        formId: formId,
-        formTitle: project.title,
-        responses: answers || {},
-        analysis: analysis,
-        order: 1,
-        isFinal: true,
-      },
-    });
-
-    // 3. ایجاد پیام‌های چت
-    if (messages && messages.length > 0) {
-      const chatMessages = messages.map((msg) => ({
-        projectId: project.id,
-        userId: msg.role === "user" ? currentUser.id : null,
-        role: msg.role,
-        content: msg.content,
-      }));
-
-      await tx.chatMessage.createMany({
-        data: chatMessages,
-      });
-    }
-  });
-};
-
 const createProjectFromStepSession = async (data) => {
   const { sessionId, title, messages, creatorId, companyId } = data;
 
@@ -109,6 +67,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
   const skip = (parseInt(page) - 1) * parseInt(limit);
   const take = parseInt(limit);
 
+  // 1. ساخت شرط جستجو (Where Clause)
   const whereClause = {
     ...(userRole === "SUPER_ADMIN"
       ? {
@@ -116,11 +75,8 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
         }
       : userRole === "COMPANY"
         ? {
-            ...(targetUserId
-              ? {
-                  creatorId: targetUserId,
-                }
-              : {}),
+            ...(targetUserId ? { creatorId: targetUserId } : {}),
+
             ...(!targetUserId ? { creatorId: userId } : {}),
           }
         : {
@@ -130,10 +86,12 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     ...(search && {
       title: {
         contains: search,
+        mode: "insensitive", // برای جستجوی حساس به حروف بزرگ/کوچک (اختیاری)
       },
     }),
   };
 
+  // 2. اعتبارسنجی دسترسی برای نقش COMPANY
   if (userRole === "COMPANY" && targetUserId) {
     const targetUser = await prisma.user.findUnique({
       where: { id: targetUserId },
@@ -141,16 +99,14 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     });
 
     if (!targetUser || targetUser.companyId !== companyId) {
-      throw createBadRequestError(
+      createBadRequestError(
         "دسترسی غیرمجاز: شما فقط می‌توانید پروژه‌های اعضای شرکت خود را مشاهده کنید.",
         401,
       );
     }
   }
-  if (userRole === "COMPANY" && !targetUserId) {
-    whereClause.creatorId = userId;
-  }
 
+  // 3. دریافت پروژه‌ها
   const projects = await prisma.project.findMany({
     where: whereClause,
     skip: skip,
@@ -164,25 +120,26 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
       mode: true,
       createdAt: true,
 
-      // 2. رابطه creator
       creator: {
         select: {
           id: true,
           fullname: true,
+          username: true,
         },
       },
 
-      // 3. رابطه company
+      // رابطه Company
       company: {
         select: {
           id: true,
           name: true,
         },
       },
-      projectRatingHistories: {
+
+      ratings: {
         orderBy: { createdAt: "desc" },
         include: {
-          admin: {
+          rater: {
             select: {
               id: true,
               username: true,
@@ -195,6 +152,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     },
   });
 
+  // 4. محاسبه تعداد کل
   const totalItems = await prisma.project.count({
     where: whereClause,
   });
@@ -241,11 +199,10 @@ const getProject = async (projectId, userId, userRole, companyId) => {
           industry: true,
         },
       },
-      // فقط تاریخچه ریت‌ها را می‌گیریم
-      projectRatingHistories: {
+      ratings: {
         orderBy: { createdAt: "desc" },
         include: {
-          admin: {
+          rater: {
             select: {
               id: true,
               username: true,
@@ -259,11 +216,8 @@ const getProject = async (projectId, userId, userRole, companyId) => {
         orderBy: { order: "asc" },
         select: {
           id: true,
-          formId: true,
           analysis: true,
-          solution: true,
           createdAt: true,
-          responses: true,
           order: true,
         },
       },
@@ -282,28 +236,22 @@ const getProject = async (projectId, userId, userRole, companyId) => {
   if (!project) return null;
 
   // --- پردازش امتیازها (فقط از تاریخچه) ---
-  const ratingHistories = project.projectRatingHistories || [];
 
   // ساخت لیست ریت‌ها برای هر مدیر
-  const ratingsList = ratingHistories.map((history) => ({
+  const ratingsListRaw = project.ratings || [];
+
+  // ساخت لیست ریت‌ها
+  const ratingsList = ratingsListRaw.map((history) => ({
     id: history.id,
-    role: history.admin.role, // "COMPANY" یا "SUPER_ADMIN"
+    role: history.rater.role, // تغییر از history.admin به history.rater
     score: history.score,
     comment: history.comment,
     ratedBy: {
-      name: history.admin.fullname,
-      role: history.admin.role,
+      name: history.rater.fullname, // تغییر از history.admin به history.rater
+      role: history.rater.role,
     },
     ratedAt: history.createdAt,
   }));
-
-  // محاسبه میانگین (اختیاری)
-  // let averageScore = null;
-  // if (ratingsList.length > 0) {
-  //   const totalScore = ratingsList.reduce((sum, r) => sum + r.score, 0);
-  //   averageScore = parseFloat((totalScore / ratingsList.length).toFixed(1));
-  // }
-
   // --- پردازش آیتم‌ها ---
   const uniqueFormIds = [...new Set(project.items.map((item) => item.formId))];
 
@@ -367,9 +315,12 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     company: project.company,
     items: enrichedItems,
     chatMessages: project.chatMessages,
+    initialAnalysis: project.initialAnalysis,
+    riskAnalysis: project.riskAnalysis,
+    finalAnalysis: project.finalAnalysis,
+    status: project.status,
     ratings: {
       list: ratingsList, // لیست تمام ریت‌ها
-      // average: averageScore // میانگین کل
     },
   };
 };
@@ -410,7 +361,6 @@ const giveRateAndProject = async (userId, projectId, body) => {
 };
 
 module.exports = {
-  createProjectWithDetails,
   getProject,
   createProjectFromStepSession,
   getAllProjects,

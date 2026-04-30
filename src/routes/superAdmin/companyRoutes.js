@@ -26,10 +26,10 @@ router.post(
 //دریافت همه شرکت ها
 router.get("/", auth, roleGuard(["SUPER_ADMIN"]), getAllCompany);
 
-//حذف شرکت
+//دریافت شرکت
 router.get("/id", auth, roleGuard(["SUPER_ADMIN"]), getCompany);
 
-//دریافت شرکت
+//حذف شرکت
 router.delete("/id", auth, roleGuard(["SUPER_ADMIN"]), deleteCompany);
 
 module.exports = router;

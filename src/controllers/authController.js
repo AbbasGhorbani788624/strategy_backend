@@ -33,19 +33,6 @@ exports.getMe = async function (req, res, next) {
   }
 };
 
-exports.changePassword = async function (req, res, next) {
-  try {
-    const { oldPassword, newPassword } = req.body;
-
-    await changePasseordService(req.user.id, oldPassword, newPassword);
-    return successResponse(res, 200, {
-      message: "رمز عبور با موفقیت تغییر کرد",
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
 exports.refresh = async function (req, res) {
   try {
     const refreshToken = req.cookies.refresh_token;
@@ -74,4 +61,16 @@ exports.logout = async function (req, res) {
   return successResponse(res, 200, {
     message: "با موفقیت خارج شدید",
   });
+};
+exports.changePassword = async function (req, res, next) {
+  try {
+    const { oldPassword, newPassword } = req.body;
+
+    await changePasseordService(req.user.id, oldPassword, newPassword);
+    return successResponse(res, 200, {
+      message: "رمز عبور با موفقیت تغییر کرد",
+    });
+  } catch (err) {
+    next(err);
+  }
 };

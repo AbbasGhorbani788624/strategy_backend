@@ -15,13 +15,12 @@ const {
 
 router.post("/login", loginSchema, login);
 
-// برای دیدن پروفایل خودش هم استفاده کن
 router.get("/me", auth, getMe);
-
-router.put("/changepassword", auth, changePasswordSchema, changePassword);
 
 router.post("/refresh", refresh);
 
 router.post("/logout", logout);
+
+router.put("/changepassword", auth, changePasswordSchema, changePassword);
 
 module.exports = router;

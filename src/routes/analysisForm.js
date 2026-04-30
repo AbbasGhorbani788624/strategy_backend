@@ -1,15 +1,17 @@
 const express = require("express");
 const auth = require("../middleware/auth");
-const { getAnalysisModes } = require("../controllers/analysisFormController");
 const {
-  getActiveFlows,
+  getAnalysisModes,
+  submitFormAnswers,
+  handleConversationStep,
+} = require("../controllers/analysisFormController");
+const {
   startStepSession,
   analyzeStep,
   getFinalAnalysis,
 } = require("../controllers/stepFlowController");
 
 const {
-  submitFormAnalysis,
   getFormForUser,
 } = require("../controllers/submitFormAnalysisController");
 const {
@@ -24,13 +26,18 @@ const { roleGuard } = require("../middleware/roleGuard");
 const router = express.Router();
 
 //پرکردن فرم تکی
-router.post("/", auth, validateFormSubmission, submitFormAnalysis);
+router.post("/", auth, validateFormSubmission, submitFormAnswers);
+
+//شروع مرحله در فرم بعد از ثبت پروژه
+router.post("/:id", auth, handleConversationStep);
 
 //فرستادن  نوع فرم ها لیست فرم های تکی و مرحله ای
 router.get("/modes", auth, getAnalysisModes);
 
 //گرفتن فرم تکی
 router.get("/:formId", auth, getFormForUser);
+
+//////////////////////////////////
 
 // شروع جلسه مرحله‌ای
 router.post(

@@ -67,16 +67,19 @@ CREATE TABLE `Project` (
     `title` VARCHAR(191) NOT NULL,
     `creatorId` VARCHAR(191) NOT NULL,
     `companyId` VARCHAR(191) NULL,
-    `mode` ENUM('SINGLE', 'STEP') NOT NULL,
-    `outcome` ENUM('YES', 'NO') NULL,
-    `outcomeSetAt` DATETIME(3) NULL,
-    `solution` TEXT NULL,
-    `ratedAt` DATETIME(3) NULL,
+    `mode` ENUM('SINGLE', 'STEP') NOT NULL DEFAULT 'SINGLE',
+    `status` ENUM('DRAFT', 'ANALYZING', 'REVIEWING', 'CHAT_MODE', 'RISK_ANALYSIS', 'FINAL_ANALYSIS', 'COMPLETED') NOT NULL DEFAULT 'DRAFT',
+    `formResponses` JSON NULL,
+    `formId` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
+    `allowedViewerIds` JSON NULL,
+    `initialAnalysis` TEXT NULL,
+    `riskAnalysis` TEXT NULL,
+    `finalAnalysis` TEXT NULL,
 
+    INDEX `Project_status_idx`(`status`),
     INDEX `Project_companyId_idx`(`companyId`),
-    INDEX `Project_creatorId_idx`(`creatorId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -84,15 +87,14 @@ CREATE TABLE `Project` (
 CREATE TABLE `ProjectRatingHistory` (
     `id` VARCHAR(191) NOT NULL,
     `projectId` VARCHAR(191) NOT NULL,
-    `adminId` VARCHAR(191) NOT NULL,
+    `raterId` VARCHAR(191) NOT NULL,
     `score` INTEGER NOT NULL,
     `comment` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `ProjectRatingHistory_projectId_idx`(`projectId`),
-    INDEX `ProjectRatingHistory_adminId_idx`(`adminId`),
-    INDEX `ProjectRatingHistory_createdAt_idx`(`createdAt`),
-    UNIQUE INDEX `ProjectRatingHistory_projectId_adminId_key`(`projectId`, `adminId`),
+    INDEX `ProjectRatingHistory_raterId_idx`(`raterId`),
+    UNIQUE INDEX `ProjectRatingHistory_projectId_raterId_key`(`projectId`, `raterId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -100,19 +102,13 @@ CREATE TABLE `ProjectRatingHistory` (
 CREATE TABLE `ProjectItem` (
     `id` VARCHAR(191) NOT NULL,
     `projectId` VARCHAR(191) NOT NULL,
-    `formId` VARCHAR(191) NOT NULL,
     `formTitle` VARCHAR(191) NOT NULL,
-    `responses` JSON NULL,
-    `visualData` JSON NULL,
     `analysis` TEXT NOT NULL,
-    `solution` TEXT NULL,
     `order` INTEGER NOT NULL,
     `isFinal` BOOLEAN NOT NULL DEFAULT false,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `ProjectItem_projectId_idx`(`projectId`),
-    INDEX `ProjectItem_formId_idx`(`formId`),
-    INDEX `ProjectItem_isFinal_idx`(`isFinal`),
     INDEX `ProjectItem_order_idx`(`order`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -153,7 +149,7 @@ CREATE TABLE `FormQuestion` (
     `label` VARCHAR(191) NOT NULL,
     `type` VARCHAR(191) NOT NULL,
     `options` JSON NULL,
-    `required` BOOLEAN NOT NULL DEFAULT false,
+    `required` BOOLEAN NOT NULL DEFAULT true,
     `order` INTEGER NOT NULL,
 
     INDEX `FormQuestion_formId_order_idx`(`formId`, `order`),
@@ -214,8 +210,41 @@ CREATE TABLE `StepFlow` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `ProjectFeedbackRequest` (
+    `id` VARCHAR(191) NOT NULL,
+    `projectId` VARCHAR(191) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `adminResponseText` VARCHAR(191) NULL,
+    `status` ENUM('PENDING', 'REVIEWED') NOT NULL DEFAULT 'PENDING',
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `ProjectFeedbackRequest_status_idx`(`status`),
+    INDEX `ProjectFeedbackRequest_userId_idx`(`userId`),
+    UNIQUE INDEX `ProjectFeedbackRequest_projectId_key`(`projectId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `Notification` (
+    `id` VARCHAR(191) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `type` ENUM('ADMIN_FEEDBACK', 'PROJECT_RATED', 'PROJECT_ACCESS_GRANTED') NOT NULL,
+    `title` VARCHAR(191) NOT NULL,
+    `message` VARCHAR(191) NOT NULL,
+    `isRead` BOOLEAN NOT NULL DEFAULT false,
+    `referenceId` VARCHAR(191) NULL,
+    `referenceType` VARCHAR(191) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `Notification_userId_isRead_idx`(`userId`, `isRead`),
+    INDEX `Notification_createdAt_idx`(`createdAt`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
-ALTER TABLE `User` ADD CONSTRAINT `User_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `User` ADD CONSTRAINT `User_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `ProfileViewAccess` ADD CONSTRAINT `ProfileViewAccess_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -227,16 +256,16 @@ ALTER TABLE `ProfileViewAccess` ADD CONSTRAINT `ProfileViewAccess_companyId_fkey
 ALTER TABLE `CompanyAdminData` ADD CONSTRAINT `CompanyAdminData_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `Project` ADD CONSTRAINT `Project_creatorId_fkey` FOREIGN KEY (`creatorId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `Project` ADD CONSTRAINT `Project_creatorId_fkey` FOREIGN KEY (`creatorId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `Project` ADD CONSTRAINT `Project_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `Project` ADD CONSTRAINT `Project_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `ProjectRatingHistory` ADD CONSTRAINT `ProjectRatingHistory_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `ProjectRatingHistory` ADD CONSTRAINT `ProjectRatingHistory_adminId_fkey` FOREIGN KEY (`adminId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `ProjectRatingHistory` ADD CONSTRAINT `ProjectRatingHistory_raterId_fkey` FOREIGN KEY (`raterId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `ProjectItem` ADD CONSTRAINT `ProjectItem_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -245,7 +274,7 @@ ALTER TABLE `ProjectItem` ADD CONSTRAINT `ProjectItem_projectId_fkey` FOREIGN KE
 ALTER TABLE `ChatMessage` ADD CONSTRAINT `ChatMessage_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `ChatMessage` ADD CONSTRAINT `ChatMessage_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `ChatMessage` ADD CONSTRAINT `ChatMessage_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `FormQuestion` ADD CONSTRAINT `FormQuestion_formId_fkey` FOREIGN KEY (`formId`) REFERENCES `AnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -264,3 +293,12 @@ ALTER TABLE `StepFlowItem` ADD CONSTRAINT `StepFlowItem_flowId_fkey` FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE `StepFlowItem` ADD CONSTRAINT `StepFlowItem_formId_fkey` FOREIGN KEY (`formId`) REFERENCES `AnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ProjectFeedbackRequest` ADD CONSTRAINT `ProjectFeedbackRequest_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ProjectFeedbackRequest` ADD CONSTRAINT `ProjectFeedbackRequest_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `Notification` ADD CONSTRAINT `Notification_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

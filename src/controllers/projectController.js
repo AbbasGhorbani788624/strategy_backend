@@ -4,8 +4,21 @@ const {
   getProjectService,
   getAllProjectsService,
   giveRateToProjectService,
+  createAnalysisProjectService,
 } = require("../services/projectService");
 const { successResponse } = require("../utils/responses");
+
+exports.createProject = async (req, res, next) => {
+  try {
+    const { formId } = req.body;
+    const currentUser = req.user;
+    await createAnalysisProjectService(currentUser, formId);
+    return successResponse(res, 201, { message: "پروژه با موفقیت ساخته شد" });
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
 
 exports.getAllProjects = async (req, res, next) => {
   try {
@@ -43,16 +56,6 @@ exports.getProject = async (req, res, next) => {
       });
     }
     return successResponse(res, 200, project);
-  } catch (err) {
-    console.error(err);
-    next(err);
-  }
-};
-
-exports.saveProject = async (req, res, next) => {
-  try {
-    await saveProjectService(req.user, req.body);
-    return successResponse(res, 201, { meesgae: "پروژه با موفقیت ساخته شد" });
   } catch (err) {
     console.error(err);
     next(err);

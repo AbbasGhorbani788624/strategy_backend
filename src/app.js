@@ -3,6 +3,7 @@ const path = require("path");
 const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
+const cors = require("cors");
 const errorHandler = require("./middleware/errorHandler");
 const companyRoutes = require("./routes/superAdmin/companyRoutes");
 const authRouter = require("./routes/auth");
@@ -12,7 +13,6 @@ const analysisFormRoutes = require("./routes/superAdmin/analysisFormRoutes");
 const stepFlow = require("./routes/superAdmin/stepFlow");
 const analysisRouter = require("./routes/analysisForm");
 const companyAdmin = require("./routes/superAdmin/companyAdmin");
-const chatRouter = require("./routes/chatRoutes");
 const projectRouter = require("./routes/projectRoutes");
 
 const limiter = rateLimit({
@@ -25,6 +25,15 @@ const limiter = rateLimit({
 
 const app = express();
 
+app.use(
+  cors({
+    origin: "",
+    credentials: true,
+  }),
+);
+
+// بقیه کدهای شما مثل middlewareها
+app.use(express.json());
 app.use(cookieParser());
 app.use(helmet());
 app.use(limiter);
@@ -43,7 +52,6 @@ app.use("/api/profile", profileRouter);
 app.use("/api/analysis-forms", analysisFormRoutes);
 app.use("/api/stepflow", stepFlow);
 app.use("/api/admin-data", companyAdmin);
-app.use("/api/chat", chatRouter);
 app.use("/api/project", projectRouter);
 
 app.use((req, res) => {

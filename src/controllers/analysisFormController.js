@@ -5,8 +5,37 @@ const {
   getAllAnalysisFormsService,
   getAnalysisFormByIdService,
   getAnalysisModesService,
+  submitFormAnswersService,
+  handleConversationStepService,
 } = require("../services/analysisFormService");
 const { successResponse } = require("../utils/responses");
+
+exports.submitFormAnswers = async (req, res, next) => {
+  try {
+    const { projectId, answers } = req.body;
+    const userId = req.user.id;
+    await submitFormAnswersService(projectId, userId, answers);
+    return successResponse(res, 201, { message: "فرم با موفقیت ثبت شد" });
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.handleConversationStep = async (req, res, next) => {
+  try {
+    const { userInput = "" } = req.body || {};
+    const { id } = req.params;
+    const userId = req.user.id;
+    const response = await handleConversationStepService(id, userId, userInput);
+    return successResponse(res, 200, response);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+////
 
 exports.createAnalysisForm = async (req, res, next) => {
   try {

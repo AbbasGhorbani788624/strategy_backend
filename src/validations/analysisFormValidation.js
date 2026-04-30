@@ -5,10 +5,7 @@ const questionSchema = yup.object().shape({
 
   type: yup
     .string()
-    .oneOf(
-      ["checkbox", "radio", "dropdown", "short", "long"],
-      "نوع سوال معتبر نیست",
-    )
+    .oneOf(["checkbox", "radio", "dropdown"], "نوع سوال معتبر نیست")
     .required("نوع سوال الزامی است"),
 
   options: yup
@@ -51,7 +48,7 @@ const schema = yup.object().shape({
     .array()
     .of(questionSchema)
     .min(1, "حداقل یک سوال باید اضافه شود")
-    .required("لیست سوالات الزامی است"),
+    .optional("لیست سوالات الزامی است"),
 });
 
 exports.analysisFormSchema = async (req, res, next) => {

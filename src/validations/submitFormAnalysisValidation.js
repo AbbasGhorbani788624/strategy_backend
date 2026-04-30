@@ -1,11 +1,10 @@
 const yup = require("yup");
 
-// ساختار انتظار برای body
 const schema = yup.object().shape({
-  formId: yup
+  projectId: yup
     .string()
-    .uuid("formId باید یک UUID معتبر باشد")
-    .required("formId الزامی است"),
+    .uuid(" ایدی پروژه معتبر نیست")
+    .required(" ایدی پروژه الزامی است"),
   answers: yup
     .object()
     .required("answers الزامی است")

@@ -28,7 +28,7 @@ const deleteImage = (filename) => {
 const findUserAndDeleteImage = async (id) => {
   const user = await prisma.user.findById(id);
   if (!user) {
-    throw createBadRequestError("چنین کاربری وجود ندارد");
+    createBadRequestError("چنین کاربری وجود ندارد");
   }
   const profileImage = user.avatar;
   if (profileImage) {
@@ -36,4 +36,8 @@ const findUserAndDeleteImage = async (id) => {
   }
 };
 
-module.exports = { createBadRequestError, deleteImage, findUserAndDeleteImage };
+module.exports = {
+  createBadRequestError,
+  deleteImage,
+  findUserAndDeleteImage,
+};

@@ -5,11 +5,13 @@ const prisma = require("../prismaClient");
 const createWithQuestions = async (data) => {
   const { questions, ...formData } = data;
 
+  const validQuestions = Array.isArray(questions) ? questions : [];
+
   return prisma.analysisForm.create({
     data: {
       ...formData,
       questions: {
-        create: questions.map((q) => ({
+        create: validQuestions.map((q) => ({
           label: q.label,
           type: q.type,
           options: q.options || null,
@@ -23,25 +25,22 @@ const createWithQuestions = async (data) => {
     },
   });
 };
-
 // ارتباط با دیتابیس جهت ویرایش فرم تحلیل
 const updateFormWithQuestions = async (id, data) => {
   const { questions, ...formData } = data;
 
   return prisma.$transaction(async (tx) => {
-    // آپدیت فرم
-    await tx.analysisForm.update({
-      where: { id },
-      data: formData,
+    if (Object.keys(formData).length > 0) {
+      await tx.analysisForm.update({
+        where: { id },
+        data: formData,
+      });
+    }
+    await tx.formQuestion.deleteMany({
+      where: { formId: id },
     });
 
-    if (questions) {
-      // حذف سوال‌های قبلی
-      await tx.formQuestion.deleteMany({
-        where: { formId: id },
-      });
-
-      // ایجاد سوال‌های جدید
+    if (Array.isArray(questions) && questions.length > 0) {
       await tx.formQuestion.createMany({
         data: questions.map((q) => ({
           formId: id,
@@ -64,7 +63,6 @@ const updateFormWithQuestions = async (id, data) => {
     });
   });
 };
-
 // ارتباط با دیتابیس حهت حذف فرم تحلیل
 const deleteFormRepo = async (id) => {
   return prisma.analysisForm.delete({

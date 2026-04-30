@@ -70,13 +70,13 @@ const updateCompanyService = async (
 ) => {
   const existingCompany = await findCompanyById(id);
   if (!existingCompany) {
-    throw createBadRequestError("شرکت مورد نظر یافت نشد");
+    createBadRequestError("شرکت مورد نظر یافت نشد");
   }
 
   if (name && name !== existingCompany.name) {
     const companyWithSameName = await findCompanyByName(name);
     if (companyWithSameName) {
-      throw createBadRequestError("این اسم شرکت قبلاً ثبت شده است");
+      createBadRequestError("این اسم شرکت قبلاً ثبت شده است");
     }
   }
 
@@ -96,7 +96,7 @@ const updateCompanyService = async (
     const currentUsersCount = await countUsersByCompany(id);
 
     if (currentUsersCount > limitToSet) {
-      throw createBadRequestError(
+      createBadRequestError(
         `تعداد کاربران فعلی شرکت (${currentUsersCount}) بیشتر از محدودیت جدید (${limitToSet}) است. لطفاً ابتدا تعداد کاربران را کاهش دهید.`,
       );
     }
@@ -239,7 +239,7 @@ const getCompanyMembersService = async (id, companyId, query) => {
 const deleteCompanyService = async (id) => {
   const company = await isCompanyExists(id);
   if (!company) {
-    throw createBadRequestError("شرکتی با این ایدی وجود ندارد", 404);
+    createBadRequestError("شرکتی با این ایدی وجود ندارد", 404);
   }
   await prisma.company.delete({ where: { id } });
 };
@@ -247,7 +247,7 @@ const deleteCompanyService = async (id) => {
 const getCompanyService = async (id) => {
   const company = await findCompanyById(id);
   if (!company) {
-    throw createBadRequestError("شرکتی با این ایدی وجود ندارد", 404);
+    createBadRequestError("شرکتی با این ایدی وجود ندارد", 404);
   }
   return company;
 };

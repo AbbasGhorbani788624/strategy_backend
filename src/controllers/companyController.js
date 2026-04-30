@@ -46,10 +46,7 @@ exports.updateCompany = async (req, res, next) => {
 
     if (userRole === "COMPANY") {
       if (id !== companyId) {
-        throw createBadRequestError(
-          "شما مجاز به ویرایش شرکت دیگری نیستید.",
-          401,
-        );
+        createBadRequestError("شما مجاز به ویرایش شرکت دیگری نیستید.", 401);
       }
     }
 

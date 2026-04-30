@@ -105,13 +105,13 @@ const verifyOldPassword = async (userId, oldPassword) => {
   });
 
   if (!user) {
-    throw createBadRequestError("کاربر یافت نشد");
+    createBadRequestError("کاربر یافت نشد");
   }
 
   const isMatch = await comparePassword(oldPassword, user.password);
 
   if (!isMatch) {
-    throw createBadRequestError("رمز عبور فعلی اشتباه است");
+    createBadRequestError("رمز عبور فعلی اشتباه است");
   }
 
   return true;

@@ -65,19 +65,19 @@ const deleteCompanyUserService = async (userId, creator) => {
   const user = await findById(userId);
 
   if (!user) {
-    throw createBadRequestError("کاربر یافت نشد");
+    createBadRequestError("کاربر یافت نشد");
   }
 
   if (creator.role === "COMPANY") {
     if (user.companyId !== creator.companyId) {
-      throw createBadRequestError(
+      createBadRequestError(
         "شما فقط می‌توانید اعضای شرکت خود را حذف کنید",
         403,
       );
     }
 
     if (user.role === "COMPANY" && user.id === creator.id) {
-      throw createBadRequestError("ادمین اصلی نمی‌تواند خودش را حذف کند");
+      createBadRequestError("ادمین اصلی نمی‌تواند خودش را حذف کند");
     }
   }
 
