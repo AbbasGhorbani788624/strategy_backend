@@ -5,6 +5,7 @@ const { roleGuard } = require("../../middleware/roleGuard");
 const {
   createCompanyUser,
   deleteCompanyUser,
+  usersColleague,
 } = require("../../controllers/companyUserController");
 const {
   createCompanyuserSchema,
@@ -50,5 +51,8 @@ router.put(
   createCompanySchema,
   updateCompany,
 );
+
+//گرفتن لیست همکاران
+router.get("/", auth, usersColleague);
 
 module.exports = router;

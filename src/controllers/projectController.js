@@ -1,11 +1,15 @@
+const { isProjectExists } = require("../repositories/projectRepository");
 const {
-  saveProjectService,
   createProjectFromStepService,
   getProjectService,
   getAllProjectsService,
   giveRateToProjectService,
   createAnalysisProjectService,
+  grantProjectAccessService,
+  createFeedbackRequestService,
+  getMyFeedbackHistoryService,
 } = require("../services/projectService");
+const { createBadRequestError } = require("../utils");
 const { successResponse } = require("../utils/responses");
 
 exports.createProject = async (req, res, next) => {
@@ -40,6 +44,21 @@ exports.getAllProjects = async (req, res, next) => {
   }
 };
 
+exports.getAllProjectsAccess = async (req, res, next) => {
+  try {
+    const { projectId } = req.params;
+    const { colleagueIds } = req.body;
+    const userId = req.user.id;
+    await grantProjectAccessService(projectId, colleagueIds, userId);
+    return successResponse(res, 201, {
+      message: "دسترسی ها با موفقیت ایجاد شد",
+    });
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
 exports.getProject = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -50,9 +69,9 @@ exports.getProject = async (req, res, next) => {
     const project = await getProjectService(id, userId, userRole, companyId);
 
     if (!project) {
-      return res.status(404).json({
+      return res.status(401).json({
         success: false,
-        message: "پروژه وجود ندارد یا دسترسی ندارید",
+        message: "شما به این پروژه دسترسی ندارید",
       });
     }
     return successResponse(res, 200, project);
@@ -62,10 +81,33 @@ exports.getProject = async (req, res, next) => {
   }
 };
 
-exports.createProjectFromStep = async (req, res, next) => {
+exports.createFeedbackRequest = async (req, res, next) => {
   try {
-    await createProjectFromStepService(req.user, req.body);
-    return successResponse(res, 201, { meesgae: "پروژه با موفقیت ساخته شد" });
+    const userId = req.user.id;
+    const { id } = req.params;
+    const project = await isProjectExists(id);
+    if (!project) {
+      createBadRequestError("پروژه یافت نشد", 404);
+    }
+    await createFeedbackRequestService(id, userId);
+
+    return successResponse(res, 201, {
+      message: "درخواست بازخورد با موفقیت ثبت شد.",
+    });
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.getMyFeedbackHistory = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const FeedbackHistory = await getMyFeedbackHistoryService(
+      userId,
+      req.query,
+    );
+    return successResponse(res, 200, FeedbackHistory);
   } catch (err) {
     console.error(err);
     next(err);
@@ -78,6 +120,17 @@ exports.giveReteAndComment = async (req, res, next) => {
     const { id } = req.params;
     await giveRateToProjectService(userId, id, req.body);
     return successResponse(res, 201, { message: "نظر با موفقیت ثبت شد" });
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+/////////////////////
+exports.createProjectFromStep = async (req, res, next) => {
+  try {
+    await createProjectFromStepService(req.user, req.body);
+    return successResponse(res, 201, { meesgae: "پروژه با موفقیت ساخته شد" });
   } catch (err) {
     console.error(err);
     next(err);

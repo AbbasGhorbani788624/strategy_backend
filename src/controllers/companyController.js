@@ -7,6 +7,8 @@ const {
   getCompanyMembersService,
   deleteCompanyService,
   getCompanyService,
+  getAllFeedbackRequestsService,
+  respondToFeedbackRequestService,
 } = require("../services/companyService");
 const { createBadRequestError } = require("../utils");
 
@@ -100,6 +102,31 @@ exports.getCompany = async (req, res, next) => {
     const { id } = req.params;
     const company = await getCompanyService(id);
     return successResponse(res, 200, company);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAllFeedbackRequests = async (req, res, next) => {
+  try {
+    const feedbackRequests = await getAllFeedbackRequestsService(req.query);
+    return successResponse(res, 200, feedbackRequests);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.respondToFeedbackRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { responseText } = body;
+    const userId = req.user.id;
+    if (!responseText || responseText.trim() === "") {
+      createBadRequestError("متن پاسخ نمی‌تواند خالی باشد.", 400);
+    }
+
+    await respondToFeedbackRequestService(id, userId, responseText);
+    return successResponse(res, 200, { message: "پاسخ با موفقیت داده شد" });
   } catch (err) {
     next(err);
   }

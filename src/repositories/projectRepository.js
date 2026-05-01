@@ -63,50 +63,66 @@ const createProjectFromStepSession = async (data) => {
 
 const getAllProjects = async (userId, userRole, companyId, query) => {
   const { page = 1, limit = 10, search, targetUserId } = query;
-
   const skip = (parseInt(page) - 1) * parseInt(limit);
   const take = parseInt(limit);
 
-  // 1. ساخت شرط جستجو (Where Clause)
-  const whereClause = {
-    ...(userRole === "SUPER_ADMIN"
-      ? {
-          ...(targetUserId ? { creatorId: targetUserId } : {}),
-        }
-      : userRole === "COMPANY"
-        ? {
-            ...(targetUserId ? { creatorId: targetUserId } : {}),
+  let whereClause = {};
 
-            ...(!targetUserId ? { creatorId: userId } : {}),
-          }
-        : {
-            creatorId: userId,
-          }),
+  if (userRole === "SUPER_ADMIN") {
+    if (targetUserId) {
+      whereClause.creatorId = targetUserId;
+    }
+  } else if (userRole === "COMPANY") {
+    if (targetUserId) {
+      const targetUser = await prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { companyId: true },
+      });
 
-    ...(search && {
-      title: {
-        contains: search,
-        mode: "insensitive", // برای جستجوی حساس به حروف بزرگ/کوچک (اختیاری)
+      if (!targetUser || targetUser.companyId !== companyId) {
+        throw createBadRequestError(
+          "دسترسی غیرمجاز: شما فقط می‌توانید پروژه‌های اعضای شرکت خود را مشاهده کنید.",
+          401,
+        );
+      }
+
+      whereClause.creatorId = targetUserId;
+    } else {
+      whereClause.companyId = companyId;
+    }
+  } else if (userRole === "MEMBER") {
+    const accessCondition = {
+      accesses: {
+        some: {
+          userId: userId,
+        },
       },
-    }),
-  };
+    };
 
-  // 2. اعتبارسنجی دسترسی برای نقش COMPANY
-  if (userRole === "COMPANY" && targetUserId) {
-    const targetUser = await prisma.user.findUnique({
-      where: { id: targetUserId },
-      select: { companyId: true },
-    });
+    if (targetUserId) {
+      const targetUser = await prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { companyId: true },
+      });
 
-    if (!targetUser || targetUser.companyId !== companyId) {
-      createBadRequestError(
-        "دسترسی غیرمجاز: شما فقط می‌توانید پروژه‌های اعضای شرکت خود را مشاهده کنید.",
-        401,
-      );
+      if (!targetUser || targetUser.companyId !== companyId) {
+        throw createBadRequestError("دسترسی غیرمجاز.", 401);
+      }
+
+      whereClause.creatorId = targetUserId;
+    } else {
+      whereClause = {
+        OR: [{ creatorId: userId }, accessCondition],
+      };
     }
   }
 
-  // 3. دریافت پروژه‌ها
+  if (search) {
+    whereClause.title = {
+      contains: search,
+    };
+  }
+
   const projects = await prisma.project.findMany({
     where: whereClause,
     skip: skip,
@@ -119,7 +135,6 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
       title: true,
       mode: true,
       createdAt: true,
-
       creator: {
         select: {
           id: true,
@@ -127,15 +142,12 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
           username: true,
         },
       },
-
-      // رابطه Company
       company: {
         select: {
           id: true,
           name: true,
         },
       },
-
       ratings: {
         orderBy: { createdAt: "desc" },
         include: {
@@ -152,7 +164,6 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     },
   });
 
-  // 4. محاسبه تعداد کل
   const totalItems = await prisma.project.count({
     where: whereClause,
   });
@@ -167,21 +178,41 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     },
   };
 };
+const isProjectExists = async (projectId) => {
+  return await prisma.project.count({ where: { id: projectId } });
+};
 
 const getProject = async (projectId, userId, userRole, companyId) => {
   let whereClause = { id: projectId };
-
   if (userRole === "MEMBER") {
-    whereClause.creatorId = userId;
+    await prisma.projectAccess.findFirst({
+      where: {
+        projectId: projectId,
+        userId: userId,
+      },
+    });
+    whereClause = {
+      id: projectId,
+      OR: [
+        { creatorId: userId },
+        {
+          accesses: {
+            some: {
+              userId: userId,
+            },
+          },
+        },
+      ],
+    };
   } else if (userRole === "COMPANY") {
     if (!companyId) {
       return null;
     }
     whereClause.companyId = companyId;
+  } else if (userRole === "SUPER_ADMIN") {
+    whereClause = { id: projectId };
   }
-  // SUPER_ADMIN محدودیتی ندارد
 
-  // 2. دریافت اطلاعات پروژه
   const project = await prisma.project.findUnique({
     where: whereClause,
     include: {
@@ -235,77 +266,72 @@ const getProject = async (projectId, userId, userRole, companyId) => {
 
   if (!project) return null;
 
-  // --- پردازش امتیازها (فقط از تاریخچه) ---
-
-  // ساخت لیست ریت‌ها برای هر مدیر
   const ratingsListRaw = project.ratings || [];
-
-  // ساخت لیست ریت‌ها
   const ratingsList = ratingsListRaw.map((history) => ({
     id: history.id,
-    role: history.rater.role, // تغییر از history.admin به history.rater
+    role: history.rater.role,
     score: history.score,
     comment: history.comment,
     ratedBy: {
-      name: history.rater.fullname, // تغییر از history.admin به history.rater
+      name: history.rater.fullname,
       role: history.rater.role,
     },
     ratedAt: history.createdAt,
   }));
-  // --- پردازش آیتم‌ها ---
+
   const uniqueFormIds = [...new Set(project.items.map((item) => item.formId))];
 
-  const formsWithQuestions = await prisma.analysisForm.findMany({
-    where: {
-      id: { in: uniqueFormIds },
-    },
-    include: {
-      questions: {
-        orderBy: { order: "asc" },
-        select: {
-          id: true,
-          label: true,
-          type: true,
+  if (uniqueFormIds.length > 0) {
+    const formsWithQuestions = await prisma.analysisForm.findMany({
+      where: {
+        id: { in: uniqueFormIds },
+      },
+      include: {
+        questions: {
+          orderBy: { order: "asc" },
+          select: {
+            id: true,
+            label: true,
+            type: true,
+          },
         },
       },
-    },
-  });
-
-  const formMap = new Map();
-  formsWithQuestions.forEach((form) => {
-    const questionsObj = Object.fromEntries(
-      form.questions.map((q) => [q.id, q.label]),
-    );
-    formMap.set(form.id, {
-      title: form.title,
-      questions: questionsObj,
     });
-  });
 
-  const enrichedItems = project.items.map((item) => {
-    const formInfo = formMap.get(item.formId);
-    const responses = item.responses || {};
+    const formMap = new Map();
+    formsWithQuestions.forEach((form) => {
+      const questionsObj = Object.fromEntries(
+        form.questions.map((q) => [q.id, q.label]),
+      );
+      formMap.set(form.id, {
+        title: form.title,
+        questions: questionsObj,
+      });
+    });
 
-    const answeredQuestions = Object.entries(responses).map(
-      ([questionId, answer]) => {
-        return {
-          questionText: formInfo?.questions[questionId] || "سوال یافت نشد",
-          answer: answer,
-        };
-      },
-    );
+    const enrichedItems = project.items.map((item) => {
+      const formInfo = formMap.get(item.formId);
+      const responses = item.responses || {};
+      const answeredQuestions = Object.entries(responses).map(
+        ([questionId, answer]) => {
+          return {
+            questionText: formInfo?.questions[questionId] || "سوال یافت نشد",
+            answer: answer,
+          };
+        },
+      );
+      return {
+        ...item,
+        formDetails: {
+          title: formInfo?.title,
+          questions: answeredQuestions,
+        },
+      };
+    });
 
-    return {
-      ...item,
-      formDetails: {
-        title: formInfo?.title,
-        questions: answeredQuestions,
-      },
-    };
-  });
+    project.enrichedItems = enrichedItems;
+  }
 
-  // 3. بازگشت نتیجه نهایی
-  // فیلدهایی که دیگر وجود ندارند یا نیاز نیستند حذف شده‌اند
   return {
     id: project.id,
     title: project.title,
@@ -313,51 +339,65 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     createdAt: project.createdAt,
     creator: project.creator,
     company: project.company,
-    items: enrichedItems,
+    items: project.enrichedItems || project.items,
     chatMessages: project.chatMessages,
     initialAnalysis: project.initialAnalysis,
     riskAnalysis: project.riskAnalysis,
     finalAnalysis: project.finalAnalysis,
     status: project.status,
     ratings: {
-      list: ratingsList, // لیست تمام ریت‌ها
+      list: ratingsList,
     },
   };
 };
 
-const getProjectById = async (projectId) => {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { id: true, companyId: true },
-  });
-  return project;
-};
-
-const isProjectExists = async (projectId) => {
-  return await prisma.project.count({ where: { id: projectId } });
-};
-
 const giveRateAndProject = async (userId, projectId, body) => {
   const { comment, score = 1 } = body;
+  const validScore = parseInt(score, 10);
 
-  await prisma.projectRatingHistory.upsert({
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      id: true,
+      status: true,
+      creatorId: true,
+      companyId: true,
+      creator: {
+        select: { companyId: true },
+      },
+    },
+  });
+
+  if (!project) {
+    throw createBadRequestError("پروژه مورد نظر یافت نشد.", 404);
+  }
+
+  if (project.status !== "FINAL_ANALYSIS") {
+    throw createBadRequestError(
+      "امکان امتیازدهی به این پروژه وجود ندارد. وضعیت پروژه نهایی نیست.",
+      403,
+    );
+  }
+  const result = await prisma.projectRatingHistory.upsert({
     where: {
-      projectId_adminId: {
+      projectId_raterId: {
         projectId: projectId,
-        adminId: userId,
+        raterId: userId,
       },
     },
     create: {
       projectId: projectId,
-      adminId: userId,
-      score: parseInt(score, 10),
+      raterId: userId,
+      score: validScore,
       comment: comment || null,
     },
     update: {
-      score: parseInt(score, 10),
+      score: validScore,
       comment: comment !== undefined ? comment : null,
     },
   });
+
+  return result;
 };
 
 module.exports = {
@@ -365,6 +405,5 @@ module.exports = {
   createProjectFromStepSession,
   getAllProjects,
   giveRateAndProject,
-  getProjectById,
   isProjectExists,
 };

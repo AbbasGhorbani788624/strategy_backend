@@ -85,4 +85,69 @@ const deleteCompanyUserService = async (userId, creator) => {
   await findUserAndDeleteImage(userId);
 };
 
-module.exports = { createCompanyUserService, deleteCompanyUserService };
+const getColleaguesService = async (userId) => {
+  const userWithCompany = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      id: true,
+      username: true,
+      fullname: true,
+      // ۲. لود کردن شرکت متعلق به این کاربر
+      company: {
+        select: {
+          id: true,
+          name: true,
+          // ۳. لود کردن اعضای شرکت (همکاران)
+          members: {
+            // فیلتر کردن خود کاربر از لیست همکاران (اختیاری اما توصیه شده)
+            where: {
+              id: {
+                not: userId,
+              },
+            },
+            select: {
+              id: true,
+              username: true,
+              fullname: true,
+              avatar: true,
+              role: true,
+              // می‌توانید فیلدهای دیگر مثل email یا phoneNumber را هم اضافه کنید
+              // اما مراقب باشید که اگر sensitive data است، دسترسی‌ها را مدیریت کنید
+            },
+            // مرتب‌سازی اختیاری (مثلاً بر اساس نام)
+            orderBy: {
+              fullname: "asc",
+            },
+            // محدود کردن تعداد اگر شرکت بزرگ است (Pagination)
+            take: 100,
+          },
+        },
+      },
+    },
+  });
+
+  // ۴. بررسی خطاها
+  if (!userWithCompany) {
+    createBadRequestError("کاربر مورد نظر یافت نشد.", 404);
+  }
+
+  if (!userWithCompany.company) {
+    createBadRequestError("این کاربر به هیچ شرکتی متصل نیست.", 400);
+  }
+
+  return {
+    company: {
+      id: userWithCompany.company.id,
+      name: userWithCompany.company.name,
+    },
+    colleagues: userWithCompany.company.members,
+  };
+};
+
+module.exports = {
+  createCompanyUserService,
+  deleteCompanyUserService,
+  getColleaguesService,
+};

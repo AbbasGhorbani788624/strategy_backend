@@ -56,7 +56,6 @@ enum NotificationType {
   PROJECT_ACCESS_GRANTED      
 }
 
-
 model User {
   id               String   @id @default(uuid())
   avatar           String?
@@ -80,6 +79,8 @@ model User {
   refreshTokens       RefreshToken[]
   notifications       Notification[]
   feedbackRequests    ProjectFeedbackRequest[]
+  projectAccesses   ProjectAccess[] 
+
 
   @@index([role])
   @@index([companyId])
@@ -133,7 +134,6 @@ model Project {
   chatMessages ChatMessage[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  allowedViewerIds Json?
   creator User @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
   initialAnalysis String? @db.Text 
@@ -141,6 +141,8 @@ model Project {
   finalAnalysis String? @db.Text
   ratings           ProjectRatingHistory[]
   feedbackRequests  ProjectFeedbackRequest[]
+  accesses          ProjectAccess[] 
+
 
   @@index([status])
   @@index([companyId])
@@ -206,7 +208,7 @@ model AnalysisForm {
   id             String         @id @default(uuid())
   title          String
   info           String?
-  promptTemplate String
+  promptTemplate String         @db.Text
   order          Int?
   isActive       Boolean        @default(true)
   questions      FormQuestion[]
@@ -308,4 +310,20 @@ model Notification {
   
   @@index([userId, isRead]) 
   @@index([createdAt])
+}
+
+model ProjectAccess {
+  id        String   @id @default(uuid())
+  projectId String
+  userId    String
+    
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([projectId, userId])
+  
+  @@index([projectId])
+  @@index([userId])
+  
+  createdAt DateTime @default(now())
 }

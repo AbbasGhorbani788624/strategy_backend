@@ -252,6 +252,139 @@ const getCompanyService = async (id) => {
   return company;
 };
 
+const getAllFeedbackRequestsService = async (query) => {
+  const { page = 1, limit = 10, search } = query;
+
+  const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const take = parseInt(limit, 10);
+
+  const whereClause = {};
+
+  if (search) {
+    whereClause.OR = [
+      {
+        project: {
+          title: {
+            contains: search,
+          },
+        },
+      },
+      {
+        user: {
+          fullname: {
+            contains: search,
+          },
+        },
+      },
+    ];
+  }
+
+  const feedbackRequests = await prisma.projectFeedbackRequest.findMany({
+    where: whereClause,
+    skip: skip,
+    take: take,
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      project: {
+        select: {
+          id: true,
+          title: true,
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          username: true,
+          fullname: true,
+        },
+      },
+    },
+  });
+
+  const totalItems = await prisma.projectFeedbackRequest.count({
+    where: whereClause,
+  });
+
+  return {
+    feedbackRequests,
+    pagination: {
+      totalItems,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalItems / take),
+      limit: take,
+    },
+  };
+};
+
+const respondToFeedbackRequestService = async (
+  requestId,
+  adminId,
+  responseText,
+) => {
+  const feedbackRequest = await prisma.projectFeedbackRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      project: {
+        select: {
+          id: true,
+          title: true,
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          username: true,
+        },
+      },
+    },
+  });
+
+  if (!feedbackRequest) {
+    throw createBadRequestError("درخواست بازخورد یافت نشد.", 404);
+  }
+
+  if (feedbackRequest.status === "REVIEWED") {
+    throw createBadRequestError("این درخواست قبلاً پاسخ داده شده است.", 400);
+  }
+
+  // 2. آپدیت وضعیت و نوشتن پاسخ
+  const updatedRequest = await prisma.projectFeedbackRequest.update({
+    where: { id: requestId },
+    data: {
+      adminResponseText: responseText,
+      status: "REVIEWED",
+    },
+    include: {
+      project: {
+        select: {
+          id: true,
+          title: true,
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          username: true,
+        },
+      },
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      userId: feedbackRequest.userId,
+      type: "ADMIN_FEEDBACK",
+      title: "پاسخ بازخورد پروژه",
+      message: `پاسخ ادمین برای پروژه "${feedbackRequest.project.title}" آماده شد.`,
+      referenceId: feedbackRequest.project.id,
+      referenceType: "PROJECT",
+      isRead: false,
+    },
+  });
+};
+
 module.exports = {
   createCompanyService,
   updateCompanyService,
@@ -259,4 +392,6 @@ module.exports = {
   deleteCompanyService,
   getCompanyService,
   getCompanyMembersService,
+  getAllFeedbackRequestsService,
+  respondToFeedbackRequestService,
 };
