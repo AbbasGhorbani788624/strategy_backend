@@ -93,7 +93,7 @@ const getColleaguesService = async (userId) => {
     select: {
       id: true,
       username: true,
-      fullname: true,
+      // fullname: true,
       // ۲. لود کردن شرکت متعلق به این کاربر
       company: {
         select: {
@@ -110,16 +110,16 @@ const getColleaguesService = async (userId) => {
             select: {
               id: true,
               username: true,
-              fullname: true,
+              // fullname: true,
               avatar: true,
               role: true,
               // می‌توانید فیلدهای دیگر مثل email یا phoneNumber را هم اضافه کنید
               // اما مراقب باشید که اگر sensitive data است، دسترسی‌ها را مدیریت کنید
             },
             // مرتب‌سازی اختیاری (مثلاً بر اساس نام)
-            orderBy: {
-              fullname: "asc",
-            },
+            // orderBy: {
+            //   fullname: "asc",
+            // },
             // محدود کردن تعداد اگر شرکت بزرگ است (Pagination)
             take: 100,
           },

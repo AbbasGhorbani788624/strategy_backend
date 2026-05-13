@@ -1,24 +1,30 @@
 const yup = require("yup");
 
+const promptSchema = yup.object().shape({
+  content: yup.string().trim().required("متن پرامپت الزامی است"),
+});
+
+const goalSchema = yup.object().shape({
+  title: yup.string().trim().required("عنوان هدف الزامی است"),
+});
+
 const questionSchema = yup.object().shape({
   label: yup.string().trim().required("متن سوال الزامی است"),
-
   type: yup
     .string()
-    .oneOf(["checkbox", "radio", "dropdown"], "نوع سوال معتبر نیست")
+    .oneOf(["CHECKBOX", "RADIO", "DROPDOWN"], "نوع سوال معتبر نیست")
     .required("نوع سوال الزامی است"),
 
-  options: yup
-    .array()
-    .of(yup.string().trim())
-    .when("type", {
-      is: (val) => ["checkbox", "radio", "dropdown"].includes(val),
-      then: (schema) =>
-        schema
-          .min(1, "برای این نوع سوال باید حداقل یک گزینه وارد شود")
-          .required("گزینه‌ها الزامی هستند"),
-      otherwise: (schema) => schema.notRequired().nullable(),
-    }),
+  options: yup.mixed().when("type", {
+    is: (val) => ["CHECKBOX", "RADIO", "DROPDOWN"].includes(val),
+    then: () =>
+      yup
+        .array()
+        .of(yup.string().trim().required())
+        .min(1, "برای این نوع سوال باید حداقل یک گزینه وارد شود")
+        .required("گزینه‌ها الزامی هستند"),
+    otherwise: () => yup.mixed().nullable().notRequired(),
+  }),
 
   required: yup.boolean().optional(),
 
@@ -34,8 +40,6 @@ const schema = yup.object().shape({
 
   info: yup.string().trim().nullable(),
 
-  promptTemplate: yup.string().trim().required("قالب پرامپت الزامی است"),
-
   order: yup
     .number()
     .typeError("ترتیب فرم باید عدد باشد")
@@ -44,13 +48,20 @@ const schema = yup.object().shape({
 
   isActive: yup.boolean().optional(),
 
-  questions: yup
+  prompts: yup
     .array()
-    .of(questionSchema)
-    .min(1, "حداقل یک سوال باید اضافه شود")
-    .optional("لیست سوالات الزامی است"),
-});
+    .of(promptSchema)
+    .min(1, "حداقل یک پرامپت باید اضافه شود")
+    .required("لیست پرامپت‌ها الزامی است"),
 
+  goals: yup
+    .array()
+    .of(goalSchema)
+    .min(1, "حداقل یک هدف باید اضافه شود")
+    .required("لیست اهداف الزامی است"),
+
+  questions: yup.array().of(questionSchema).optional().default([]),
+});
 exports.analysisFormSchema = async (req, res, next) => {
   try {
     const validated = await schema.validate(req.body, {

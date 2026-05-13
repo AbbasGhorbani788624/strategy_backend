@@ -14,10 +14,18 @@ const { successResponse } = require("../utils/responses");
 
 exports.createProject = async (req, res, next) => {
   try {
-    const { formId } = req.body;
+    const { formId, goalIds } = req.body;
     const currentUser = req.user;
-    await createAnalysisProjectService(currentUser, formId);
-    return successResponse(res, 201, { message: "پروژه با موفقیت ساخته شد" });
+
+    const project = await createAnalysisProjectService(currentUser, {
+      formId,
+      goalIds,
+    });
+
+    return successResponse(res, 201, {
+      message: "پروژه با موفقیت ساخته شد",
+      project,
+    });
   } catch (err) {
     console.error(err);
     next(err);

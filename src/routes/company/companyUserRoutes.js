@@ -13,10 +13,16 @@ const {
 const {
   getCompanyMemebers,
   updateCompany,
+  deleteRecord,
+  patchCompany,
 } = require("../../controllers/companyController");
+
 const {
   createCompanySchema,
 } = require("../../validations/creatCompanyValidation");
+
+const { multerStorage } = require("../../utils/fileMulterConfig");
+const upload = multerStorage().fields([{ name: "files", maxCount: 50 }]);
 
 //دریافت کاربران شرکت ها
 router.get(
@@ -51,8 +57,25 @@ router.put(
   createCompanySchema,
   updateCompany,
 );
+//اضافه و تغییر پروفایل شرکت
+router.patch(
+  "/",
+  auth,
+  roleGuard(["SUPER_ADMIN", "COMPANY"]),
+  upload,
+  patchCompany,
+);
+
+//حذف رکورد  از پروفایل شرکت
+router.delete(
+  "/",
+  auth,
+  roleGuard(["SUPER_ADMIN", "COMPANY"]),
+  upload,
+  deleteRecord,
+);
 
 //گرفتن لیست همکاران
-router.get("/", auth, usersColleague);
+router.get("/colleague", auth, usersColleague);
 
 module.exports = router;

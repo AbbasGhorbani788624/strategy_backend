@@ -16,6 +16,12 @@ const {
   changePassword,
 } = require("../repositories/userRepository");
 const { createBadRequestError } = require("../utils");
+const {
+  calculateUserProgress,
+  calculateCompanyProgress,
+  resolveProfileRoute,
+} = require("../utils/profileUtils");
+const prisma = require("../prismaClient");
 
 const loginService = async (username, password) => {
   const user = await findUserByUsername(username);
@@ -46,10 +52,51 @@ const loginService = async (username, password) => {
 
 const getMeService = async (userId) => {
   const user = await findById(userId, ["profile"]);
+
   if (!user) {
     createBadRequestError("کاربر پیدا نشد", 404);
   }
-  return user;
+
+  let userProgress = user.progress?.user;
+
+  if (!userProgress) {
+    userProgress = calculateUserProgress(user.profile);
+  }
+
+  let companyProgress = null;
+
+  if (user.role === "COMPANY" && user.companyId) {
+    const company = await prisma.company.findUnique({
+      where: { id: user.companyId },
+      select: {
+        profile: true,
+        progress: true,
+      },
+    });
+
+    companyProgress =
+      company?.progress ?? calculateCompanyProgress(company?.profile);
+  }
+
+  const nextRoute = resolveProfileRoute({
+    role: user.role,
+    userProgress,
+    companyProgress,
+  });
+
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    companyId: user.companyId,
+
+    progress: {
+      user: userProgress,
+      company: companyProgress,
+    },
+
+    nextRoute,
+  };
 };
 
 const changePasseordService = async (userId, oldPassword, newPassword) => {

@@ -19,25 +19,82 @@ const openai = new OpenAI({
 });
 
 const submitFormAnswersService = async (projectId, userId, answers) => {
-  // ۱. بررسی مالکیت و وضعیت پروژه
   const project = await prisma.project.findUnique({
     where: { id: projectId },
+    select: {
+      id: true,
+      creatorId: true,
+      companyId: true,
+      formId: true,
+      status: true,
+    },
   });
 
   if (!project) {
     createBadRequestError("پروژه یافت نشد", 404);
   }
 
-  if (project.creatorId !== userId && project.companyId !== null) {
-    if (project.creatorId !== userId) {
-      createBadRequestError("شما مجوز ویرایش این پروژه را ندارید", 401);
-    }
+  if (project.creatorId !== userId) {
+    createBadRequestError("شما مجوز ویرایش این پروژه را ندارید", 401);
+  }
+
+  if (!project.formId) {
+    createBadRequestError("این پروژه فرم فعالی برای ثبت پاسخ ندارد");
+  }
+
+  if (project.status !== "WAITING_FOR_FORM") {
+    createBadRequestError("در وضعیت فعلی امکان ثبت فرم وجود ندارد");
+  }
+
+  const form = await prisma.analysisForm.findUnique({
+    where: { id: project.formId },
+    include: {
+      questions: {
+        orderBy: {
+          order: "asc",
+        },
+      },
+    },
+  });
+
+  if (!form) {
+    createBadRequestError("فرم مربوط به این پروژه یافت نشد");
+  }
+
+  const questions = form.questions || [];
+  const questionIds = questions.map((q) => q.id);
+  const answerKeys = Object.keys(answers || {});
+
+  const invalidAnswerKeys = answerKeys.filter(
+    (key) => !questionIds.includes(key),
+  );
+
+  if (invalidAnswerKeys.length > 0) {
+    createBadRequestError("برخی پاسخ‌های ارسالی معتبر نیستند");
+  }
+
+  const requiredQuestions = questions.filter((q) => q.required);
+
+  const unansweredRequiredQuestions = requiredQuestions.filter((q) => {
+    const value = answers[q.id];
+
+    return (
+      value === undefined ||
+      value === null ||
+      (typeof value === "string" && value.trim() === "") ||
+      (Array.isArray(value) && value.length === 0)
+    );
+  });
+
+  if (unansweredRequiredQuestions.length > 0) {
+    createBadRequestError("پاسخ به همه سوالات اجباری الزامی است");
   }
 
   const updatedProject = await prisma.project.update({
     where: { id: projectId },
     data: {
       formResponses: answers,
+      status: "ANALYSIS_PENDING",
     },
     include: {
       company: {
@@ -49,8 +106,15 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
     },
   });
 
+  let aiResponse = null;
+  try {
+    aiResponse = await handleConversationStepService(projectId, userId, "");
+  } catch (error) {
+    console.error("Failed to start analysis after form submission:", error);
+  }
   return {
     project: updatedProject,
+    aiResponse,
   };
 };
 
@@ -68,11 +132,16 @@ const handleConversationStepService = async (projectId, userId, userInput) => {
         orderBy: { createdAt: "asc" },
         select: { role: true, content: true },
       },
+      goals: {
+        include: {
+          goal: true,
+        },
+      },
     },
   });
 
   if (!project) {
-    throw new Error("پروژه یافت نشد", 404);
+    createBadRequestError("پروژه یافت نشد", 404);
   }
 
   const staticContext = {
@@ -83,6 +152,7 @@ const handleConversationStepService = async (projectId, userId, userInput) => {
   };
 
   let readableFormResponses = {};
+
   if (
     staticContext.formId &&
     Object.keys(staticContext.formResponses).length > 0
@@ -91,31 +161,46 @@ const handleConversationStepService = async (projectId, userId, userInput) => {
       where: { formId: staticContext.formId },
       select: { id: true, label: true },
     });
+
     const idToLabelMap = {};
+
     formQuestions.forEach((q) => {
       idToLabelMap[q.id] = q.label;
     });
+
     readableFormResponses = Object.keys(staticContext.formResponses).reduce(
       (acc, key) => {
         acc[idToLabelMap[key] || key] = staticContext.formResponses[key];
+
         return acc;
       },
       {},
     );
   }
 
-  let formPrompt = "";
-  if (staticContext.formId) {
+  let formPrompts = [];
+
+  if (project.formId) {
     const form = await prisma.analysisForm.findUnique({
-      where: { id: staticContext.formId },
-      select: { promptTemplate: true },
+      where: { id: project.formId },
+      include: {
+        prompts: true,
+      },
     });
-    if (form && form.promptTemplate) formPrompt = form.promptTemplate;
+
+    if (form) {
+      formPrompts = form.prompts.map((p) => p.content);
+    }
   }
+
+  const selectedGoals = project.goals.map((g) => g.goal.title);
 
   const chatHistory = project.chatMessages
     .filter((msg) => msg.role !== "system")
-    .map((msg) => ({ role: msg.role, content: msg.content }));
+    .map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
 
   let currentInstruction = "";
   let nextStatus = project.status;
@@ -123,11 +208,12 @@ const handleConversationStepService = async (projectId, userId, userInput) => {
   const lowerInput = userInput.toLowerCase().trim();
 
   switch (project.status) {
-    case "DRAFT":
+    case "ANALYSIS_PENDING":
       currentInstruction = `شما مشاور استراتژیک هستید. با توجه به داده‌های شرکت، داده‌های ادمین و پاسخ‌های فرم، "مسئله اصلی" و "فرضیات اولیه" را به صورت ساختاریافته و واضح ارائه دهید.
       ساختار پاسخ:
       1. مسئله اصلی:
       2. فرضیات کلیدی:`;
+
       nextStatus = "REVIEWING";
       break;
 
@@ -142,6 +228,7 @@ const handleConversationStepService = async (projectId, userId, userInput) => {
         "تایید میکنم",
         "اوکی",
       ].some((k) => lowerInput.includes(k));
+
       const isRejected = [
         "نه",
         "رد",
@@ -155,7 +242,7 @@ const handleConversationStepService = async (projectId, userId, userInput) => {
 
       if (isApproved) {
         nextStatus = "RISK_ANALYSIS";
-        // اینجا مستقیم دستور تولید ریسک را می‌دهیم
+
         currentInstruction = `کاربر فرضیات اولیه را تایید کرد. لطفاً بر اساس این فرضیات، "تحلیل ریسک" (شامل ریسک‌های مالی، عملیاتی و استراتژیک) را ارائه دهید. تحلیل باید شامل موارد زیر باشد:
         1. ریسک‌های مالی
         2. ریسک‌های عملیاتی
@@ -163,17 +250,19 @@ const handleConversationStepService = async (projectId, userId, userInput) => {
         4. راهکارهای پیشنهادی برای کاهش ریسک‌ها`;
       } else if (isRejected) {
         nextStatus = "CHAT_MODE";
+
         currentInstruction = `کاربر فرضیات اولیه را رد کرد. شما باید با پرسیدن سوالات هوشمندانه و هدفمند، "مسئله واقعی" یا "نکات نادیده گرفته شده" را شفاف کنید.
         دستورالعمل:
         1. مستقیماً تحلیل ارائه ندهید.
         2. به جای تحلیل، سوالاتی بپرسید که باعث شفافیت بیشتر شود.
         3. سعی کنید بفهمید چرا فرضیات رد شده‌اند.
         4. حداکثر ۲ تا ۳ سوال کلیدی در هر پاسخ بپرسید.
-        5. **مهم:** وقتی احساس کردید تمام اطلاعات لازم برای تحلیل ریسک جمع‌آوری شده است، **بدون هیچ پیام اضافی**، مستقیماً "تحلیل ریسک" را با جزئیات ارائه دهید. تحلیل باید شامل ریسک‌های مالی، عملیاتی و استراتژیک باشد.`;
+        5. وقتی احساس کردید تمام اطلاعات لازم برای تحلیل ریسک جمع‌آوری شده است، مستقیماً تحلیل ریسک را ارائه دهید.`;
       } else {
-        currentInstruction = `لطفاً فرضیات را تایید کنید (با نوشتن "تایید" یا "ادامه") یا رد کنید (با نوشتن "نه" یا "رد").`;
+        currentInstruction = `لطفاً فرضیات را تایید کنید یا رد کنید.`;
         nextStatus = "REVIEWING";
       }
+
       break;
 
     case "CHAT_MODE":
@@ -181,7 +270,8 @@ const handleConversationStepService = async (projectId, userId, userInput) => {
       - اگر کاربر سوالی پرسیده، پاسخ دهید.
       - اگر کاربر اطلاعات جدیدی داده، آن را در نظر بگیرید.
       - اگر هنوز اطلاعات کافی نیست، سوال بپرسید.
-      - وقتی احساس کردید تمام اطلاعات لازم برای تحلیل ریسک جمع‌آوری شده است، **بدون هیچ پیام اضافی**، مستقیماً "تحلیل ریسک" را با جزئیات ارائه دهید. تحلیل باید شامل ریسک‌های مالی، عملیاتی و استراتژیک باشد.`;
+      - وقتی اطلاعات کافی جمع شد، تحلیل ریسک کامل ارائه دهید.`;
+
       break;
 
     case "RISK_ANALYSIS":
@@ -197,32 +287,71 @@ const handleConversationStepService = async (projectId, userId, userInput) => {
 
       if (wantsFinal) {
         nextStatus = "FINAL_ANALYSIS";
-        currentInstruction = `کاربر درخواست تحلیل نهایی را دارد. لطفاً "تحلیل نهایی استراتژیک" با راهکارهای عملیاتی، گام‌های اجرایی و جدول زمانی (اگر ممکن است) ارائه دهید.`;
+
+        currentInstruction = `کاربر درخواست تحلیل نهایی دارد. لطفاً تحلیل نهایی استراتژیک با راهکارهای اجرایی ارائه دهید.`;
       } else {
         currentInstruction =
-          "تحلیل ریسک ارائه شد. اگر سوالی دارید بپرسید یا برای دریافت تحلیل نهایی کلمه 'تحلیل نهایی' را بنویسید.";
+          "تحلیل ریسک ارائه شد. برای دریافت تحلیل نهایی، عبارت 'تحلیل نهایی' را بنویسید.";
+
         nextStatus = "RISK_ANALYSIS";
       }
+
       break;
 
     case "FINAL_ANALYSIS":
       currentInstruction =
-        "تحلیل نهایی انجام شده است. اگر سوالی دارید بپرسید، در غیر این صورت گفتگو تمام است.";
+        "تحلیل نهایی انجام شده است. اگر سوالی دارید پاسخ دهید.";
+
       nextStatus = "FINAL_ANALYSIS";
+
       break;
   }
 
   const prompt = `
 نقش: مشاور استراتژیک هوشمند.
-داده‌های شرکت: ${JSON.stringify(staticContext.companyProfile)}
-${staticContext.adminData ? `داده‌های ادمین: ${JSON.stringify(staticContext.adminData)}` : ""}
-${formPrompt ? `پرامپت فرم:\n${formPrompt}` : ""}
-${Object.keys(readableFormResponses).length > 0 ? `پاسخ‌های کاربر:\n${JSON.stringify(readableFormResponses, null, 2)}` : ""}
---- دستورالعمل فعلی ---
+
+
+${
+  selectedGoals.length > 0
+    ? selectedGoals.map((g) => `- ${g}`).join("\n")
+    : "هدفی انتخاب نشده است."
+}
+
+
+${
+  formPrompts.length > 0
+    ? formPrompts.map((p, i) => `(${i + 1}) ${p}`).join("\n\n")
+    : "فرمی وجود ندارد."
+}
+
+
+${JSON.stringify(staticContext.companyProfile, null, 2)}
+
+${
+  staticContext.adminData
+    ? `
+
+${JSON.stringify(staticContext.adminData, null, 2)}
+`
+    : ""
+}
+
+${
+  Object.keys(readableFormResponses).length > 0
+    ? `
+
+${JSON.stringify(readableFormResponses, null, 2)}
+`
+    : ""
+}
+
+
 ${currentInstruction}
---- تاریخچه گفتگو ---
+
+
 ${chatHistory.map((h) => `${h.role}: ${h.content}`).join("\n")}
---- پیام فعلی کاربر ---
+
+
 ${userInput}
 `;
 
@@ -243,10 +372,12 @@ ${userInput}
       messages: [
         {
           role: "system",
-          content:
-            "شما یک دستیار تحلیل کسب‌وکار و مشاور استراتژیک هوشمند هستید. لحن شما حرفه‌ای، دقیق و کمک‌کننده است.",
+          content: "شما یک مشاور استراتژیک و تحلیلگر حرفه‌ای کسب‌وکار هستید.",
         },
-        { role: "user", content: prompt },
+        {
+          role: "user",
+          content: prompt,
+        },
       ],
       max_tokens: 1500,
       temperature: 0.7,
@@ -262,9 +393,12 @@ ${userInput}
         content: aiResponse,
       },
     });
-    const updateData = { status: nextStatus };
 
-    if (project.status === "DRAFT") {
+    const updateData = {
+      status: nextStatus,
+    };
+
+    if (project.status === "ANALYSIS_PENDING") {
       updateData.initialAnalysis = aiResponse;
     } else if (
       project.status === "REVIEWING" &&
@@ -289,13 +423,16 @@ ${userInput}
       data: updateData,
     });
 
-    return { success: true, aiResponse, newStatus: updateData.status };
+    return {
+      success: true,
+      aiResponse,
+      newStatus: updateData.status,
+    };
   } catch (error) {
     console.error("Error in handleConversationStep:", error);
     throw error;
   }
 };
-///
 
 //ساخت فرم تحلیل
 const createForm = async (data) => {
@@ -356,12 +493,10 @@ const getAnalysisFormByIdService = async (id) => {
   return form;
 };
 
-const props = ["profileCompleted"];
-
 const getAnalysisModesService = async (currentUser) => {
   const singleForms = await getSingleForms();
   const stepFlows = await getStepFlows();
-  const user = await findById(currentUser?.id, props);
+  const user = await findById(currentUser?.id);
 
   return {
     singleForms,

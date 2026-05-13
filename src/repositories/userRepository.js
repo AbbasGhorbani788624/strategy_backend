@@ -19,11 +19,7 @@ const findById = async (id, props = []) => {
         name: true,
       },
     },
-    fullname: true,
-    email: true,
-    profileViewAccesses: true,
     companyId: true,
-    phoneNumber: true,
   };
 
   // تبدیل props به شی select با مقدار true

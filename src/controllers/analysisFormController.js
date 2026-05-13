@@ -35,8 +35,6 @@ exports.handleConversationStep = async (req, res, next) => {
   }
 };
 
-////
-
 exports.createAnalysisForm = async (req, res, next) => {
   try {
     const form = await createForm(req.body);
@@ -94,5 +92,12 @@ exports.getAnalysisModes = async (req, res, next) => {
   } catch (err) {
     console.error(err);
     next(err);
+  }
+};
+
+exports.singleFormGoals = async (req, res, next) => {
+  try {
+  } catch (error) {
+    next(error);
   }
 };

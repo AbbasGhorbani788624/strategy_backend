@@ -1,12 +1,19 @@
 const express = require("express");
 const router = express.Router();
 const auth = require("../middleware/auth");
-const { updateProfile } = require("../controllers/profileController");
-const { profileSchema } = require("../validations/profileValidation");
-const { multerStorage } = require("../utils/multerConfigs");
-const upload = multerStorage();
+const {
+  updateProfile,
+  deleteRecord,
+  overViewProfile,
+} = require("../controllers/profileController");
 
-//اپدیت پروفایل
-router.put("/", auth, upload.single("avatar"), profileSchema, updateProfile);
+//;کاربر پروفایل
+router.patch("/", auth, updateProfile);
+
+router.delete("/", auth, deleteRecord);
+
+//دریافت پروفایل
+
+router.get("/overview", auth, overViewProfile);
 
 module.exports = router;

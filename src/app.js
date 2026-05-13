@@ -14,6 +14,7 @@ const stepFlow = require("./routes/superAdmin/stepFlow");
 const analysisRouter = require("./routes/analysisForm");
 const companyAdmin = require("./routes/superAdmin/companyAdmin");
 const projectRouter = require("./routes/projectRoutes");
+const configRoutes = require("./routes/configRoutes");
 
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000,
@@ -27,7 +28,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: "",
+    origin: "http://localhost:5173",
     credentials: true,
   }),
 );
@@ -42,7 +43,7 @@ app.use(express.json({ limit: "30mb" }));
 
 app.use(express.static(path.resolve(__dirname, "..", "public", "images")));
 
-app.use("/profile", express.static(path.join(__dirname, "..", "uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 app.use("/api/auth", authRouter);
 app.use("/api/company", companyRoutes);
@@ -53,6 +54,7 @@ app.use("/api/analysis-forms", analysisFormRoutes);
 app.use("/api/stepflow", stepFlow);
 app.use("/api/admin-data", companyAdmin);
 app.use("/api/project", projectRouter);
+app.use("/api/config", configRoutes);
 
 app.use((req, res) => {
   console.log("This path is not found:", req.path);

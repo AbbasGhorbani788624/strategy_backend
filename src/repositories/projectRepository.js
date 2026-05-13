@@ -138,7 +138,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
       creator: {
         select: {
           id: true,
-          fullname: true,
+          // fullname: true,
           username: true,
         },
       },
@@ -155,7 +155,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
             select: {
               id: true,
               username: true,
-              fullname: true,
+              // fullname: true,
               role: true,
             },
           },
@@ -220,7 +220,7 @@ const getProject = async (projectId, userId, userRole, companyId) => {
         select: {
           id: true,
           username: true,
-          fullname: true,
+          // fullname: true,
         },
       },
       company: {
@@ -237,7 +237,6 @@ const getProject = async (projectId, userId, userRole, companyId) => {
             select: {
               id: true,
               username: true,
-              fullname: true,
               role: true,
             },
           },

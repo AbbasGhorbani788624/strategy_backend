@@ -9,12 +9,48 @@ const {
   isProjectExists,
 } = require("../repositories/projectRepository");
 const { isFromExists } = require("../repositories/analysisFormRepository");
+const { handleConversationStepService } = require("./analysisFormService");
 
-const createAnalysisProjectService = async (currentUser, formId) => {
+const createAnalysisProjectService = async (currentUser, payload) => {
+  const { formId, goalIds } = payload;
+
+  if (!formId) {
+    createBadRequestError("شناسه فرم الزامی است");
+  }
+
+  if (!Array.isArray(goalIds) || goalIds.length === 0) {
+    createBadRequestError("حداقل یک هدف باید انتخاب شود");
+  }
+
   const form = await isFromExists(formId);
+
   if (!form) {
     createBadRequestError("فرم تحلیل یافت نشد");
   }
+
+  const uniqueGoalIds = [...new Set(goalIds)];
+
+  const validGoals = await prisma.formGoal.findMany({
+    where: {
+      id: { in: uniqueGoalIds },
+      formId,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (validGoals.length !== uniqueGoalIds.length) {
+    createBadRequestError("برخی از هدف‌های انتخاب‌ شده معتبر نیستند");
+  }
+
+  const questionCount = await prisma.formQuestion.count({
+    where: {
+      formId,
+    },
+  });
+
+  const hasForm = questionCount > 0;
 
   const project = await prisma.project.create({
     data: {
@@ -22,16 +58,42 @@ const createAnalysisProjectService = async (currentUser, formId) => {
       creatorId: currentUser.id,
       companyId: currentUser.companyId,
       mode: "SINGLE",
-      status: "DRAFT",
-      formId: formId,
+      status: hasForm ? "WAITING_FOR_FORM" : "ANALYSIS_PENDING",
+      formId,
       formResponses: {},
+      goals: {
+        create: validGoals.map((goal) => ({
+          goal: {
+            connect: { id: goal.id },
+          },
+        })),
+      },
     },
     include: {
       items: true,
+      goals: {
+        include: {
+          goal: true,
+        },
+      },
     },
   });
 
-  return project;
+  let aiResponse = null;
+  if (!hasForm) {
+    aiResponse = await handleConversationStepService(
+      project.id,
+      currentUser.id,
+      "",
+    );
+  }
+
+  return {
+    requiresForm: hasForm,
+    formId,
+    projectId: project.id,
+    aiResponse,
+  };
 };
 
 const getAllProjectsService = async (userId, userRole, companyId, query) => {
@@ -229,7 +291,7 @@ const createFeedbackRequestService = async (projectId, userId) => {
         select: {
           id: true,
           username: true,
-          fullname: true,
+          // fullname: true,
         },
       },
     },

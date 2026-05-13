@@ -1,4 +1,3 @@
-// ✅ validation
 const yup = require("yup");
 
 const createProjectFromStepSchema = yup.object().shape({

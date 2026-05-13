@@ -12,6 +12,8 @@ const {
 const { createBadRequestError } = require("../utils");
 const { hashPassword } = require("../utils/auth");
 const prisma = require("../prismaClient");
+const fs = require("fs");
+const path = require("path");
 
 //سرویس  ایجاد شرکت و ادمین ان
 const createCompanyService = async (
@@ -19,8 +21,6 @@ const createCompanyService = async (
   industry,
   userLimit,
   username,
-  profileCompany,
-  profileUser,
   password,
 ) => {
   // بررسی وجود داشتن اسم شرکت
@@ -43,7 +43,6 @@ const createCompanyService = async (
     name,
     industry,
     userLimit: parseInt(userLimit),
-    profile: profileCompany,
   });
 
   // ساخت User اصلی شرکت
@@ -52,7 +51,6 @@ const createCompanyService = async (
     password: hashedPassword,
     role: "COMPANY",
     companyId: company.id,
-    profile: profileUser,
   });
 
   const safeAdminUser = { ...adminUser };
@@ -65,7 +63,6 @@ const updateCompanyService = async (
   name,
   industry,
   userLimit,
-  profileCompany,
   userRole,
 ) => {
   const existingCompany = await findCompanyById(id);
@@ -84,7 +81,6 @@ const updateCompanyService = async (
 
   if (name) companyUpdateData.name = name;
   if (industry) companyUpdateData.industry = industry;
-  if (profileCompany) companyUpdateData.profile = profileCompany;
 
   if (
     userRole === "SUPER_ADMIN" &&
@@ -205,14 +201,9 @@ const getCompanyMembersService = async (id, companyId, query) => {
           select: {
             id: true,
             username: true,
-            fullname: true,
-            email: true,
-            phoneNumber: true,
             avatar: true,
             role: true,
-            profileCompleted: true,
             createdAt: true,
-            // profile: true,
           },
         },
       },
@@ -349,29 +340,6 @@ const respondToFeedbackRequestService = async (
     throw createBadRequestError("این درخواست قبلاً پاسخ داده شده است.", 400);
   }
 
-  // 2. آپدیت وضعیت و نوشتن پاسخ
-  const updatedRequest = await prisma.projectFeedbackRequest.update({
-    where: { id: requestId },
-    data: {
-      adminResponseText: responseText,
-      status: "REVIEWED",
-    },
-    include: {
-      project: {
-        select: {
-          id: true,
-          title: true,
-        },
-      },
-      user: {
-        select: {
-          id: true,
-          username: true,
-        },
-      },
-    },
-  });
-
   await prisma.notification.create({
     data: {
       userId: feedbackRequest.userId,
@@ -385,6 +353,138 @@ const respondToFeedbackRequestService = async (
   });
 };
 
+const getProfileCompanyService = async (companyId) => {
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: {
+      id: true,
+      profile: true,
+    },
+  });
+
+  if (!company) {
+    createBadRequestError("شرکت یافت نشد", 404);
+  }
+
+  return company;
+};
+
+const deleteFileIfExists = (filePath) => {
+  if (!filePath) return;
+  let fullPath = filePath;
+  if (filePath.startsWith("/uploads/")) {
+    fullPath = path.join(__dirname, "..", "..", filePath);
+  }
+  try {
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
+      console.log(`File deleted: ${fullPath}`);
+    }
+  } catch (error) {
+    console.error(`Error deleting file ${fullPath}:`, error);
+  }
+};
+
+const setNestedValue = (obj, path, value) => {
+  const keys = path.split(".");
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if (!(key in current) || typeof current[key] !== "object") {
+      current[key] = {};
+    }
+    current = current[key];
+  }
+  current[keys[keys.length - 1]] = value;
+};
+
+const patchProfileCompanyService = async (companyId, dataPath, newData) => {
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { profile: true },
+  });
+
+  if (!company) {
+    throw new Error("شرکت مورد نظر یافت نشد.");
+  }
+
+  const currentProfile = JSON.parse(JSON.stringify(company.profile || {}));
+  const keys = dataPath.split(".");
+
+  let targetObj = currentProfile;
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (!targetObj[keys[i]]) targetObj[keys[i]] = {};
+    targetObj = targetObj[keys[i]];
+  }
+  const finalKey = keys[keys.length - 1];
+
+  let oldDataInPath = targetObj[finalKey];
+
+  let processedNewData = JSON.parse(JSON.stringify(newData));
+
+  // اگر داده‌ها آرایه‌ای هستند
+  if (Array.isArray(processedNewData) && Array.isArray(oldDataInPath)) {
+    processedNewData = processedNewData.map((newItem, index) => {
+      const oldItem = oldDataInPath[index];
+
+      const newItemWithFile = { ...newItem };
+
+      FILE_FIELDS.forEach((field) => {
+        const newFilePath = newItemWithFile[field];
+        const oldFilePath = oldItem ? oldItem[field] : null;
+
+        if (newFilePath && typeof newFilePath === "object" && newFilePath.url) {
+          if (oldFilePath && typeof oldFilePath === "string") {
+            deleteFileIfExists(oldFilePath);
+          }
+          newItemWithFile[field] = newFilePath.url;
+        } else if (newFilePath && typeof newFilePath === "string") {
+          if (oldFilePath && typeof oldFilePath === "string") {
+            deleteFileIfExists(oldFilePath);
+          }
+          newItemWithFile[field] = newFilePath;
+        } else {
+          if (oldFilePath) {
+            newItemWithFile[field] = oldFilePath;
+          }
+        }
+      });
+
+      return newItemWithFile;
+    });
+  } else {
+    FILE_FIELDS.forEach((field) => {
+      const newFilePath = processedNewData[field];
+      const oldFilePath = oldDataInPath ? oldDataInPath[field] : null;
+
+      if (newFilePath && typeof newFilePath === "object" && newFilePath.url) {
+        if (oldFilePath && typeof oldFilePath === "string") {
+          deleteFileIfExists(oldFilePath);
+        }
+        processedNewData[field] = newFilePath.url;
+      } else if (newFilePath && typeof newFilePath === "string") {
+        if (oldFilePath && typeof oldFilePath === "string") {
+          deleteFileIfExists(oldFilePath);
+        }
+        processedNewData[field] = newFilePath;
+      } else {
+        if (oldFilePath) {
+          processedNewData[field] = oldFilePath;
+        }
+      }
+    });
+  }
+
+  setNestedValue(currentProfile, dataPath, processedNewData);
+
+  await prisma.company.update({
+    where: { id: companyId },
+    data: {
+      profile: currentProfile,
+    },
+  });
+};
+
 module.exports = {
   createCompanyService,
   updateCompanyService,
@@ -394,4 +494,5 @@ module.exports = {
   getCompanyMembersService,
   getAllFeedbackRequestsService,
   respondToFeedbackRequestService,
+  patchProfileCompanyService,
 };

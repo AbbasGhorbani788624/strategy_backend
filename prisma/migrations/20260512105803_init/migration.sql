@@ -3,10 +3,9 @@ CREATE TABLE `User` (
     `id` VARCHAR(191) NOT NULL,
     `avatar` VARCHAR(191) NULL,
     `username` VARCHAR(191) NOT NULL,
-    `fullname` VARCHAR(191) NULL,
+    `password` VARCHAR(191) NOT NULL,
     `email` VARCHAR(191) NULL,
     `phoneNumber` VARCHAR(191) NULL,
-    `password` VARCHAR(191) NOT NULL,
     `role` ENUM('SUPER_ADMIN', 'COMPANY', 'MEMBER') NOT NULL,
     `companyId` VARCHAR(191) NULL,
     `profile` JSON NULL,
@@ -43,6 +42,7 @@ CREATE TABLE `Company` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
     `userLimit` INTEGER NOT NULL DEFAULT 1,
+    `profileCompleted` BOOLEAN NOT NULL DEFAULT false,
 
     UNIQUE INDEX `Company_name_key`(`name`),
     INDEX `Company_id_idx`(`id`),
@@ -68,12 +68,11 @@ CREATE TABLE `Project` (
     `creatorId` VARCHAR(191) NOT NULL,
     `companyId` VARCHAR(191) NULL,
     `mode` ENUM('SINGLE', 'STEP') NOT NULL DEFAULT 'SINGLE',
-    `status` ENUM('DRAFT', 'ANALYZING', 'REVIEWING', 'CHAT_MODE', 'RISK_ANALYSIS', 'FINAL_ANALYSIS', 'COMPLETED') NOT NULL DEFAULT 'DRAFT',
+    `status` ENUM('DRAFT', 'REVIEWING', 'CHAT_MODE', 'RISK_ANALYSIS', 'FINAL_ANALYSIS') NOT NULL DEFAULT 'DRAFT',
     `formResponses` JSON NULL,
     `formId` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
-    `allowedViewerIds` JSON NULL,
     `initialAnalysis` TEXT NULL,
     `riskAnalysis` TEXT NULL,
     `finalAnalysis` TEXT NULL,
@@ -119,7 +118,7 @@ CREATE TABLE `ChatMessage` (
     `projectId` VARCHAR(191) NOT NULL,
     `userId` VARCHAR(191) NULL,
     `role` VARCHAR(191) NOT NULL,
-    `content` VARCHAR(191) NOT NULL,
+    `content` TEXT NOT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `ChatMessage_projectId_idx`(`projectId`),
@@ -133,7 +132,7 @@ CREATE TABLE `AnalysisForm` (
     `id` VARCHAR(191) NOT NULL,
     `title` VARCHAR(191) NOT NULL,
     `info` VARCHAR(191) NULL,
-    `promptTemplate` VARCHAR(191) NOT NULL,
+    `promptTemplate` TEXT NOT NULL,
     `order` INTEGER NULL,
     `isActive` BOOLEAN NOT NULL DEFAULT true,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -243,6 +242,19 @@ CREATE TABLE `Notification` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `ProjectAccess` (
+    `id` VARCHAR(191) NOT NULL,
+    `projectId` VARCHAR(191) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `ProjectAccess_projectId_idx`(`projectId`),
+    INDEX `ProjectAccess_userId_idx`(`userId`),
+    UNIQUE INDEX `ProjectAccess_projectId_userId_key`(`projectId`, `userId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
 ALTER TABLE `User` ADD CONSTRAINT `User_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -302,3 +314,9 @@ ALTER TABLE `ProjectFeedbackRequest` ADD CONSTRAINT `ProjectFeedbackRequest_user
 
 -- AddForeignKey
 ALTER TABLE `Notification` ADD CONSTRAINT `Notification_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ProjectAccess` ADD CONSTRAINT `ProjectAccess_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ProjectAccess` ADD CONSTRAINT `ProjectAccess_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

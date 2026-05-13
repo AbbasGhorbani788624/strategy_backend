@@ -27,16 +27,12 @@ enum ProjectMode {
 }
 
 enum ProjectStatus {
-  DRAFT           // پروژه ساخته شده، آماده شروع
-  REVIEWING       // فرضیات آماده، منتظر تایید/رد کاربر
-  CHAT_MODE       // در حال گفتگو برای شفاف‌سازی (پس از رد فرضیات)
-  RISK_ANALYSIS   // تحلیل ریسک آماده، منتظر تایید برای نهایی
-  FINAL_ANALYSIS  // تحلیل نهایی آماده
-}
-
-enum Outcome {
-  YES
-  NO
+  WAITING_FOR_FORM
+  ANALYSIS_PENDING
+  REVIEWING
+  CHAT_MODE
+  RISK_ANALYSIS
+  FINAL_ANALYSIS
 }
 
 enum StepSessionStatus {
@@ -51,22 +47,32 @@ enum FeedbackStatus {
 }
 
 enum NotificationType {
-  ADMIN_FEEDBACK      // پاسخ ادمین به درخواست بازخورد کاربر
-  PROJECT_RATED       // وقتی کسی پروژه شما را ریت کرد 
+  ADMIN_FEEDBACK     
+  PROJECT_RATED      
   PROJECT_ACCESS_GRANTED      
+}
+
+enum QuestionType {
+  CHECKBOX
+  RADIO
+  DROPDOWN
+  TEXT
+  TEXTAREA
+  NUMBER
 }
 
 model User {
   id               String   @id @default(uuid())
   avatar           String?
   username         String   @unique
-  fullname         String?
+  password         String
   email            String?  @unique
   phoneNumber      String?  @unique
-  password         String
   role             Role
   companyId        String?
   profile          Json?
+  progress         Json?  
+
   profileCompleted Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -80,8 +86,6 @@ model User {
   notifications       Notification[]
   feedbackRequests    ProjectFeedbackRequest[]
   projectAccesses   ProjectAccess[] 
-
-
   @@index([role])
   @@index([companyId])
 }
@@ -102,14 +106,17 @@ model Company {
   name                String              @unique
   industry            String?
   profile             Json? // پروفایل شرکت
+    progress         Json?  
+
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   userLimit           Int                 @default(1)
-  members             User[]              @relation("CompanyMembers") // کارکنان شرکت
-  projects            Project[] // پروژه‌های شرکت و اعضا
+  members             User[]              @relation("CompanyMembers")
+  projects            Project[]
   profileViewAccesses ProfileViewAccess[]
   adminData           CompanyAdminData?
-  @@index([id]) // معمولاً primary key index خودکار
+  profileCompleted Boolean @default(false)
+  @@index([id])
 }
 
 model CompanyAdminData {
@@ -127,7 +134,7 @@ model Project {
   creatorId String
   companyId String?
   mode ProjectMode @default(SINGLE)
-  status ProjectStatus @default(DRAFT)
+  status ProjectStatus @default(WAITING_FOR_FORM)
   formResponses Json?
   formId String?
   items ProjectItem[]
@@ -142,8 +149,7 @@ model Project {
   ratings           ProjectRatingHistory[]
   feedbackRequests  ProjectFeedbackRequest[]
   accesses          ProjectAccess[] 
-
-
+  goals ProjectGoal[]
   @@index([status])
   @@index([companyId])
 }
@@ -151,16 +157,12 @@ model Project {
 model ProjectRatingHistory {
   id String @id @default(uuid())
   projectId String
-  raterId String // کسی که امتیاز داده (ریتِر)
+  raterId String 
   score Int
   comment String?
   createdAt DateTime @default(now())
-  
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  rater User @relation(fields: [raterId], references: [id]) // رابطه با کاربر ریتِر
-  
-  
-  // اطمینان از اینکه یک نفر فقط یک بار به یک پروژه امتیاز می‌دهد
+  rater User @relation(fields: [raterId], references: [id]) 
   @@unique([projectId, raterId])
   @@index([projectId])
   @@index([raterId])
@@ -169,19 +171,13 @@ model ProjectRatingHistory {
 model ProjectItem {
   id String @id @default(uuid())
   projectId String
-  
   formTitle String 
-  
   analysis String @db.Text
-  
   // ترتیب مراحل (۱، ۲، ۳، ...)
   order Int 
-  
   // آیا این مرحله نهایی است؟
   isFinal Boolean @default(false)
-  
   createdAt DateTime @default(now())
-  
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   
   @@index([projectId])
@@ -195,38 +191,73 @@ model ChatMessage {
   role String // "user" | "assistant" | "system"
   content String @db.Text 
   createdAt DateTime @default(now())
-  
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
   @@index([projectId])
   @@index([userId])
   @@index([createdAt])
 }
 
 model AnalysisForm {
-  id             String         @id @default(uuid())
-  title          String
-  info           String?
-  promptTemplate String         @db.Text
-  order          Int?
-  isActive       Boolean        @default(true)
-  questions      FormQuestion[]
+  id         String         @id @default(uuid())
+  title      String
+  info       String?
+  order      Int?
+  isActive   Boolean        @default(true)
+  questions  FormQuestion[]
+  prompts    FormPrompt[]
+  goals      FormGoal[]
   stepFlowItems  StepFlowItem[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+model FormPrompt {
+  id        String       @id @default(uuid())
+  formId    String
+  content   String       @db.Text
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  form AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  @@index([formId])
+}
+
+model FormGoal {
+  id        String       @id @default(uuid())
+  formId    String
+  title     String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  projects ProjectGoal[]
+  form AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId])
+}
+
+model ProjectGoal {
+  projectId String
+  goalId    String
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  goal      FormGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, goalId])
+  @@index([goalId])
 }
 
 model FormQuestion {
   id       String       @id @default(uuid())
   formId   String
   label    String
-  type     String
+  type     QuestionType
   options  Json?
   required Boolean      @default(true)
   order    Int
+
   form     AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-  @@index([formId, order]) // مرتب‌سازی سوالات فرم
+
+  @@index([formId, order])
 }
 
 model StepSession {
@@ -281,15 +312,12 @@ model ProjectFeedbackRequest {
   id String @id @default(uuid())
   projectId String
   userId String 
-  adminResponseText String? // متنی که ادمین پاسخ می‌دهد
+  adminResponseText String? 
   status FeedbackStatus @default(PENDING)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id])
-  
-  // اطمینان از اینکه برای یک پروژه خاص، فقط یک درخواست بازخورد فعال وجود دارد
   @@unique([projectId])
   @@index([status])
   @@index([userId])
@@ -305,9 +333,7 @@ model Notification {
   referenceId String? 
   referenceType String?
   createdAt DateTime @default(now())
-  
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
   @@index([userId, isRead]) 
   @@index([createdAt])
 }
@@ -316,14 +342,10 @@ model ProjectAccess {
   id        String   @id @default(uuid())
   projectId String
   userId    String
-    
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
   @@unique([projectId, userId])
-  
   @@index([projectId])
   @@index([userId])
-  
   createdAt DateTime @default(now())
 }
