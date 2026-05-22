@@ -25,11 +25,15 @@ const multerStorage = () => {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // Word 2007+
     "application/vnd.ms-excel", // Excel 97-2003
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // Excel 2007+
+    "image/jpeg", // JPG / JPEG
+    "image/png", // PNG
+    "image/gif", // GIF
+    "image/webp", // WEBP
   ];
 
   return multer({
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // افزایش محدودیت به 10 مگابایت برای فایل‌های اکسل/وردها
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
       if (allowedMimes.includes(file.mimetype)) {
         cb(null, true);

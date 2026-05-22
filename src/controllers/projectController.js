@@ -1,13 +1,12 @@
-const { isProjectExists } = require("../repositories/projectRepository");
 const {
-  createProjectFromStepService,
   getProjectService,
   getAllProjectsService,
   giveRateToProjectService,
   createAnalysisProjectService,
   grantProjectAccessService,
-  createFeedbackRequestService,
-  getMyFeedbackHistoryService,
+  getProjectTabsService,
+  createStepAnalysisProjectService,
+  getSelectableProjectsForMultiAnalysisService,
 } = require("../services/projectService");
 const { createBadRequestError } = require("../utils");
 const { successResponse } = require("../utils/responses");
@@ -52,6 +51,24 @@ exports.getAllProjects = async (req, res, next) => {
   }
 };
 
+exports.getProjectsTabs = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const companyId = req.user.companyId;
+    const targetUserId = req.user.id;
+    const tabs = await getProjectTabsService(
+      userId,
+      userRole,
+      companyId,
+      targetUserId,
+    );
+    return successResponse(res, 200, tabs);
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.getAllProjectsAccess = async (req, res, next) => {
   try {
     const { projectId } = req.params;
@@ -89,39 +106,6 @@ exports.getProject = async (req, res, next) => {
   }
 };
 
-exports.createFeedbackRequest = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-    const { id } = req.params;
-    const project = await isProjectExists(id);
-    if (!project) {
-      createBadRequestError("پروژه یافت نشد", 404);
-    }
-    await createFeedbackRequestService(id, userId);
-
-    return successResponse(res, 201, {
-      message: "درخواست بازخورد با موفقیت ثبت شد.",
-    });
-  } catch (err) {
-    console.error(err);
-    next(err);
-  }
-};
-
-exports.getMyFeedbackHistory = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-    const FeedbackHistory = await getMyFeedbackHistoryService(
-      userId,
-      req.query,
-    );
-    return successResponse(res, 200, FeedbackHistory);
-  } catch (err) {
-    console.error(err);
-    next(err);
-  }
-};
-
 exports.giveReteAndComment = async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -134,13 +118,54 @@ exports.giveReteAndComment = async (req, res, next) => {
   }
 };
 
-/////////////////////
-exports.createProjectFromStep = async (req, res, next) => {
+exports.createStepAnalysisProject = async (req, res, next) => {
+  const { multiAnalysisFormId, goalIds, selectedProjects } = req.body;
   try {
-    await createProjectFromStepService(req.user, req.body);
-    return successResponse(res, 201, { meesgae: "پروژه با موفقیت ساخته شد" });
-  } catch (err) {
-    console.error(err);
-    next(err);
+    if (!multiAnalysisFormId) {
+      createBadRequestError("شناسه تحلیل چندمرحله‌ای الزامی است");
+    }
+
+    if (!Array.isArray(goalIds) || goalIds.length === 0) {
+      createBadRequestError("حداقل یک هدف باید انتخاب شود");
+    }
+
+    if (!Array.isArray(selectedProjects) || selectedProjects.length === 0) {
+      createBadRequestError("انتخاب پروژه‌های ورودی الزامی است");
+    }
+
+    const result = await createStepAnalysisProjectService(
+      req.user,
+      multiAnalysisFormId,
+      goalIds,
+      selectedProjects,
+    );
+    return successResponse(res, 201, result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getSelectableProjectsForMultiAnalysisController = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const { id } = req.params;
+
+    const { page, limit, search } = req.query;
+    const result = await getSelectableProjectsForMultiAnalysisService(
+      req.user,
+      id,
+      {
+        page,
+        limit,
+        search,
+      },
+    );
+
+    return successResponse(res, 200, result);
+  } catch (error) {
+    next(error);
   }
 };

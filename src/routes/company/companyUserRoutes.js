@@ -57,6 +57,7 @@ router.put(
   createCompanySchema,
   updateCompany,
 );
+
 //اضافه و تغییر پروفایل شرکت
 router.patch(
   "/",
@@ -66,7 +67,7 @@ router.patch(
   patchCompany,
 );
 
-//حذف رکورد  از پروفایل شرکت
+//حذف رکورد از پروفایل شرکت
 router.delete(
   "/",
   auth,

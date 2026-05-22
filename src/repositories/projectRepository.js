@@ -1,144 +1,134 @@
 const prisma = require("../prismaClient");
-const { createBadRequestError } = require("../utils");
-
-const createProjectFromStepSession = async (data) => {
-  const { sessionId, title, messages, creatorId, companyId } = data;
-
-  return prisma.$transaction(async (tx) => {
-    const session = await tx.stepSession.findUnique({
-      where: { id: sessionId },
-      include: {
-        flow: {
-          include: {
-            steps: {
-              orderBy: { order: "asc" },
-              include: {
-                form: { select: { id: true, title: true } },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    const completedSteps = session.data.completedSteps || [];
-    const stepAnalyses = session.data.stepAnalyses || {};
-    const finalAnalysis = Object.values(stepAnalyses).join("\n\n---\n\n");
-
-    const project = await tx.project.create({
-      data: {
-        title,
-        creatorId,
-        companyId,
-        mode: "STEP",
-        solution: finalAnalysis,
-      },
-    });
-
-    const projectItems = completedSteps.map((step, index) => ({
-      projectId: project.id,
-      formId: step.formId,
-      responses: step.answers || {},
-      analysis: step.analysis,
-      order: index + 1,
-      isFinal: index === completedSteps.length - 1,
-    }));
-
-    await tx.projectItem.createMany({
-      data: projectItems,
-    });
-
-    const chatMessages = messages.map((msg) => ({
-      projectId: project.id,
-      userId: msg.role === "user" ? creatorId : null,
-      role: msg.role,
-      content: msg.content,
-    }));
-
-    await tx.chatMessage.createMany({
-      data: chatMessages,
-    });
-  });
-};
+const { createBadRequestError, buildProjectAccessWhere } = require("../utils");
 
 const getAllProjects = async (userId, userRole, companyId, query) => {
-  const { page = 1, limit = 10, search, targetUserId } = query;
-  const skip = (parseInt(page) - 1) * parseInt(limit);
-  const take = parseInt(limit);
+  const {
+    page = 1,
+    limit = 10,
+    search,
+    targetUserId,
+    formId,
+    sortBy = "createdAt",
+    sortOrder = "desc",
+    scoreFilter,
+  } = query;
 
-  let whereClause = {};
+  const parsedPage = Math.max(parseInt(page) || 1, 1);
+  const parsedLimit = Math.max(parseInt(limit) || 10, 1);
 
-  if (userRole === "SUPER_ADMIN") {
-    if (targetUserId) {
-      whereClause.creatorId = targetUserId;
-    }
-  } else if (userRole === "COMPANY") {
-    if (targetUserId) {
-      const targetUser = await prisma.user.findUnique({
-        where: { id: targetUserId },
-        select: { companyId: true },
-      });
+  const skip = (parsedPage - 1) * parsedLimit;
+  const take = parsedLimit;
 
-      if (!targetUser || targetUser.companyId !== companyId) {
-        throw createBadRequestError(
-          "دسترسی غیرمجاز: شما فقط می‌توانید پروژه‌های اعضای شرکت خود را مشاهده کنید.",
-          401,
-        );
-      }
+  const accessWhere = await buildProjectAccessWhere({
+    userId,
+    userRole,
+    companyId,
+    targetUserId,
+  });
 
-      whereClause.creatorId = targetUserId;
-    } else {
-      whereClause.companyId = companyId;
-    }
-  } else if (userRole === "MEMBER") {
-    const accessCondition = {
-      accesses: {
-        some: {
-          userId: userId,
-        },
+  const filters = [];
+
+  if (scoreFilter === "high") {
+    filters.push({
+      averageRating: {
+        gte: 4,
       },
-    };
+    });
+  }
 
-    if (targetUserId) {
-      const targetUser = await prisma.user.findUnique({
-        where: { id: targetUserId },
-        select: { companyId: true },
-      });
+  if (scoreFilter === "medium") {
+    filters.push({
+      averageRating: {
+        gte: 2,
+        lt: 4,
+      },
+    });
+  }
 
-      if (!targetUser || targetUser.companyId !== companyId) {
-        throw createBadRequestError("دسترسی غیرمجاز.", 401);
-      }
+  if (scoreFilter === "low") {
+    filters.push({
+      averageRating: {
+        lt: 2,
+      },
+    });
+  }
 
-      whereClause.creatorId = targetUserId;
-    } else {
-      whereClause = {
-        OR: [{ creatorId: userId }, accessCondition],
-      };
-    }
+  if (Object.keys(accessWhere).length > 0) {
+    filters.push(accessWhere);
   }
 
   if (search) {
-    whereClause.title = {
-      contains: search,
-    };
+    filters.push({
+      title: {
+        contains: search,
+      },
+    });
+  }
+
+  if (formId) {
+    filters.push({
+      formId,
+    });
+  }
+
+  const whereClause =
+    filters.length > 0
+      ? {
+          AND: filters,
+        }
+      : {};
+
+  const allowedSortFields = ["createdAt", "averageRating"];
+  const allowedSortOrders = ["asc", "desc"];
+
+  const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : "createdAt";
+
+  const safeSortOrder = allowedSortOrders.includes(sortOrder)
+    ? sortOrder
+    : "desc";
+
+  let orderBy = [
+    {
+      createdAt: "desc",
+    },
+    {
+      id: "desc",
+    },
+  ];
+
+  if (safeSortBy === "createdAt") {
+    orderBy = [{ createdAt: safeSortOrder }, { id: "desc" }];
+  }
+
+  if (safeSortBy === "averageRating") {
+    orderBy = [
+      { hasRating: "desc" },
+      { averageRating: safeSortOrder },
+      { createdAt: "desc" },
+      { id: "desc" },
+    ];
   }
 
   const projects = await prisma.project.findMany({
     where: whereClause,
-    skip: skip,
-    take: take,
-    orderBy: {
-      createdAt: "desc",
-    },
+    skip,
+    take,
+    orderBy,
     select: {
       id: true,
       title: true,
       mode: true,
+      status: true,
+      formId: true,
       createdAt: true,
+
+      averageRating: true,
+      ratingCount: true,
+      hasRating: true,
+
       creator: {
         select: {
           id: true,
-          // fullname: true,
           username: true,
         },
       },
@@ -155,7 +145,6 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
             select: {
               id: true,
               username: true,
-              // fullname: true,
               role: true,
             },
           },
@@ -172,25 +161,21 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     projects,
     pagination: {
       totalItems,
-      currentPage: parseInt(page),
+      currentPage: parsedPage,
       totalPages: Math.ceil(totalItems / take),
       limit: take,
     },
   };
 };
+
 const isProjectExists = async (projectId) => {
   return await prisma.project.count({ where: { id: projectId } });
 };
 
 const getProject = async (projectId, userId, userRole, companyId) => {
   let whereClause = { id: projectId };
+
   if (userRole === "MEMBER") {
-    await prisma.projectAccess.findFirst({
-      where: {
-        projectId: projectId,
-        userId: userId,
-      },
-    });
     whereClause = {
       id: projectId,
       OR: [
@@ -208,21 +193,25 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     if (!companyId) {
       return null;
     }
-    whereClause.companyId = companyId;
+
+    whereClause = {
+      id: projectId,
+      companyId: companyId,
+    };
   } else if (userRole === "SUPER_ADMIN") {
     whereClause = { id: projectId };
   }
 
-  const project = await prisma.project.findUnique({
+  const project = await prisma.project.findFirst({
     where: whereClause,
     include: {
       creator: {
         select: {
           id: true,
           username: true,
-          // fullname: true,
         },
       },
+
       company: {
         select: {
           id: true,
@@ -230,6 +219,7 @@ const getProject = async (projectId, userId, userRole, companyId) => {
           industry: true,
         },
       },
+
       ratings: {
         orderBy: { createdAt: "desc" },
         include: {
@@ -242,15 +232,19 @@ const getProject = async (projectId, userId, userRole, companyId) => {
           },
         },
       },
+
       items: {
         orderBy: { order: "asc" },
         select: {
           id: true,
+          formTitle: true,
           analysis: true,
           createdAt: true,
           order: true,
+          isFinal: true,
         },
       },
+
       chatMessages: {
         orderBy: { createdAt: "asc" },
         select: {
@@ -260,90 +254,124 @@ const getProject = async (projectId, userId, userRole, companyId) => {
           createdAt: true,
         },
       },
+
+      goals: {
+        include: {
+          goal: {
+            select: {
+              id: true,
+              title: true,
+            },
+          },
+        },
+      },
     },
   });
 
   if (!project) return null;
 
   const ratingsListRaw = project.ratings || [];
+
   const ratingsList = ratingsListRaw.map((history) => ({
     id: history.id,
     role: history.rater.role,
     score: history.score,
     comment: history.comment,
     ratedBy: {
-      name: history.rater.fullname,
+      name: history.rater.username,
       role: history.rater.role,
     },
     ratedAt: history.createdAt,
   }));
 
-  const uniqueFormIds = [...new Set(project.items.map((item) => item.formId))];
+  let formQuestionAnswers = [];
 
-  if (uniqueFormIds.length > 0) {
-    const formsWithQuestions = await prisma.analysisForm.findMany({
+  if (project.formId && project.formResponses) {
+    const form = await prisma.analysisForm.findUnique({
       where: {
-        id: { in: uniqueFormIds },
+        id: project.formId,
       },
       include: {
         questions: {
-          orderBy: { order: "asc" },
+          orderBy: {
+            order: "asc",
+          },
           select: {
             id: true,
             label: true,
             type: true,
+            options: true,
+            order: true,
           },
         },
       },
     });
 
-    const formMap = new Map();
-    formsWithQuestions.forEach((form) => {
-      const questionsObj = Object.fromEntries(
-        form.questions.map((q) => [q.id, q.label]),
-      );
-      formMap.set(form.id, {
-        title: form.title,
-        questions: questionsObj,
-      });
-    });
+    if (form) {
+      const responses = project.formResponses || {};
 
-    const enrichedItems = project.items.map((item) => {
-      const formInfo = formMap.get(item.formId);
-      const responses = item.responses || {};
-      const answeredQuestions = Object.entries(responses).map(
-        ([questionId, answer]) => {
-          return {
-            questionText: formInfo?.questions[questionId] || "سوال یافت نشد",
-            answer: answer,
-          };
-        },
-      );
-      return {
-        ...item,
-        formDetails: {
-          title: formInfo?.title,
-          questions: answeredQuestions,
-        },
-      };
-    });
-
-    project.enrichedItems = enrichedItems;
+      formQuestionAnswers = form.questions.map((question) => ({
+        questionId: question.id,
+        questionText: question.label,
+        questionType: question.type,
+        options: question.options,
+        order: question.order,
+        answer: responses[question.id] ?? null,
+      }));
+    }
   }
+
+  const selectedGoals = project.goals.map((projectGoal) => ({
+    id: projectGoal.goal.id,
+    title: projectGoal.goal.title,
+  }));
+
+  const chatUiMessages = (project.chatMessages || []).filter((message) => {
+    if (!project.chatModeStartedAt) return false;
+
+    const messageTime = new Date(message.createdAt).getTime();
+    const startedAt = new Date(project.chatModeStartedAt).getTime();
+
+    // فقط پیام‌های بعد از "کافی نبود"
+    if (messageTime <= startedAt) return false;
+
+    // اگر "فهم کامل" زده شده، فقط پیام‌های قبل از آن
+    if (project.chatModeEndedAt) {
+      const endedAt = new Date(project.chatModeEndedAt).getTime();
+
+      // خود پیام "فهم کامل" و هر چیزی بعد از آن حذف شود
+      if (messageTime >= endedAt) return false;
+    }
+
+    return true;
+  });
 
   return {
     id: project.id,
     title: project.title,
     mode: project.mode,
     createdAt: project.createdAt,
+
     creator: project.creator,
     company: project.company,
-    items: project.enrichedItems || project.items,
-    chatMessages: project.chatMessages,
+
+    form: {
+      id: project.formId,
+      responses: formQuestionAnswers,
+    },
+
+    goals: selectedGoals,
+
+    items: project.items,
+
+    chatMessages: chatUiMessages,
+
     initialAnalysis: project.initialAnalysis,
     riskAnalysis: project.riskAnalysis,
     finalAnalysis: project.finalAnalysis,
+
     status: project.status,
+
     ratings: {
       list: ratingsList,
     },
@@ -377,23 +405,52 @@ const giveRateAndProject = async (userId, projectId, body) => {
       403,
     );
   }
-  const result = await prisma.projectRatingHistory.upsert({
-    where: {
-      projectId_raterId: {
+
+  const result = await prisma.$transaction(async (tx) => {
+    const rating = await tx.projectRatingHistory.upsert({
+      where: {
+        projectId_raterId: {
+          projectId: projectId,
+          raterId: userId,
+        },
+      },
+      create: {
         projectId: projectId,
         raterId: userId,
+        score: validScore,
+        comment: comment || null,
       },
-    },
-    create: {
-      projectId: projectId,
-      raterId: userId,
-      score: validScore,
-      comment: comment || null,
-    },
-    update: {
-      score: validScore,
-      comment: comment !== undefined ? comment : null,
-    },
+      update: {
+        score: validScore,
+        comment: comment !== undefined ? comment : null,
+      },
+    });
+
+    const ratingAggregate = await tx.projectRatingHistory.aggregate({
+      where: {
+        projectId: projectId,
+      },
+      _avg: {
+        score: true,
+      },
+      _count: {
+        score: true,
+      },
+    });
+
+    const averageRating = ratingAggregate._avg.score || 0;
+    const ratingCount = ratingAggregate._count.score || 0;
+
+    await tx.project.update({
+      where: { id: projectId },
+      data: {
+        averageRating,
+        ratingCount,
+        hasRating: ratingCount > 0,
+      },
+    });
+
+    return rating;
   });
 
   return result;
@@ -401,7 +458,6 @@ const giveRateAndProject = async (userId, projectId, body) => {
 
 module.exports = {
   getProject,
-  createProjectFromStepSession,
   getAllProjects,
   giveRateAndProject,
   isProjectExists,

@@ -1,22 +1,17 @@
 const express = require("express");
 const router = express.Router();
 const auth = require("../middleware/auth");
-const {
-  saveProject,
-  getAllProjectsAccess,
-} = require("../controllers/projectController");
 const { roleGuard } = require("../middleware/roleGuard");
+
 const {
-  createProjectFromStepValidation,
-} = require("../validations/projectFromStepSchema");
-const {
-  createProjectFromStep,
   getAllProjects,
   getProject,
   giveReteAndComment,
   createProject,
-  createFeedbackRequest,
-  getMyFeedbackHistory,
+  getProjectsTabs,
+  getAllProjectsAccess,
+  createStepAnalysisProject,
+  getSelectableProjectsForMultiAnalysisController,
 } = require("../controllers/projectController");
 const {
   rateCommentSchema,
@@ -25,38 +20,37 @@ const {
   projectAccessSchema,
 } = require("../validations/projectAccessValidation");
 
-//ساخت پروژه
+//ساخت پروژه تکی
 router.post("/", auth, roleGuard(["COMPANY", "MEMBER"]), createProject);
+
+//ساخت  پروژه برای چند مرحله ای
+router.post(
+  "/multi",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  createStepAnalysisProject,
+);
 
 //گرفتن همه پروژه ها
 router.get("/", auth, getAllProjects);
 
-//دسترسی دادن به پروژه ها
-router.get("/:id/access", auth, projectAccessSchema, getAllProjectsAccess);
+//گرفتن تب های پروژه تکی
+router.get("/tabs", auth, getProjectsTabs);
+
+//گرفتن پروژه ها برای تحلیل چند مرحله ای
+router.get(
+  "/tab/multi/:id",
+  auth,
+  getSelectableProjectsForMultiAnalysisController,
+);
 
 //گرفتن پروژه
 router.get("/:id", auth, getProject);
 
+//دسترسی دادن به پروژه ها
+router.get("/:id/access", auth, projectAccessSchema, getAllProjectsAccess);
+
 //دادن امتیاز به پروژه
 router.post("/:id", auth, rateCommentSchema, giveReteAndComment);
-
-////////////
-
-//درخواست  feedback از سوی کاربر
-router.post("/:id/feedback-request", auth, createFeedbackRequest);
-
-//گرفتن بازخوردها
-router.get("/my/feedback-history", auth, getMyFeedbackHistory);
-
-//////////////////////////////////////////
-
-//ذخیره پروژه از فرم مرحله ای
-router.post(
-  "/flow/create-project",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
-  createProjectFromStepValidation,
-  createProjectFromStep,
-);
 
 module.exports = router;

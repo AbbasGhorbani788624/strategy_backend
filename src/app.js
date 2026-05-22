@@ -10,11 +10,11 @@ const authRouter = require("./routes/auth");
 const companyUserRouter = require("./routes/company/companyUserRoutes");
 const profileRouter = require("./routes/profileRoutes");
 const analysisFormRoutes = require("./routes/superAdmin/analysisFormRoutes");
-const stepFlow = require("./routes/superAdmin/stepFlow");
 const analysisRouter = require("./routes/analysisForm");
 const companyAdmin = require("./routes/superAdmin/companyAdmin");
 const projectRouter = require("./routes/projectRoutes");
 const configRoutes = require("./routes/configRoutes");
+const followupRoutes = require("./routes/followup");
 
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000,
@@ -51,10 +51,10 @@ app.use("/api/analysis", analysisRouter);
 app.use("/api/companyuser", companyUserRouter);
 app.use("/api/profile", profileRouter);
 app.use("/api/analysis-forms", analysisFormRoutes);
-app.use("/api/stepflow", stepFlow);
 app.use("/api/admin-data", companyAdmin);
 app.use("/api/project", projectRouter);
 app.use("/api/config", configRoutes);
+app.use("/api/follow-up", followupRoutes);
 
 app.use((req, res) => {
   console.log("This path is not found:", req.path);

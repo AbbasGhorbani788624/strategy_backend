@@ -10,10 +10,10 @@ const {
 //;کاربر پروفایل
 router.patch("/", auth, updateProfile);
 
+//حذف رکورد از پروفایل
 router.delete("/", auth, deleteRecord);
 
 //دریافت پروفایل
-
 router.get("/overview", auth, overViewProfile);
 
 module.exports = router;

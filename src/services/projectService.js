@@ -1,15 +1,15 @@
-const { createBadRequestError } = require("../utils");
+const { createBadRequestError, buildProjectAccessWhere } = require("../utils");
 const prisma = require("../prismaClient");
+const crypto = require("crypto");
 
 const {
-  createProjectFromStepSession,
   getAllProjects,
   giveRateAndProject,
   getProject,
   isProjectExists,
 } = require("../repositories/projectRepository");
-const { isFromExists } = require("../repositories/analysisFormRepository");
 const { handleConversationStepService } = require("./analysisFormService");
+const { getFormById } = require("../repositories/analysisFormRepository");
 
 const createAnalysisProjectService = async (currentUser, payload) => {
   const { formId, goalIds } = payload;
@@ -22,7 +22,7 @@ const createAnalysisProjectService = async (currentUser, payload) => {
     createBadRequestError("حداقل یک هدف باید انتخاب شود");
   }
 
-  const form = await isFromExists(formId);
+  const form = await getFormById(formId);
 
   if (!form) {
     createBadRequestError("فرم تحلیل یافت نشد");
@@ -52,9 +52,12 @@ const createAnalysisProjectService = async (currentUser, payload) => {
 
   const hasForm = questionCount > 0;
 
+  const uniqueNumber = crypto.randomBytes(3).toString("hex");
+  const projectTitle = `${form.title}-${uniqueNumber}`;
+
   const project = await prisma.project.create({
     data: {
-      title: "پروژه جدید",
+      title: projectTitle,
       creatorId: currentUser.id,
       companyId: currentUser.companyId,
       mode: "SINGLE",
@@ -89,7 +92,6 @@ const createAnalysisProjectService = async (currentUser, payload) => {
   }
 
   return {
-    requiresForm: hasForm,
     formId,
     projectId: project.id,
     aiResponse,
@@ -101,6 +103,282 @@ const getAllProjectsService = async (userId, userRole, companyId, query) => {
   return projects;
 };
 
+const getProjectTabsService = async (
+  userId,
+  userRole,
+  companyId,
+  targetUserId,
+) => {
+  const accessWhere = await buildProjectAccessWhere({
+    userId,
+    userRole,
+    companyId,
+    targetUserId,
+  });
+
+  const filters = [];
+
+  if (Object.keys(accessWhere).length > 0) {
+    filters.push(accessWhere);
+  }
+
+  filters.push({
+    formId: {
+      not: null,
+    },
+  });
+
+  const whereClause = { AND: filters };
+
+  const projects = await prisma.project.findMany({
+    where: whereClause,
+    distinct: ["formId"],
+    select: { formId: true },
+  });
+
+  const formIds = projects.map((p) => p.formId).filter(Boolean);
+
+  const singleForms = await prisma.analysisForm.findMany({
+    where: { id: { in: formIds } },
+    select: { id: true, title: true },
+  });
+
+  const projectCounts = await prisma.project.groupBy({
+    by: ["formId"],
+    where: whereClause,
+    _count: { id: true },
+  });
+
+  const countMap = new Map(
+    projectCounts.map((item) => [item.formId, item._count.id]),
+  );
+
+  const singleTabs = singleForms.map((form) => ({
+    formId: form.id,
+    title: form.title,
+    projectCount: countMap.get(form.id) || 0,
+    type: "single",
+  }));
+
+  const multiForms = await prisma.multiAnalysisForm.findMany({
+    select: { id: true, title: true },
+  });
+
+  const multiCounts = await prisma.project.groupBy({
+    by: ["multiAnalysisFormId"],
+    where: {
+      multiAnalysisFormId: { not: null },
+      ...accessWhere,
+    },
+    _count: { id: true },
+  });
+
+  const multiCountMap = new Map(
+    multiCounts.map((item) => [item.multiAnalysisFormId, item._count.id]),
+  );
+
+  const multiTabs = multiForms.map((form) => ({
+    formId: form.id,
+    title: form.title,
+    projectCount: multiCountMap.get(form.id) || 0,
+    type: "multi",
+  }));
+
+  return [...multiTabs, ...singleTabs];
+};
+
+const getSelectableProjectsForMultiAnalysisService = async (
+  currentUser,
+  multiAnalysisFormId,
+  options = {},
+) => {
+  const { page = 1, limit = 10, search } = options;
+
+  if (!multiAnalysisFormId) {
+    createBadRequestError("شناسه تحلیل چندمرحله‌ای الزامی است");
+  }
+
+  const normalizedPage = Number(page) > 0 ? Number(page) : 1;
+  const normalizedLimit = Number(limit) > 0 ? Number(limit) : 10;
+  const skip = (normalizedPage - 1) * normalizedLimit;
+
+  const normalizedSearch =
+    typeof search === "string" && search.trim() !== "" ? search.trim() : null;
+
+  const multiForm = await prisma.multiAnalysisForm.findFirst({
+    where: {
+      id: multiAnalysisFormId,
+      isActive: true,
+    },
+    include: {
+      requiredForms: {
+        orderBy: {
+          order: "asc",
+        },
+        include: {
+          form: {
+            select: {
+              id: true,
+              title: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!multiForm) {
+    createBadRequestError("تحلیل چندمرحله‌ای یافت نشد");
+  }
+
+  const requiredForms = multiForm.requiredForms || [];
+  const requiredFormIds = requiredForms.map((item) => item.formId);
+
+  if (requiredFormIds.length === 0) {
+    return {
+      multiAnalysisFormId: multiForm.id,
+      title: multiForm.title,
+      isReady: false,
+      missingForms: [],
+      pagination: {
+        page: normalizedPage,
+        limit: normalizedLimit,
+        search: normalizedSearch,
+      },
+      tabs: [],
+    };
+  }
+
+  const baseProjectWhere = {
+    creatorId: currentUser.id,
+    companyId: currentUser.companyId,
+    mode: "SINGLE",
+    status: "FINAL_ANALYSIS",
+  };
+
+  const searchWhere = normalizedSearch
+    ? {
+        title: {
+          contains: normalizedSearch,
+        },
+      }
+    : {};
+
+  const tabs = await Promise.all(
+    requiredForms.map(async (requiredForm) => {
+      const formId = requiredForm.formId;
+
+      const whereWithoutSearch = {
+        ...baseProjectWhere,
+        formId,
+      };
+
+      const whereWithSearch = {
+        ...baseProjectWhere,
+        formId,
+        ...searchWhere,
+      };
+
+      const [availableCount, filteredCount, relatedProjects] =
+        await Promise.all([
+          prisma.project.count({
+            where: whereWithoutSearch,
+          }),
+
+          prisma.project.count({
+            where: whereWithSearch,
+          }),
+
+          prisma.project.findMany({
+            where: whereWithSearch,
+            select: {
+              id: true,
+              title: true,
+              formId: true,
+              status: true,
+              createdAt: true,
+              updatedAt: true,
+              initialAnalysis: true,
+              riskAnalysis: true,
+              finalAnalysis: true,
+              averageRating: true,
+              ratingCount: true,
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+            skip,
+            take: normalizedLimit,
+          }),
+        ]);
+
+      const totalPages =
+        filteredCount > 0 ? Math.ceil(filteredCount / normalizedLimit) : 0;
+
+      return {
+        formId: requiredForm.form.id,
+        formTitle: requiredForm.form.title,
+        formDescription: requiredForm.form.description,
+        order: requiredForm.order,
+
+        availableCount,
+        filteredCount,
+        count: relatedProjects.length,
+
+        hasAnyProject: availableCount > 0,
+        hasSearchResult: filteredCount > 0,
+
+        pagination: {
+          page: normalizedPage,
+          limit: normalizedLimit,
+          total: filteredCount,
+          totalPages,
+          hasNextPage: normalizedPage < totalPages,
+          hasPrevPage: normalizedPage > 1,
+        },
+
+        projects: relatedProjects.map((project) => ({
+          id: project.id,
+          title: project.title,
+          status: project.status,
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt,
+          hasInitialAnalysis: !!project.initialAnalysis,
+          hasRiskAnalysis: !!project.riskAnalysis,
+          hasFinalAnalysis: !!project.finalAnalysis,
+          averageRating: project.averageRating,
+          ratingCount: project.ratingCount,
+        })),
+      };
+    }),
+  );
+
+  const missingForms = tabs
+    .filter((tab) => !tab.hasAnyProject)
+    .map((tab) => ({
+      formId: tab.formId,
+      formTitle: tab.formTitle,
+      order: tab.order,
+    }));
+
+  return {
+    multiAnalysisFormId: multiForm.id,
+    title: multiForm.title,
+    description: multiForm.description,
+
+    isReady: missingForms.length === 0,
+    missingForms,
+
+    pagination: {
+      page: normalizedPage,
+      limit: normalizedLimit,
+      search: normalizedSearch,
+    },
+
+    tabs,
+  };
+};
+
 const getProjectService = async (projectId, userId, userRole, companyId) => {
   const isProjectExist = await isProjectExists(projectId);
   if (!isProjectExist) {
@@ -108,36 +386,6 @@ const getProjectService = async (projectId, userId, userRole, companyId) => {
   }
   const project = await getProject(projectId, userId, userRole, companyId);
   return project;
-};
-
-const createProjectFromStepService = async (currentUser, body) => {
-  const { sessionId, title, messages } = body;
-
-  // بررسی وجود جلسه
-  const session = await prisma.stepSession.findUnique({
-    where: { id: sessionId },
-  });
-
-  if (!session) {
-    createBadRequestError("جلسه یافت نشد", 404);
-  }
-
-  if (session.userId !== currentUser.id) {
-    createBadRequestError("دسترسی غیرمجاز", 403);
-  }
-
-  if (session.status !== "COMPLETED") {
-    createBadRequestError("تحلیل نهایی هنوز تکمیل نشده", 400);
-  }
-
-  // ساخت پروژه
-  await createProjectFromStepSession({
-    sessionId,
-    title,
-    messages,
-    creatorId: currentUser.id,
-    companyId: currentUser.companyId,
-  });
 };
 
 const giveRateToProjectService = async (userId, projectId, body) => {
@@ -160,7 +408,7 @@ const grantProjectAccessService = async (
       id: true,
       creatorId: true,
       companyId: true,
-      accesses: { select: { userId: true } }, // برای بررسی دسترسی‌های قبلی
+      accesses: { select: { userId: true } },
     },
   });
 
@@ -241,130 +489,167 @@ const grantProjectAccessService = async (
   }
 };
 
-const createFeedbackRequestService = async (projectId, userId) => {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { status: true, companyId: true, creatorId: true },
+const createStepAnalysisProjectService = async (
+  currentUser,
+  multiAnalysisFormId,
+  goalIds,
+  selectedProjects,
+) => {
+  const multiForm = await prisma.multiAnalysisForm.findFirst({
+    where: {
+      id: multiAnalysisFormId,
+      isActive: true,
+    },
+    include: {
+      requiredForms: {
+        orderBy: {
+          order: "asc",
+        },
+      },
+    },
   });
 
-  if (project.status !== "FINAL_ANALYSIS") {
-    createBadRequestError(
-      "فقط پروژه‌های تکمیل شده می‌توانند درخواست بازخورد دهند.",
-      400,
-    );
+  if (!multiForm) {
+    createBadRequestError("تحلیل چندمرحله‌ای یافت نشد");
   }
 
-  if (project.creatorId !== userId) {
-    createBadRequestError(
-      "شما فقط می‌توانید برای پروژه‌های خودتان درخواست بازخورد دهید.",
-      403,
-    );
-  }
-  const existingRequest = await prisma.projectFeedbackRequest.findUnique({
-    where: { projectId: projectId },
+  const uniqueGoalIds = [...new Set(goalIds)];
+
+  const validGoals = await prisma.multiAnalysisGoal.findMany({
+    where: {
+      id: { in: uniqueGoalIds },
+      multiAnalysisFormId,
+    },
+    select: {
+      id: true,
+    },
   });
 
-  if (existingRequest) {
-    if (existingRequest.status === "PENDING") {
+  if (validGoals.length !== uniqueGoalIds.length) {
+    createBadRequestError("برخی از هدف‌های انتخاب‌شده معتبر نیستند");
+  }
+
+  const requiredForms = multiForm.requiredForms;
+  const requiredFormIds = requiredForms.map((item) => item.formId);
+
+  const uniqueSelectedFormIds = [
+    ...new Set(selectedProjects.map((p) => p.formId)),
+  ];
+
+  if (uniqueSelectedFormIds.length !== selectedProjects.length) {
+    createBadRequestError("برای هر فرم فقط یک پروژه باید انتخاب شود");
+  }
+
+  if (requiredFormIds.length !== selectedProjects.length) {
+    createBadRequestError("باید برای تمام فرم‌های الزامی یک پروژه انتخاب شود");
+  }
+
+  for (const formId of requiredFormIds) {
+    const exists = selectedProjects.some((p) => p.formId === formId);
+    if (!exists) {
       createBadRequestError(
-        "شما قبلاً برای این پروژه درخواست بازخورد داده‌اید و در انتظار پاسخ هستید.",
-        400,
+        "برای برخی فرم‌های الزامی پروژه‌ای انتخاب نشده است",
       );
     }
-    createBadRequestError("برای این پروژه قبلاً بازخورد ثبت شده است.", 400);
   }
 
-  await prisma.projectFeedbackRequest.create({
+  const selectedProjectIds = selectedProjects.map((p) => p.projectId);
+
+  const sourceProjects = await prisma.project.findMany({
+    where: {
+      id: { in: selectedProjectIds },
+      creatorId: currentUser.id,
+      companyId: currentUser.companyId,
+      mode: "SINGLE",
+      status: {
+        in: ["FINAL_ANALYSIS"],
+      },
+    },
+    select: {
+      id: true,
+      formId: true,
+      title: true,
+      status: true,
+    },
+  });
+
+  if (sourceProjects.length !== selectedProjects.length) {
+    createBadRequestError("برخی پروژه‌های انتخاب‌شده معتبر نیستند");
+  }
+
+  for (const selected of selectedProjects) {
+    const matchedProject = sourceProjects.find(
+      (sp) => sp.id === selected.projectId,
+    );
+
+    if (!matchedProject) {
+      createBadRequestError("یکی از پروژه‌های انتخاب‌شده یافت نشد");
+    }
+
+    if (matchedProject.formId !== selected.formId) {
+      createBadRequestError("پروژه انتخاب‌شده با فرم مورد انتظار مطابقت ندارد");
+    }
+  }
+
+  const uniqueNumber = crypto.randomBytes(3).toString("hex");
+  const projectTitle = `${multiForm.title}-${uniqueNumber}`;
+
+  const project = await prisma.project.create({
     data: {
-      projectId: projectId,
-      userId: userId,
-      status: "PENDING",
-    },
-    include: {
-      project: {
-        select: {
-          id: true,
-          title: true,
-        },
+      title: projectTitle,
+      creatorId: currentUser.id,
+      companyId: currentUser.companyId,
+      mode: "MULTI",
+      status: "ANALYSIS_PENDING",
+      formId: null,
+      formResponses: {},
+      multiAnalysisFormId,
+
+      selectedSourceProjects: {
+        create: selectedProjects.map((item) => ({
+          formId: item.formId,
+          sourceProjectId: item.projectId,
+        })),
       },
-      user: {
-        select: {
-          id: true,
-          username: true,
-          // fullname: true,
-        },
-      },
-    },
-  });
-};
 
-const getMyFeedbackHistoryService = async (userId, query) => {
-  const { page = 1, limit = 10, search } = query;
-  const skip = (parseInt(page) - 1) * parseInt(limit);
-  const take = parseInt(limit);
-
-  const whereClause = {
-    userId: userId,
-  };
-
-  if (search) {
-    whereClause.OR = [
-      {
-        project: {
-          title: {
-            contains: search,
+      multiGoals: {
+        create: validGoals.map((goal) => ({
+          goal: {
+            connect: { id: goal.id },
           },
-        },
+        })),
       },
-    ];
-  }
-
-  const feedbackHistory = await prisma.projectFeedbackRequest.findMany({
-    where: whereClause,
-    skip: skip,
-    take: take,
-    orderBy: {
-      updatedAt: "desc",
     },
     include: {
-      project: {
-        select: {
-          id: true,
-          title: true,
-          status: true,
-        },
-      },
-      user: {
-        select: {
-          id: true,
-          username: true,
+      selectedSourceProjects: true,
+      multiGoals: {
+        include: {
+          goal: true,
         },
       },
     },
   });
 
-  const totalItems = await prisma.projectFeedbackRequest.count({
-    where: whereClause,
-  });
+  const aiResponse = await handleConversationStepService(
+    project.id,
+    currentUser.id,
+    "",
+  );
 
   return {
-    feedbackHistory,
-    pagination: {
-      totalItems,
-      currentPage: parseInt(page),
-      totalPages: Math.ceil(totalItems / take),
-      limit: take,
-    },
+    projectId: project.id,
+    multiAnalysisFormId,
+    aiResponse,
   };
 };
 
 module.exports = {
-  createProjectFromStepService,
   getAllProjectsService,
   getProjectService,
   giveRateToProjectService,
   createAnalysisProjectService,
   grantProjectAccessService,
-  createFeedbackRequestService,
-  getMyFeedbackHistoryService,
+  getProjectTabsService,
+  createStepAnalysisProjectService,
+  getSelectableProjectsForMultiAnalysisService,
 };

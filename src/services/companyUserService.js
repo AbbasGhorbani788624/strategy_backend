@@ -93,15 +93,12 @@ const getColleaguesService = async (userId) => {
     select: {
       id: true,
       username: true,
-      // fullname: true,
-      // ۲. لود کردن شرکت متعلق به این کاربر
+
       company: {
         select: {
           id: true,
           name: true,
-          // ۳. لود کردن اعضای شرکت (همکاران)
           members: {
-            // فیلتر کردن خود کاربر از لیست همکاران (اختیاری اما توصیه شده)
             where: {
               id: {
                 not: userId,
@@ -110,17 +107,9 @@ const getColleaguesService = async (userId) => {
             select: {
               id: true,
               username: true,
-              // fullname: true,
               avatar: true,
               role: true,
-              // می‌توانید فیلدهای دیگر مثل email یا phoneNumber را هم اضافه کنید
-              // اما مراقب باشید که اگر sensitive data است، دسترسی‌ها را مدیریت کنید
             },
-            // مرتب‌سازی اختیاری (مثلاً بر اساس نام)
-            // orderBy: {
-            //   fullname: "asc",
-            // },
-            // محدود کردن تعداد اگر شرکت بزرگ است (Pagination)
             take: 100,
           },
         },
@@ -128,7 +117,6 @@ const getColleaguesService = async (userId) => {
     },
   });
 
-  // ۴. بررسی خطاها
   if (!userWithCompany) {
     createBadRequestError("کاربر مورد نظر یافت نشد.", 404);
   }
