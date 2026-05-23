@@ -23,7 +23,7 @@ const schema = yup.object().shape({
     .array()
     .of(
       yup.object().shape({
-        text: yup.string().trim().required("متن سوال الزامی است"),
+        label: yup.string().trim().required("متن سوال الزامی است"),
 
         type: yup.string().trim().notRequired(),
 

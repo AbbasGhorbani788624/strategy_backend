@@ -238,9 +238,6 @@ const resolveNextProjectStep = ({
       if (isUnderstood) {
         nextStatus = "RISK_ANALYSIS";
         transitionReason = "CHAT_COMPLETED";
-      } else {
-        nextStatus = "CHAT_MODE";
-        transitionReason = "CHAT_CONTINUES";
       }
       break;
 
@@ -258,11 +255,7 @@ const resolveNextProjectStep = ({
       if (wantsFinal) {
         nextStatus = "FINAL_ANALYSIS";
         transitionReason = "FINAL_ANALYSIS_REQUESTED";
-      } else {
-        nextStatus = "RISK_ANALYSIS";
-        transitionReason = "RISK_ANALYSIS_CONTINUES";
       }
-      break;
     }
 
     case "FINAL_ANALYSIS":
@@ -283,6 +276,47 @@ const resolveNextProjectStep = ({
   };
 };
 
+const buildWorkflowPrompt = ({
+  staticContext,
+  formPrompts,
+  readableFormResponses,
+  selectedGoals,
+  chatHistory,
+  userInput,
+  isStep = false,
+  sourceProjectsFinalAnalyses = [],
+}) => {
+  return `
+    ### اطلاعات پایه شرکت:
+    ${JSON.stringify(staticContext.companyProfile)}
+    ${JSON.stringify(staticContext.adminData)}
+
+    ### اهداف پروژه:
+    ${selectedGoals.join(", ")}
+
+    ${
+      isStep
+        ? `
+    ### تحلیل‌های نهایی پروژه‌های منبع:
+    ${JSON.stringify(sourceProjectsFinalAnalyses)}
+        `
+        : `
+    ### داده‌های ورودی کاربر (فرم):
+    ${JSON.stringify(readableFormResponses)}
+        `
+    }
+
+    ### دستورالعمل تخصصی تحلیل:
+    ${formPrompts}
+
+    ### تاریخچه تعاملات قبلی:
+    ${JSON.stringify(chatHistory)}
+
+    ### پیام جدید کاربر:
+    "${userInput}"
+  `;
+};
+
 module.exports = {
   createBadRequestError,
   deleteImage,
@@ -291,4 +325,5 @@ module.exports = {
   resolveNextProjectStep,
   getPublishedPromptContentsForAnalysisForm,
   getPublishedPromptContentsForMultiAnalysisForm,
+  buildWorkflowPrompt,
 };

@@ -15,11 +15,14 @@ const {
   updatePromptVersionForMultiAnalysisForm,
   publishPromptVersionForMultiAnalysisForm,
   createMultiAnalysisFormService,
+  updateAnalysisFormService,
+  updateMultiAnalysisFormService,
 } = require("../services/analysisFormService");
 const { successResponse } = require("../utils/responses");
 
 exports.submitFormAnswers = async (req, res, next) => {
   try {
+    console.log(req.body);
     const { projectId, answers } = req.body;
     const userId = req.user.id;
     const result = await submitFormAnswersService(projectId, userId, answers);
@@ -52,6 +55,25 @@ exports.createAnalysisForm = async (req, res, next) => {
   try {
     const form = await createForm(req.body);
     return successResponse(res, 201, form);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.updateAnalysisForm = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const result = await updateAnalysisFormService({
+      id,
+      ...req.body,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "فرم تحلیل با موفقیت ویرایش شد",
+      data: result,
+    });
   } catch (error) {
     next(error);
   }
@@ -173,7 +195,6 @@ exports.createMultiAnalysisForm = async (req, res, next) => {
       requiredForms,
       goals,
       promptDefinition,
-      promptVersion,
     } = req.body;
 
     const result = await createMultiAnalysisFormService({
@@ -184,7 +205,6 @@ exports.createMultiAnalysisForm = async (req, res, next) => {
       requiredForms,
       goals,
       promptDefinition,
-      promptVersion,
     });
 
     return successResponse(res, 201, {
@@ -194,6 +214,19 @@ exports.createMultiAnalysisForm = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+exports.updateMultiAnalysisFormController = async (req, res) => {
+  const result = await updateMultiAnalysisFormService({
+    id: req.params.id,
+    ...req.body,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "تحلیل چندمرحله‌ای با موفقیت ویرایش شد",
+    data: result,
+  });
 };
 
 exports.createMultiAnalysisFormPromptVersion = async (req, res, next) => {

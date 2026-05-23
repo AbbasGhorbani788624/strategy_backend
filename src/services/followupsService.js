@@ -59,15 +59,15 @@ createProjectFollowUpRequest = async ({ projectId, userId, body }) => {
   const { formId, title, responses } = body;
 
   if (!projectId) {
-    throw createError("شناسه پروژه الزامی است", 400);
+    createBadRequestError("شناسه پروژه الزامی است", 400);
   }
 
   if (!formId) {
-    throw createError("شناسه فرم پیگیری الزامی است", 400);
+    createBadRequestError("شناسه فرم پیگیری الزامی است", 400);
   }
 
   if (!responses || typeof responses !== "object" || Array.isArray(responses)) {
-    throw createError("پاسخ‌های فرم پیگیری معتبر نیست", 400);
+    createBadRequestError("پاسخ‌های فرم پیگیری معتبر نیست", 400);
   }
 
   /**
@@ -84,7 +84,10 @@ createProjectFollowUpRequest = async ({ projectId, userId, body }) => {
   });
 
   if (!project) {
-    throw createError("پروژه پیدا نشد یا شما به این پروژه دسترسی ندارید", 404);
+    createBadRequestError(
+      "پروژه پیدا نشد یا شما به این پروژه دسترسی ندارید",
+      404,
+    );
   }
 
   const form = await prisma.followUpForm.findFirst({
@@ -102,11 +105,11 @@ createProjectFollowUpRequest = async ({ projectId, userId, body }) => {
   });
 
   if (!form) {
-    throw createError("فرم پیگیری فعال پیدا نشد", 404);
+    createBadRequestError("فرم پیگیری فعال پیدا نشد", 404);
   }
 
   if (!form.questions || form.questions.length === 0) {
-    throw createError("فرم پیگیری هیچ سوالی ندارد", 400);
+    createBadRequestError("فرم پیگیری هیچ سوالی ندارد", 400);
   }
 
   const questionIds = form.questions.map((question) => question.id);
@@ -118,7 +121,7 @@ createProjectFollowUpRequest = async ({ projectId, userId, body }) => {
   );
 
   if (invalidQuestionId) {
-    throw createError("یکی از پاسخ‌ها مربوط به سوال نامعتبر است", 400);
+    createBadRequestError("یکی از پاسخ‌ها مربوط به سوال نامعتبر است", 400);
   }
 
   for (const question of form.questions) {
@@ -132,14 +135,14 @@ createProjectFollowUpRequest = async ({ projectId, userId, body }) => {
         (Array.isArray(answer) && answer.length === 0);
 
       if (isEmpty) {
-        throw createError(`پاسخ سوال "${question.label}" الزامی است`, 400);
+        createBadRequestError(`پاسخ سوال "${question.label}" الزامی است`, 400);
       }
     }
 
     if (answer !== undefined && answer !== null && answer !== "") {
       if (question.type === "CHECKBOX") {
         if (!Array.isArray(answer)) {
-          throw createError(
+          createBadRequestError(
             `پاسخ سوال "${question.label}" باید آرایه باشد`,
             400,
           );
@@ -148,7 +151,10 @@ createProjectFollowUpRequest = async ({ projectId, userId, body }) => {
 
       if (question.type === "RADIO" || question.type === "DROPDOWN") {
         if (typeof answer !== "string") {
-          throw createError(`پاسخ سوال "${question.label}" باید متن باشد`, 400);
+          createBadRequestError(
+            `پاسخ سوال "${question.label}" باید متن باشد`,
+            400,
+          );
         }
 
         if (
@@ -156,7 +162,7 @@ createProjectFollowUpRequest = async ({ projectId, userId, body }) => {
           question.options.length > 0 &&
           !question.options.includes(answer)
         ) {
-          throw createError(
+          createBadRequestError(
             `گزینه انتخاب‌شده برای سوال "${question.label}" معتبر نیست`,
             400,
           );
@@ -165,13 +171,19 @@ createProjectFollowUpRequest = async ({ projectId, userId, body }) => {
 
       if (question.type === "NUMBER") {
         if (typeof answer !== "number") {
-          throw createError(`پاسخ سوال "${question.label}" باید عدد باشد`, 400);
+          createBadRequestError(
+            `پاسخ سوال "${question.label}" باید عدد باشد`,
+            400,
+          );
         }
       }
 
       if (question.type === "TEXT" || question.type === "TEXTAREA") {
         if (typeof answer !== "string") {
-          throw createError(`پاسخ سوال "${question.label}" باید متن باشد`, 400);
+          createBadRequestError(
+            `پاسخ سوال "${question.label}" باید متن باشد`,
+            400,
+          );
         }
       }
     }

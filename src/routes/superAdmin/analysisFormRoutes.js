@@ -16,6 +16,8 @@ const {
   updateMultiAnalysisFormPromptDefinition,
   updateMultiAnalysisFormPromptVersion,
   publishMultiAnalysisFormPromptVersion,
+  updateAnalysisForm,
+  updateMultiAnalysisFormController,
 } = require("../../controllers/analysisFormController");
 
 const createAnalysisFormValidator = require("../../validations/analysisForm/createAnalysisForm.validator");
@@ -39,6 +41,9 @@ router.post(
   createAnalysisFormValidator,
   createAnalysisForm,
 );
+
+//ویرایش اطلاعات پایه
+router.patch("/:id", auth, roleGuard(["SUPER_ADMIN"]), updateAnalysisForm);
 
 // ایجاد یک نسخه جدید از prompt برای یک فرم تحلیل
 // این endpoint فقط content نسخه را می‌سازد، بر اساس promptDefinition همان فرم
@@ -96,6 +101,13 @@ router.post(
   auth,
   roleGuard(["SUPER_ADMIN"]),
   createMultiAnalysisForm,
+);
+
+router.patch(
+  "/multi-analysis-forms/:id",
+  auth,
+  roleGuard(["SUPER_ADMIN"]),
+  updateMultiAnalysisFormController,
 );
 
 // ایجاد یک نسخه جدید از prompt برای فرم تحلیل چندمرحله‌ای

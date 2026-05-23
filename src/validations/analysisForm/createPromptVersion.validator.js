@@ -11,7 +11,7 @@ const schema = yup.object().shape({
     )
     .notRequired(),
 
-  segmentValues: yup
+  values: yup
     .array()
     .of(
       yup.object().shape({
@@ -24,13 +24,15 @@ const schema = yup.object().shape({
       }),
     )
     .min(1, "حداقل یک segmentValue الزامی است")
-    .required("segmentValues الزامی است")
+    .required("values الزامی است")
     .test(
       "unique-segment-keys",
       "segmentKeyها نباید تکراری باشند",
-      function (segmentValues) {
-        if (!segmentValues) return true;
-        const keys = segmentValues.map((item) => item.segmentKey);
+      function (values) {
+        if (!values) return true;
+
+        const keys = values.map((item) => item.segmentKey);
+
         return keys.length === new Set(keys).size;
       },
     ),
@@ -38,10 +40,12 @@ const schema = yup.object().shape({
 
 module.exports = async (req, res, next) => {
   try {
-    await schema.validate(req.body, {
+    const validatedBody = await schema.validate(req.body, {
       abortEarly: false,
       stripUnknown: true,
     });
+
+    req.body = validatedBody;
 
     next();
   } catch (err) {

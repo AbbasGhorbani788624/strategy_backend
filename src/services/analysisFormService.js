@@ -12,6 +12,7 @@ const {
   resolveNextProjectStep,
   getPublishedPromptContentsForAnalysisForm,
   getPublishedPromptContentsForMultiAnalysisForm,
+  buildWorkflowPrompt,
 } = require("../utils");
 const prisma = require("../prismaClient");
 const runAI = require("../ai");
@@ -106,6 +107,7 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
 
   let aiResponse = null;
   try {
+    console.log("arrive to this");
     aiResponse = await handleConversationStepService(projectId, userId, "");
   } catch (error) {
     console.error("Failed to start analysis after form submission:", error);
@@ -329,20 +331,28 @@ const handleConversationStepService = async (
     },
   );
 
+  let sourceProjectsFinalAnalyses = [];
+
+  if (isStep) {
+    sourceProjectsFinalAnalyses = sourceProjectsContext
+      .filter((item) => item.finalAnalysis && item.finalAnalysis.trim())
+      .map((item) => ({
+        requiredFormId: item.requiredFormId,
+        requiredFormTitle: item.requiredFormTitle,
+        sourceProjectId: item.sourceProjectId,
+        sourceProjectTitle: item.sourceProjectTitle,
+        finalAnalysis: item.finalAnalysis,
+      }));
+  }
   const prompt = buildWorkflowPrompt({
-    project,
-    isSingle,
-    isStep,
-    selectedGoals,
+    staticContext,
     formPrompts,
     readableFormResponses,
-    sourceProjectsContext,
-    staticContext,
+    selectedGoals,
     chatHistory,
     userInput,
-    nextStatus,
-    transitionReason,
-    isUnderstood,
+    isStep,
+    sourceProjectsFinalAnalyses,
   });
 
   try {
@@ -430,6 +440,103 @@ const createForm = async (data) => {
   return createWithQuestions(data);
 };
 
+const updateAnalysisFormService = async ({
+  id,
+  questions,
+  goals,
+  promptDefinition,
+  ...rest
+}) => {
+  // ۱. بررسی وجود فرم
+  const existingForm = await prisma.analysisForm.findUnique({
+    where: { id },
+  });
+
+  if (!existingForm) {
+    createBadRequestError("فرم تحلیل یافت نشد", 404);
+  }
+
+  // ۲. اجرای تراکنش برای آپدیت اطلاعات پایه و جایگزینی کامل زیرمجموعه‌ها
+  return await prisma.$transaction(async (tx) => {
+    // پاکسازی رکوردهای قبلی برای جایگزینی
+    if (questions) {
+      await tx.analysisFormQuestion.deleteMany({
+        where: { analysisFormId: id },
+      });
+    }
+    if (goals) {
+      await tx.analysisFormGoal.deleteMany({ where: { analysisFormId: id } });
+    }
+    // توجه: اگر promptDefinition را هم آپدیت می‌کنید، ابتدا باید سگمنت‌های قبلی پاک شوند
+    if (promptDefinition) {
+      const existingDef = await tx.promptDefinition.findFirst({
+        where: { analysisFormId: id },
+      });
+      if (existingDef) {
+        await tx.promptSegmentDefinition.deleteMany({
+          where: { promptDefinitionId: existingDef.id },
+        });
+      }
+    }
+
+    // ۳. آپدیت فرم و درج رکوردهای جدید
+    return await tx.analysisForm.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(questions
+          ? {
+              questions: {
+                create: questions.map((q) => ({
+                  label: q.label,
+                  type: q.type,
+                  options: q.options || null,
+                  required: q.required ?? true,
+                  order: q.order,
+                })),
+              },
+            }
+          : {}),
+        ...(goals
+          ? {
+              goals: {
+                create: goals.map((g) => ({ title: g.title })),
+              },
+            }
+          : {}),
+        ...(promptDefinition
+          ? {
+              promptDefinition: {
+                update: {
+                  // فرض بر این است که promptDefinition قبلاً ساخته شده
+                  segments: {
+                    create: (promptDefinition.segments || []).map((s) => ({
+                      key: s.key,
+                      label: s.label,
+                      sortOrder: s.sortOrder,
+                      description: s.description || null,
+                      isRequired: s.isRequired ?? true,
+                    })),
+                  },
+                },
+              },
+            }
+          : {}),
+      },
+      include: {
+        questions: true,
+        goals: true,
+        promptDefinition: {
+          include: {
+            segments: { orderBy: { sortOrder: "asc" } },
+            versions: true,
+          },
+        },
+      },
+    });
+  });
+};
+
 const createPromptVersionForAnalysisForm = async (analysisFormId, data) => {
   const { versionKey = null, status = "DRAFT", values = [] } = data;
 
@@ -449,18 +556,18 @@ const createPromptVersionForAnalysisForm = async (analysisFormId, data) => {
     });
 
     if (!form) {
-      createError(404, "Analysis form not found");
+      createBadRequestError("Analysis form not found", 404);
     }
 
     if (!form.promptDefinition) {
-      createError(400, "This analysis form has no prompt definition");
+      createBadRequestError("This analysis form has no prompt definition");
     }
 
     const promptDefinition = form.promptDefinition;
     const segments = promptDefinition.segments;
 
     if (!segments.length) {
-      createError(400, "Prompt definition has no segments");
+      createBadRequestError("Prompt definition has no segments");
     }
 
     const segmentMap = new Map(segments.map((s) => [s.key, s]));
@@ -476,7 +583,7 @@ const createPromptVersionForAnalysisForm = async (analysisFormId, data) => {
     );
 
     if (duplicateKeys.length > 0) {
-      createError(
+      createBadRequestError(
         400,
         `Duplicate segment keys in values: ${[...new Set(duplicateKeys)].join(", ")}`,
       );
@@ -484,7 +591,7 @@ const createPromptVersionForAnalysisForm = async (analysisFormId, data) => {
 
     for (const value of values) {
       if (!segmentMap.has(value.segmentKey)) {
-        createError(400, `Invalid segmentKey: ${value.segmentKey}`);
+        createBadRequestError(400, `Invalid segmentKey: ${value.segmentKey}`);
       }
     }
 
@@ -492,7 +599,7 @@ const createPromptVersionForAnalysisForm = async (analysisFormId, data) => {
     for (const segment of requiredSegments) {
       const found = values.find((v) => v.segmentKey === segment.key);
       if (!found || !found.content || !found.content.trim()) {
-        createError(
+        createBadRequestError(
           400,
           `Missing required content for segment: ${segment.key}`,
         );
@@ -933,49 +1040,62 @@ const createMultiAnalysisFormService = async ({
   requiredForms = [],
   goals = [],
   promptDefinition,
-  promptVersion,
 }) => {
   if (!title?.trim()) {
     createBadRequestError("عنوان تحلیل چندمرحله‌ای الزامی است");
   }
 
+  // requiredForms validation
   if (!Array.isArray(requiredForms) || requiredForms.length === 0) {
     createBadRequestError(
       "حداقل یک فرم برای تحلیل چندمرحله‌ای باید انتخاب شود",
     );
   }
 
-  /**
-   * جلوگیری از ارسال فرم تکراری داخل requiredForms
-   */
-  const requiredFormIds = requiredForms.map((item) => item.analysisFormId);
-  const uniqueRequiredFormIds = new Set(requiredFormIds);
+  const requiredFormIds = requiredForms
+    .map((item) => item.formId)
+    .filter(Boolean);
 
+  if (requiredFormIds.length !== requiredForms.length) {
+    createBadRequestError("برای همه requiredForms مقدار formId الزامی است");
+  }
+
+  const uniqueRequiredFormIds = new Set(requiredFormIds);
   if (requiredFormIds.length !== uniqueRequiredFormIds.size) {
     createBadRequestError("فرم تکراری در requiredForms مجاز نیست");
   }
 
-  /**
-   * بررسی وجود AnalysisFormهای ارسال‌شده
-   */
+  // check forms exist
   const existingAnalysisForms = await prisma.analysisForm.findMany({
-    where: {
-      id: {
-        in: requiredFormIds,
-      },
-    },
-    select: {
-      id: true,
-    },
+    where: { id: { in: requiredFormIds } },
+    select: { id: true },
   });
 
   if (existingAnalysisForms.length !== requiredFormIds.length) {
     createBadRequestError("یک یا چند فرم تحلیل انتخاب‌شده یافت نشد", 404);
   }
 
-  /**
-   * اعتبارسنجی promptDefinition در صورت ارسال
-   */
+  // goals validation (MultiAnalysisGoal فقط title دارد)
+  if (goals && !Array.isArray(goals)) {
+    createBadRequestError("goals باید آرایه باشد");
+  }
+
+  for (const goal of goals) {
+    if (!goal?.title?.trim()) {
+      createBadRequestError("عنوان goal الزامی است");
+    }
+  }
+
+  // جلوگیری از تکرار title در goals (در schema هم unique است)
+  const goalTitles = (goals || []).map((g) => g.title.trim());
+  const uniqueGoalTitles = new Set(goalTitles);
+  if (goalTitles.length !== uniqueGoalTitles.size) {
+    createBadRequestError("عنوان goal تکراری مجاز نیست");
+  }
+
+  // promptDefinition validation + normalize segment.sortOrder
+  let normalizedSegments = null;
+
   if (promptDefinition) {
     if (
       !Array.isArray(promptDefinition.segments) ||
@@ -986,230 +1106,229 @@ const createMultiAnalysisFormService = async ({
       );
     }
 
-    const segmentKeys = promptDefinition.segments
-      .map((segment) => segment.key?.trim())
-      .filter(Boolean);
+    normalizedSegments = promptDefinition.segments.map((segment, index) => {
+      const key = segment.key?.trim();
+      const label = segment.label?.trim();
 
+      // در ورودی ممکن است order یا sortOrder بیاید، ولی در DB باید sortOrder ذخیره شود
+      const sortOrder =
+        typeof segment.sortOrder === "number"
+          ? segment.sortOrder
+          : typeof segment.order === "number"
+            ? segment.order
+            : null;
+
+      if (!key) createBadRequestError("key برای همه segmentها الزامی است");
+      if (!label) createBadRequestError("label برای همه segmentها الزامی است");
+      if (typeof sortOrder !== "number") {
+        createBadRequestError(
+          "sortOrder (یا order) برای همه segmentها باید عدد باشد",
+        );
+      }
+
+      return {
+        key,
+        label,
+        description: segment.description?.trim() || null,
+        sortOrder,
+        isRequired: segment.isRequired ?? true,
+        _index: index,
+      };
+    });
+
+    // unique key
+    const segmentKeys = normalizedSegments.map((s) => s.key);
     const uniqueSegmentKeys = new Set(segmentKeys);
-
     if (segmentKeys.length !== uniqueSegmentKeys.size) {
       createBadRequestError(
         "key تکراری در promptDefinition.segments مجاز نیست",
       );
     }
 
-    const segmentOrders = promptDefinition.segments.map(
-      (segment) => segment.sortOrder,
-    );
-
-    const uniqueSegmentOrders = new Set(segmentOrders);
-
-    if (segmentOrders.length !== uniqueSegmentOrders.size) {
+    // unique sortOrder (در schema هم unique است)
+    const segmentSortOrders = normalizedSegments.map((s) => s.sortOrder);
+    const uniqueSegmentSortOrders = new Set(segmentSortOrders);
+    if (segmentSortOrders.length !== uniqueSegmentSortOrders.size) {
       createBadRequestError(
         "sortOrder تکراری در promptDefinition.segments مجاز نیست",
       );
     }
   }
 
-  /**
-   * اگر promptVersion ارسال شده باشد، باید promptDefinition هم وجود داشته باشد
-   */
-  if (promptVersion && !promptDefinition) {
-    createBadRequestError(
-      "برای ساخت promptVersion ابتدا باید promptDefinition ارسال شود",
-    );
-  }
-
-  /**
-   * اعتبارسنجی promptVersion در صورت ارسال
-   */
-  if (promptVersion) {
-    if (
-      !Array.isArray(promptVersion.segmentValues) ||
-      promptVersion.segmentValues.length === 0
-    ) {
-      createBadRequestError(
-        "promptVersion باید حداقل یک segmentValue داشته باشد",
-      );
-    }
-
-    const allowedStatuses = ["DRAFT", "PUBLISHED"];
-
-    if (
-      promptVersion.status &&
-      !allowedStatuses.includes(promptVersion.status)
-    ) {
-      createBadRequestError(
-        "status نسخه prompt فقط می‌تواند DRAFT یا PUBLISHED باشد",
-      );
-    }
-
-    const definitionSegmentKeys = new Set(
-      promptDefinition.segments.map((segment) => segment.key),
-    );
-
-    const valueKeys = promptVersion.segmentValues
-      .map((value) => value.segmentKey?.trim())
-      .filter(Boolean);
-
-    const uniqueValueKeys = new Set(valueKeys);
-
-    if (valueKeys.length !== uniqueValueKeys.size) {
-      createBadRequestError(
-        "segmentKey تکراری در promptVersion.segmentValues مجاز نیست",
-      );
-    }
-
-    const invalidValueKeys = valueKeys.filter(
-      (key) => !definitionSegmentKeys.has(key),
-    );
-
-    if (invalidValueKeys.length) {
-      createBadRequestError(
-        `segmentKeyهای نامعتبر ارسال شده‌اند: ${invalidValueKeys.join(", ")}`,
-      );
-    }
-
-    const requiredSegments = promptDefinition.segments.filter(
-      (segment) => segment.isRequired !== false,
-    );
-
-    for (const requiredSegment of requiredSegments) {
-      const relatedValue = promptVersion.segmentValues.find(
-        (value) => value.segmentKey === requiredSegment.key,
-      );
-
-      if (!relatedValue || !relatedValue.content?.trim()) {
-        createBadRequestError(
-          `مقدار segment الزامی "${requiredSegment.key}" ارسال نشده است`,
-        );
-      }
-    }
-  }
-
   const result = await prisma.$transaction(async (tx) => {
-    /**
-     * 1. ساخت MultiAnalysisForm
-     */
     const createdMultiAnalysisForm = await tx.multiAnalysisForm.create({
       data: {
         title: title.trim(),
         description: description?.trim() || null,
-        isActive,
-        order: typeof order === "number" ? order : 0,
+        isActive: isActive ?? true,
+        order: typeof order === "number" ? order : null, // چون در schema Int? هست
 
-        /**
-         * اگر relation تو اسم دیگری دارد، این قسمت را مطابق schema تغییر بده.
-         */
         requiredForms: {
           create: requiredForms.map((item, index) => ({
-            analysisFormId: item.analysisFormId,
-            sortOrder:
-              typeof item.sortOrder === "number"
-                ? item.sortOrder
-                : typeof item.order === "number"
-                  ? item.order
-                  : index + 1,
-            isRequired: item.isRequired ?? true,
+            formId: item.formId,
+            order:
+              typeof item.order === "number"
+                ? item.order
+                : typeof item.sortOrder === "number"
+                  ? item.sortOrder
+                  : index + 1, // fallback
           })),
         },
 
         goals: {
-          create: goals.map((goal, index) => ({
+          create: (goals || []).map((goal) => ({
             title: goal.title.trim(),
-            description: goal.description?.trim() || null,
-            sortOrder:
-              typeof goal.sortOrder === "number"
-                ? goal.sortOrder
-                : typeof goal.order === "number"
-                  ? goal.order
-                  : index + 1,
           })),
         },
       },
     });
 
-    /**
-     * 2. ساخت PromptDefinition در صورت ارسال
-     */
-    let createdPromptDefinition = null;
-    let segmentMap = new Map();
-
     if (promptDefinition) {
-      createdPromptDefinition = await tx.promptDefinition.create({
+      const createdPromptDefinition = await tx.promptDefinition.create({
         data: {
           ownerType: "MULTI_ANALYSIS_FORM",
           multiAnalysisFormId: createdMultiAnalysisForm.id,
         },
       });
 
-      /**
-       * createMany خروجی رکوردهای ساخته‌شده را نمی‌دهد،
-       * پس segmentها را با create می‌سازیم تا id داشته باشیم.
-       */
-      for (const segment of promptDefinition.segments) {
-        const createdSegment = await tx.promptSegmentDefinition.create({
+      // create segments مطابق schema: sortOrder
+      for (const seg of normalizedSegments) {
+        await tx.promptSegmentDefinition.create({
           data: {
             promptDefinitionId: createdPromptDefinition.id,
-            key: segment.key.trim(),
-            label: segment.label.trim(),
-            description: segment.description?.trim() || null,
-            sortOrder: segment.sortOrder,
-            isRequired: segment.isRequired ?? true,
+            key: seg.key,
+            label: seg.label,
+            description: seg.description,
+            sortOrder: seg.sortOrder,
+            isRequired: seg.isRequired,
           },
         });
-
-        segmentMap.set(createdSegment.key, createdSegment);
       }
     }
 
-    /**
-     * 3. ساخت PromptVersion اولیه در صورت ارسال
-     */
-    if (promptVersion) {
-      const status = promptVersion.status || "DRAFT";
-
-      await tx.promptVersion.create({
-        data: {
-          promptDefinitionId: createdPromptDefinition.id,
-          versionNumber: 1,
-          versionKey: promptVersion.versionKey?.trim() || null,
-          status,
-          publishedAt: status === "PUBLISHED" ? new Date() : null,
-
-          segmentValues: {
-            create: promptVersion.segmentValues.map((value) => {
-              const relatedSegment = segmentMap.get(value.segmentKey);
-
-              return {
-                segmentDefinitionId: relatedSegment.id,
-                content: value.content.trim(),
-              };
-            }),
+    const finalResult = await tx.multiAnalysisForm.findUnique({
+      where: { id: createdMultiAnalysisForm.id },
+      include: {
+        requiredForms: {
+          include: { form: true },
+          orderBy: { order: "asc" },
+        },
+        goals: {
+          orderBy: { createdAt: "asc" },
+        },
+        promptDefinition: {
+          include: {
+            segments: {
+              orderBy: { sortOrder: "asc" }, // مطابق schema
+            },
+            versions: {
+              include: {
+                segmentValues: {
+                  include: { segmentDefinition: true },
+                },
+              },
+              orderBy: { versionNumber: "desc" },
+            },
           },
         },
-      });
+      },
+    });
+
+    return finalResult;
+  });
+
+  return result;
+};
+
+const updateMultiAnalysisFormService = async ({
+  id,
+  title,
+  description,
+  goals,
+}) => {
+  if (!id) {
+    createBadRequestError("شناسه تحلیل چندمرحله‌ای الزامی است");
+  }
+
+  const existingMultiAnalysisForm = await prisma.multiAnalysisForm.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+
+  if (!existingMultiAnalysisForm) {
+    createBadRequestError("تحلیل چندمرحله‌ای یافت نشد", 404);
+  }
+
+  const updateData = {};
+
+  if (title !== undefined) {
+    if (!title?.trim()) {
+      createBadRequestError("عنوان تحلیل چندمرحله‌ای نمی‌تواند خالی باشد");
     }
 
-    /**
-     * 4. برگرداندن خروجی کامل
-     */
-    const finalResult = await tx.multiAnalysisForm.findUnique({
-      where: {
-        id: createdMultiAnalysisForm.id,
-      },
+    updateData.title = title.trim();
+  }
+
+  if (description !== undefined) {
+    updateData.description = description?.trim() || null;
+  }
+
+  if (goals !== undefined) {
+    if (!Array.isArray(goals)) {
+      createBadRequestError("goals باید آرایه باشد");
+    }
+
+    for (const goal of goals) {
+      if (!goal?.title?.trim()) {
+        createBadRequestError("عنوان goal الزامی است");
+      }
+    }
+
+    const goalTitles = goals.map((g) => g.title.trim());
+    const uniqueGoalTitles = new Set(goalTitles);
+
+    if (goalTitles.length !== uniqueGoalTitles.size) {
+      createBadRequestError("عنوان goal تکراری مجاز نیست");
+    }
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.multiAnalysisForm.update({
+      where: { id },
+      data: updateData,
+    });
+
+    if (goals !== undefined) {
+      await tx.multiAnalysisGoal.deleteMany({
+        where: {
+          multiAnalysisFormId: id,
+        },
+      });
+
+      if (goals.length > 0) {
+        await tx.multiAnalysisGoal.createMany({
+          data: goals.map((goal) => ({
+            multiAnalysisFormId: id,
+            title: goal.title.trim(),
+          })),
+        });
+      }
+    }
+
+    return tx.multiAnalysisForm.findUnique({
+      where: { id },
       include: {
         requiredForms: {
           include: {
-            analysisForm: true,
+            form: true,
           },
           orderBy: {
-            sortOrder: "asc",
+            order: "asc",
           },
         },
         goals: {
           orderBy: {
-            sortOrder: "asc",
+            createdAt: "asc",
           },
         },
         promptDefinition: {
@@ -1235,8 +1354,6 @@ const createMultiAnalysisFormService = async ({
         },
       },
     });
-
-    return finalResult;
   });
 
   return result;
@@ -1388,30 +1505,82 @@ const updatePromptDefinitionForMultiAnalysisForm = async ({
   multiAnalysisFormId,
   segments,
 }) => {
+  if (!multiAnalysisFormId?.trim()) {
+    createBadRequestError("شناسه فرم تحلیل چندمرحله‌ای الزامی است");
+  }
+
+  if (!Array.isArray(segments) || segments.length === 0) {
+    createBadRequestError("حداقل یک segment باید ارسال شود");
+  }
+
   const multiAnalysisForm = await prisma.multiAnalysisForm.findUnique({
-    where: { id: multiAnalysisFormId },
-    select: { id: true },
+    where: {
+      id: multiAnalysisFormId,
+    },
+    select: {
+      id: true,
+    },
   });
 
   if (!multiAnalysisForm) {
     createBadRequestError("فرم تحلیل چندمرحله‌ای موردنظر یافت نشد", 404);
   }
 
-  if (!segments || !segments.length) {
-    createBadRequestError("حداقل یک segment باید ارسال شود");
-  }
+  /**
+   * Normalize + validate segments
+   */
+  const normalizedSegments = segments.map((segment) => {
+    const key = segment.key?.trim();
+    const label = segment.label?.trim();
+    const description = segment.description?.trim() || null;
 
-  const segmentKeys = segments.map((s) => s.key?.trim()).filter(Boolean);
+    const sortOrder =
+      typeof segment.sortOrder === "number"
+        ? segment.sortOrder
+        : typeof segment.order === "number"
+          ? segment.order
+          : null;
+
+    if (!key) {
+      createBadRequestError("key برای همه segmentها الزامی است");
+    }
+
+    if (!label) {
+      createBadRequestError(`label برای segment "${key}" الزامی است`);
+    }
+
+    if (typeof sortOrder !== "number") {
+      createBadRequestError(
+        `sortOrder یا order برای segment "${key}" باید عدد باشد`,
+      );
+    }
+
+    return {
+      key,
+      label,
+      description,
+      sortOrder,
+      isRequired: segment.isRequired ?? true,
+    };
+  });
+
+  /**
+   * Check duplicate keys
+   */
+  const segmentKeys = normalizedSegments.map((s) => s.key);
   const uniqueSegmentKeys = new Set(segmentKeys);
 
   if (segmentKeys.length !== uniqueSegmentKeys.size) {
     createBadRequestError("key تکراری در segments مجاز نیست");
   }
 
-  const segmentOrders = segments.map((s) => s.sortOrder);
-  const uniqueSegmentOrders = new Set(segmentOrders);
+  /**
+   * Check duplicate sortOrder
+   */
+  const segmentSortOrders = normalizedSegments.map((s) => s.sortOrder);
+  const uniqueSegmentSortOrders = new Set(segmentSortOrders);
 
-  if (segmentOrders.length !== uniqueSegmentOrders.size) {
+  if (segmentSortOrders.length !== uniqueSegmentSortOrders.size) {
     createBadRequestError("sortOrder تکراری در segments مجاز نیست");
   }
 
@@ -1425,9 +1594,16 @@ const updatePromptDefinitionForMultiAnalysisForm = async ({
         select: {
           id: true,
           status: true,
+          versionNumber: true,
         },
       },
-      segments: true,
+      segments: {
+        select: {
+          id: true,
+          key: true,
+          sortOrder: true,
+        },
+      },
     },
   });
 
@@ -1462,13 +1638,13 @@ const updatePromptDefinitionForMultiAnalysisForm = async ({
     }
 
     await tx.promptSegmentDefinition.createMany({
-      data: segments.map((segment) => ({
+      data: normalizedSegments.map((segment) => ({
         promptDefinitionId,
-        key: segment.key.trim(),
-        label: segment.label.trim(),
-        description: segment.description?.trim() || null,
+        key: segment.key,
+        label: segment.label,
+        description: segment.description,
         sortOrder: segment.sortOrder,
-        isRequired: segment.isRequired ?? true,
+        isRequired: segment.isRequired,
       })),
     });
 
@@ -1509,6 +1685,14 @@ const updatePromptVersionForMultiAnalysisForm = async ({
   versionKey,
   segmentValues,
 }) => {
+  if (!multiAnalysisFormId?.trim()) {
+    createBadRequestError("شناسه فرم تحلیل چندمرحله‌ای الزامی است");
+  }
+
+  if (!versionId?.trim()) {
+    createBadRequestError("شناسه نسخه prompt الزامی است");
+  }
+
   const promptVersion = await prisma.promptVersion.findFirst({
     where: {
       id: versionId,
@@ -1521,11 +1705,17 @@ const updatePromptVersionForMultiAnalysisForm = async ({
       promptDefinition: {
         include: {
           segments: {
-            orderBy: { sortOrder: "asc" },
+            orderBy: {
+              sortOrder: "asc",
+            },
           },
         },
       },
-      segmentValues: true,
+      segmentValues: {
+        include: {
+          segmentDefinition: true,
+        },
+      },
     },
   });
 
@@ -1546,77 +1736,162 @@ const updatePromptVersionForMultiAnalysisForm = async ({
     createBadRequestError("promptDefinition این فرم هیچ segmentی ندارد");
   }
 
-  const providedValues = segmentValues || [];
+  const shouldUpdateSegmentValues = typeof segmentValues !== "undefined";
 
-  const providedKeys = providedValues
-    .map((item) => item.segmentKey?.trim())
-    .filter(Boolean);
-  const uniqueProvidedKeys = new Set(providedKeys);
+  let normalizedSegmentValues = null;
 
-  if (providedKeys.length !== uniqueProvidedKeys.size) {
-    createBadRequestError("segmentKey تکراری در segmentValues مجاز نیست");
-  }
+  if (shouldUpdateSegmentValues) {
+    if (!Array.isArray(segmentValues)) {
+      createBadRequestError("segmentValues باید آرایه باشد");
+    }
 
-  const segmentMap = new Map();
-  for (const segment of definitionSegments) {
-    segmentMap.set(segment.key, segment);
-  }
+    const segmentMap = new Map();
 
-  const invalidKeys = providedKeys.filter((key) => !segmentMap.has(key));
+    for (const segment of definitionSegments) {
+      segmentMap.set(segment.key, segment);
+    }
 
-  if (invalidKeys.length) {
-    createBadRequestError(
-      `segmentKeyهای نامعتبر ارسال شده‌اند: ${invalidKeys.join(", ")}`,
-    );
-  }
+    normalizedSegmentValues = segmentValues.map((item) => {
+      const segmentKey = item.segmentKey?.trim();
+      const content = item.content?.trim();
 
-  const requiredSegments = definitionSegments.filter(
-    (segment) => segment.isRequired,
-  );
+      if (!segmentKey) {
+        createBadRequestError("segmentKey برای همه segmentValues الزامی است");
+      }
 
-  for (const requiredSegment of requiredSegments) {
-    const relatedValue = providedValues.find(
-      (item) => item.segmentKey === requiredSegment.key,
-    );
+      if (!content) {
+        createBadRequestError(
+          `content برای segment "${segmentKey}" الزامی است`,
+        );
+      }
 
-    if (!relatedValue || !relatedValue.content?.trim()) {
+      return {
+        segmentKey,
+        content,
+      };
+    });
+
+    const providedKeys = normalizedSegmentValues.map((item) => item.segmentKey);
+    const uniqueProvidedKeys = new Set(providedKeys);
+
+    if (providedKeys.length !== uniqueProvidedKeys.size) {
+      createBadRequestError("segmentKey تکراری در segmentValues مجاز نیست");
+    }
+
+    const invalidKeys = providedKeys.filter((key) => !segmentMap.has(key));
+
+    if (invalidKeys.length) {
       createBadRequestError(
-        `مقدار segment الزامی "${requiredSegment.key}" ارسال نشده است`,
+        `segmentKeyهای نامعتبر ارسال شده‌اند: ${invalidKeys.join(", ")}`,
       );
+    }
+
+    const requiredSegments = definitionSegments.filter(
+      (segment) => segment.isRequired,
+    );
+
+    for (const requiredSegment of requiredSegments) {
+      const relatedValue = normalizedSegmentValues.find(
+        (item) => item.segmentKey === requiredSegment.key,
+      );
+
+      if (!relatedValue || !relatedValue.content) {
+        createBadRequestError(
+          `مقدار segment الزامی "${requiredSegment.key}" ارسال نشده است`,
+        );
+      }
+    }
+  }
+
+  const shouldUpdateVersionKey = typeof versionKey !== "undefined";
+  const normalizedVersionKey = shouldUpdateVersionKey
+    ? versionKey?.trim() || null
+    : promptVersion.versionKey;
+
+  if (!shouldUpdateVersionKey && !shouldUpdateSegmentValues) {
+    createBadRequestError(
+      "حداقل یکی از فیلدهای versionKey یا segmentValues باید ارسال شود",
+    );
+  }
+
+  if (
+    shouldUpdateVersionKey &&
+    normalizedVersionKey &&
+    normalizedVersionKey !== promptVersion.versionKey
+  ) {
+    const existingVersionWithSameKey = await prisma.promptVersion.findFirst({
+      where: {
+        promptDefinitionId: promptVersion.promptDefinitionId,
+        versionKey: normalizedVersionKey,
+        id: {
+          not: promptVersion.id,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existingVersionWithSameKey) {
+      createBadRequestError("versionKey تکراری است");
     }
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    await tx.promptVersionSegmentValue.deleteMany({
-      where: {
-        promptVersionId: promptVersion.id,
-      },
-    });
+    if (shouldUpdateSegmentValues) {
+      await tx.promptVersionSegmentValue.deleteMany({
+        where: {
+          promptVersionId: promptVersion.id,
+        },
+      });
+    }
+
+    const segmentMap = new Map();
+
+    for (const segment of definitionSegments) {
+      segmentMap.set(segment.key, segment);
+    }
 
     const updatedVersion = await tx.promptVersion.update({
       where: {
         id: promptVersion.id,
       },
       data: {
-        versionKey:
-          typeof versionKey === "undefined"
-            ? promptVersion.versionKey
-            : versionKey?.trim() || null,
-        segmentValues: {
-          create: providedValues.map((item) => {
-            const segment = segmentMap.get(item.segmentKey);
+        versionKey: normalizedVersionKey,
 
-            return {
-              segmentDefinitionId: segment.id,
-              content: item.content.trim(),
-            };
-          }),
-        },
+        ...(shouldUpdateSegmentValues
+          ? {
+              segmentValues: {
+                create: normalizedSegmentValues.map((item) => {
+                  const segment = segmentMap.get(item.segmentKey);
+
+                  return {
+                    segmentDefinitionId: segment.id,
+                    content: item.content,
+                  };
+                }),
+              },
+            }
+          : {}),
       },
       include: {
+        promptDefinition: {
+          include: {
+            segments: {
+              orderBy: {
+                sortOrder: "asc",
+              },
+            },
+          },
+        },
         segmentValues: {
           include: {
             segmentDefinition: true,
+          },
+          orderBy: {
+            segmentDefinition: {
+              sortOrder: "asc",
+            },
           },
         },
       },
@@ -1742,4 +2017,6 @@ module.exports = {
   updatePromptDefinitionForMultiAnalysisForm,
   updatePromptVersionForMultiAnalysisForm,
   publishPromptVersionForMultiAnalysisForm,
+  updateAnalysisFormService,
+  updateMultiAnalysisFormService,
 };

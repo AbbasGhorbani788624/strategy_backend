@@ -3,7 +3,7 @@ const yup = require("yup");
 const schema = yup.object().shape({
   versionKey: yup.string().trim().nullable().notRequired(),
 
-  segmentValues: yup
+  values: yup
     .array()
     .of(
       yup.object().shape({
