@@ -45,6 +45,8 @@ app.use(express.static(path.resolve(__dirname, "..", "public", "images")));
 
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
+app.get("/test", (req, res) => res.send("OK"));
+
 app.use("/api/auth", authRouter);
 app.use("/api/company", companyRoutes);
 app.use("/api/analysis", analysisRouter);

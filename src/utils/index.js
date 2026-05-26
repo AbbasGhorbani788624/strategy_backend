@@ -112,7 +112,7 @@ const getPublishedPromptContentsForAnalysisForm = async (formId) => {
         },
         take: 1,
         include: {
-          segmentValues: {
+          values: {
             include: {
               segmentDefinition: true,
             },
@@ -153,7 +153,7 @@ const getPublishedPromptContentsForMultiAnalysisForm = async (
         },
         take: 1,
         include: {
-          segmentValues: {
+          values: {
             include: {
               segmentDefinition: true,
             },

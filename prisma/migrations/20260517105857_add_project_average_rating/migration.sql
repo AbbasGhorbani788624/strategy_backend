@@ -1,3 +1,0 @@
--- AlterTable
-ALTER TABLE `project` ADD COLUMN `averageRating` DOUBLE NOT NULL DEFAULT 0,
-    ADD COLUMN `ratingCount` INTEGER NOT NULL DEFAULT 0;

@@ -22,7 +22,7 @@ const auth = async (req, res, next) => {
     });
 
     if (!user) {
-      return errorResponse(res, 404, "کاربری یافت نشد!");
+      return errorResponse(res, 401, "کاربری یافت نشد!");
     }
     req.user = user;
     next();

@@ -26,7 +26,9 @@ exports.login = async function (req, res, next) {
 
 exports.getMe = async function (req, res, next) {
   try {
+    console.log(req);
     const user = await getMeService(req.user.id);
+    console.log("user =>", user);
     return successResponse(res, 200, user);
   } catch (err) {
     next(err);

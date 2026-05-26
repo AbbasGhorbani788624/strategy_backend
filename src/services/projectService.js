@@ -73,7 +73,6 @@ const createAnalysisProjectService = async (currentUser, payload) => {
       },
     },
     include: {
-      items: true,
       goals: {
         include: {
           goal: true,

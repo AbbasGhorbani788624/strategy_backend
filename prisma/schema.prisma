@@ -112,9 +112,8 @@ model Company {
   id                  String              @id @default(uuid())
   name                String              @unique
   industry            String?
-  profile             Json? // پروفایل شرکت
-    progress         Json?  
-
+  profile             Json?
+  progress         Json?  
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   userLimit           Int                 @default(1)
@@ -253,6 +252,7 @@ model FormGoal {
 }
 
 model ProjectGoal {
+  id        String   @id @default(uuid())
   projectId String
   goalId    String
   createdAt DateTime @default(now())
@@ -260,7 +260,8 @@ model ProjectGoal {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   goal      FormGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
 
-  @@id([projectId, goalId])
+  @@unique([projectId, goalId])
+  @@index([projectId])
   @@index([goalId])
 }
 
@@ -385,14 +386,16 @@ model MultiAnalysisGoal {
 }
 
 model ProjectMultiGoal {
+  id        String   @id @default(uuid())
   projectId String
   goalId    String
   createdAt DateTime @default(now())
 
   project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  goal      MultiAnalysisGoal  @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  goal      MultiAnalysisGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
 
-  @@id([projectId, goalId])
+  @@unique([projectId, goalId])
+  @@index([projectId])
   @@index([goalId])
 }
 
@@ -460,89 +463,71 @@ model FollowUpRequest {
 }
 
 model PromptDefinition {
-  id String @id @default(uuid())
+  id                  String   @id @default(uuid())
+  ownerType           PromptOwnerType
+  title               String?
+  analysisFormId      String?  @unique
+  multiAnalysisFormId String?  @unique
 
-  ownerType PromptOwnerType
+  analysisForm        AnalysisForm?      @relation(fields: [analysisFormId], references: [id])
+  multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id])
 
-  analysisFormId      String? @unique
-  multiAnalysisFormId String? @unique
+  segments            PromptSegmentDefinition[]
+  versions            PromptVersion[]
 
-  analysisForm AnalysisForm? @relation(fields: [analysisFormId],references: [id],onDelete: Cascade)
-
-  multiAnalysisForm MultiAnalysisForm? @relation(fields: [multiAnalysisFormId],references: [id],onDelete: Cascade)
-
-  segments PromptSegmentDefinition[]
-  versions PromptVersion[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([ownerType])
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model PromptSegmentDefinition {
-  id String @id @default(uuid())
-
+  id                 String   @id @default(uuid())
   promptDefinitionId String
-  key       String
-  label     String
-  sortOrder Int
+  key                String
+  label              String
+  description        String?
+  sortOrder          Int?
+  isRequired         Boolean @default(false)
 
-  description String?
-  isRequired  Boolean @default(true)
+  promptDefinition   PromptDefinition @relation(fields: [promptDefinitionId], references: [id])
+  values             PromptVersionSegmentValue[]
 
-  promptDefinition PromptDefinition @relation(fields: [promptDefinitionId],references: [id],onDelete: Cascade)
-
-  values PromptVersionSegmentValue[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@unique([promptDefinitionId, key])
-  @@unique([promptDefinitionId, sortOrder])
-  @@index([promptDefinitionId])
+  @@index([promptDefinitionId, sortOrder])
 }
 
 model PromptVersion {
-  id String @id @default(uuid())
-
+  id                 String   @id @default(uuid())
   promptDefinitionId String
-  versionNumber Int
-  versionKey    String?
+  versionNumber      Int
+  versionKey         String
+  status             PromptVersionStatus
+  publishedAt        DateTime?
 
-  status PromptVersionStatus @default(DRAFT)
+  promptDefinition   PromptDefinition @relation(fields: [promptDefinitionId], references: [id])
+  values             PromptVersionSegmentValue[]
+  projects           Project[]
 
-  promptDefinition PromptDefinition @relation(fields: [promptDefinitionId],references: [id],onDelete: Cascade)
-
-  segmentValues PromptVersionSegmentValue[]
-
-  projects Project[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  publishedAt DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@unique([promptDefinitionId, versionNumber])
   @@unique([promptDefinitionId, versionKey])
-  @@index([promptDefinitionId])
-  @@index([status])
 }
 
 model PromptVersionSegmentValue {
-  id String @id @default(uuid())
-
+  id                  String   @id @default(uuid())
   promptVersionId     String
   segmentDefinitionId String
-  content             String @db.Text
+  content             String
 
-  promptVersion PromptVersion @relation(fields: [promptVersionId],references: [id],onDelete: Cascade)
+  promptVersion       PromptVersion @relation(fields: [promptVersionId], references: [id])
+  segmentDefinition   PromptSegmentDefinition @relation(fields: [segmentDefinitionId], references: [id])
 
-  segmentDefinition PromptSegmentDefinition @relation(fields: [segmentDefinitionId],references: [id],onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@unique([promptVersionId, segmentDefinitionId])
-  @@index([promptVersionId])
-  @@index([segmentDefinitionId])
 }
