@@ -69,3 +69,4 @@ Format Example:
 }]
 
 
+mysqldump -u root -p نام_دیتابیس > output.sql

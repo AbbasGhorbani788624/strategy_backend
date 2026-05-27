@@ -350,6 +350,7 @@ CREATE TABLE `FollowUpRequest` (
 CREATE TABLE `PromptDefinition` (
     `id` VARCHAR(191) NOT NULL,
     `ownerType` ENUM('ANALYSIS_FORM', 'MULTI_ANALYSIS_FORM') NOT NULL,
+    `title` VARCHAR(191) NULL,
     `analysisFormId` VARCHAR(191) NULL,
     `multiAnalysisFormId` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),

@@ -22,7 +22,6 @@ const { successResponse } = require("../utils/responses");
 
 exports.submitFormAnswers = async (req, res, next) => {
   try {
-    console.log(req.body);
     const { projectId, answers } = req.body;
     const userId = req.user.id;
     const result = await submitFormAnswersService(projectId, userId, answers);

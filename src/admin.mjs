@@ -182,7 +182,7 @@ const admin = new AdminJS({
       },
       properties: {
         profile: {
-          type: "mixed",
+          type: "textarea",
         },
         progress: { type: "mixed" },
         createdAt: {
@@ -292,7 +292,7 @@ const admin = new AdminJS({
         },
 
         profile: {
-          type: "mixed",
+          type: "textarea",
           isVisible: {
             list: false,
             filter: false,
@@ -1042,24 +1042,188 @@ const admin = new AdminJS({
         icon: "Star",
       },
       properties: {
+        id: { isVisible: false },
         projectId: {
+          label: "انتخاب پروژه",
+          isRequired: true,
           isVisible: { list: true, filter: true, show: true, edit: true },
         },
         raterId: {
+          isVisible: { list: false, filter: false, show: true, edit: false },
+        },
+        score: {
+          label: "امتیاز (۱ تا ۵)",
+          isRequired: true,
           isVisible: { list: true, filter: true, show: true, edit: true },
         },
+        comment: {
+          label: "توضیحات ادمین",
+          type: "textarea",
+          isVisible: { list: true, filter: false, show: true, edit: true },
+        },
       },
-      listProperties: [
-        "id",
-        "projectId",
-        "raterId",
-        "score",
-        "comment",
-        "createdAt",
-      ],
-      editProperties: ["projectId", "raterId", "score", "comment"],
-    }),
 
+      listProperties: ["projectId", "score", "comment", "createdAt"],
+      editProperties: ["projectId", "score", "comment"],
+
+      actions: {
+        new: {
+          handler: async (request, response, context) => {
+            const { resource, h, currentAdmin, _admin } = context;
+            const prisma = _admin.options.databases[0].connector.prismaClient;
+
+            if (request.method === "get") {
+              return {
+                resource: resource.decorate().toJSON(currentAdmin),
+                record: null,
+              };
+            }
+
+            const payload = request.payload ?? {};
+            const { projectId, score, comment } = payload;
+            const numericScore = parseInt(score);
+
+            // اعتبارسنجی دستی رییس
+            const errors = {};
+            if (!projectId)
+              errors.projectId = { message: "انتخاب پروژه الزامی است." };
+            if (!score || numericScore < 1 || numericScore > 5) {
+              errors.score = { message: "امتیاز باید عددی بین ۱ تا ۵ باشد." };
+            }
+
+            if (Object.keys(errors).length > 0)
+              throw new ValidationError(errors);
+
+            try {
+              // استفاده از تراکنش برای تضمین ثبت امتیاز و آپدیت پروژه
+              const createdHistory = await prisma.$transaction(async (tx) => {
+                // ۱. ثبت در تاریخچه (با استفاده از raterId ادمین فعلی)
+                const history = await tx.projectRatingHistory.upsert({
+                  where: {
+                    projectId_raterId: {
+                      projectId: String(projectId),
+                      raterId: currentAdmin.id,
+                    },
+                  },
+                  update: { score: numericScore, comment: comment || null },
+                  create: {
+                    projectId: String(projectId),
+                    raterId: currentAdmin.id,
+                    score: numericScore,
+                    comment: comment || null,
+                  },
+                });
+
+                // ۲. محاسبه آمار جدید پروژه
+                const stats = await tx.projectRatingHistory.aggregate({
+                  where: { projectId: String(projectId) },
+                  _avg: { score: true },
+                  _count: { score: true },
+                });
+
+                // ۳. آپدیت مدل پروژه
+                await tx.project.update({
+                  where: { id: String(projectId) },
+                  data: {
+                    averageRating: stats._avg.score || 0,
+                    ratingCount: stats._count.score || 0,
+                    hasRating: true,
+                  },
+                });
+
+                return history;
+              });
+
+              const record = await resource.findOne(createdHistory.id);
+
+              return {
+                record: record?.toJSON(currentAdmin),
+                notice: {
+                  message: "امتیاز با موفقیت ثبت و آمار پروژه بروزرسانی شد.",
+                  type: "success",
+                },
+                redirectUrl: h.resourceActionUrl({
+                  resourceId: resource.id(),
+                  actionName: "list",
+                }),
+              };
+            } catch (error) {
+              console.error("RATING_CREATE_ERROR:", error);
+              throw new ValidationError({
+                projectId: { message: "خطا در ثبت اطلاعات در دیتابیس." },
+              });
+            }
+          },
+        },
+
+        edit: {
+          handler: async (request, response, context) => {
+            const { record, resource, h, currentAdmin, _admin } = context;
+            const prisma = _admin.options.databases[0].connector.prismaClient;
+
+            if (!record) throw new Error("رکورد پیدا نشد.");
+
+            if (request.method === "get") {
+              return {
+                record: record.toJSON(currentAdmin),
+                resource: resource.decorate().toJSON(currentAdmin),
+              };
+            }
+
+            const payload = request.payload ?? {};
+            const numericScore = parseInt(payload.score);
+
+            try {
+              await prisma.$transaction(async (tx) => {
+                // ۱. آپدیت رکورد فعلی
+                await tx.projectRatingHistory.update({
+                  where: { id: record.id() },
+                  data: {
+                    score: numericScore,
+                    comment: payload.comment || null,
+                  },
+                });
+
+                // ۲. محاسبه مجدد آمار پروژه مربوطه
+                const pId = record.param("projectId");
+                const stats = await tx.projectRatingHistory.aggregate({
+                  where: { projectId: pId },
+                  _avg: { score: true },
+                  _count: { score: true },
+                });
+
+                await tx.project.update({
+                  where: { id: pId },
+                  data: {
+                    averageRating: stats._avg.score || 0,
+                    ratingCount: stats._count.score || 0,
+                  },
+                });
+              });
+
+              const refreshed = await resource.findOne(record.id());
+
+              return {
+                record: refreshed?.toJSON(currentAdmin),
+                notice: {
+                  message: "ویرایش با موفقیت انجام شد.",
+                  type: "success",
+                },
+                redirectUrl: h.resourceActionUrl({
+                  resourceId: resource.id(),
+                  actionName: "list",
+                }),
+              };
+            } catch (error) {
+              console.error("RATING_UPDATE_ERROR:", error);
+              throw new ValidationError({
+                score: { message: "خطا در بروزرسانی امتیاز." },
+              });
+            }
+          },
+        },
+      },
+    }),
     prismaResource("AnalysisForm", {
       navigation: {
         name: "فرم‌های تحلیل",
@@ -4104,21 +4268,3 @@ process.on("SIGTERM", async () => {
   await prisma.$disconnect();
   process.exit(0);
 });
-
-// prismaResource("ChatMessage", {
-//   navigation: {
-//     name: "پروژه‌ها",
-//     icon: "MessageCircle",
-//   },
-//   properties: {
-//     content: { type: "textarea" },
-//     projectId: {
-//       isVisible: { list: true, filter: true, show: true, edit: true },
-//     },
-//     userId: {
-//       isVisible: { list: true, filter: true, show: true, edit: true },
-//     },
-//   },
-//   listProperties: ["id", "projectId", "userId", "role", "createdAt"],
-//   editProperties: ["projectId", "userId", "role", "content"],
-// }),
