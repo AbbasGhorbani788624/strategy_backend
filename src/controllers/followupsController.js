@@ -1,17 +1,7 @@
 const {
-  createFollowUpFormService,
   getActiveFollowUpFormService,
 } = require("../services/followupsService");
 const { successResponse } = require("../utils/responses");
-
-exports.createFollowUpForm = async (req, res, next) => {
-  try {
-    await createFollowUpFormService(req.body);
-    return successResponse(res, 201, { message: "فرم با موفقیت ذخیره شد" });
-  } catch (error) {
-    next(error);
-  }
-};
 
 exports.getActiveFollowUpForm = async (req, res, next) => {
   try {

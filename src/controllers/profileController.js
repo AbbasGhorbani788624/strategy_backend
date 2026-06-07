@@ -56,7 +56,6 @@ const getTargetObjectAndParent = (profileObj, dataPath) => {
   }
 
   const finalKey = keys[keys.length - 1];
-  // اطمینان از اینکه کلید نهایی یک آرایه است
   if (!Array.isArray(targetObj[finalKey])) {
     targetObj[finalKey] = [];
   }
@@ -66,18 +65,6 @@ const getTargetObjectAndParent = (profileObj, dataPath) => {
     finalKey: finalKey,
     recordsArray: targetObj[finalKey],
   };
-};
-
-exports.overViewProfile = async (req, res, next) => {
-  try {
-    const currentUser = req.user;
-    const targetUserId = currentUser.id;
-    const prfile = await overViewProfileService(currentUser, targetUserId);
-    return successResponse(res, 200, prfile);
-  } catch (error) {
-    console.error(err);
-    next();
-  }
 };
 
 exports.deleteRecord = async (req, res, next) => {

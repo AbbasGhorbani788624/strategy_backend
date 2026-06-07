@@ -7,7 +7,7 @@ const schema = yup.object().shape({
     .required("یوزرنیم الزامی است"),
   password: yup
     .string()
-    .min(6, "پسورد حداقل ۶ کاراکتر باشد")
+    .min(3, "پسورد حداقل 3 کاراکتر باشد")
     .required("پسورد الزامی است"),
 });
 

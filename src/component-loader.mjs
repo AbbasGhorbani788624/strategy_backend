@@ -237,4 +237,20 @@ export const buildPromptDefinitionLabel = (item) => {
   return `PromptDefinition - ${item.id}`;
 };
 
+export const normalizeNullableString = (value) => {
+  const normalized = String(value ?? "").trim();
+  return normalized ? normalized : null;
+};
+
+export const parseNullableBooleanValue = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  return parseBooleanValue(value);
+};
+
+export const parseDecimalValue = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = parseFloat(value);
+  return isNaN(parsed) ? null : parsed;
+};
+
 export const componentLoader = new ComponentLoader();

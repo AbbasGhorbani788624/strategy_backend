@@ -1,31 +1,6 @@
 const prisma = require("../prismaClient");
 const { createBadRequestError } = require("../utils");
 
-const createFollowUpFormService = async (body) => {
-  const { title, description, isActive = true, order, questions } = body;
-
-  const form = await prisma.followUpForm.create({
-    data: {
-      title: title.trim(),
-      description: description || null,
-      isActive: typeof isActive === "boolean" ? isActive : true,
-      order: Number.isInteger(order) ? order : null,
-      questions: {
-        create: questions,
-      },
-    },
-    include: {
-      questions: {
-        orderBy: {
-          order: "asc",
-        },
-      },
-    },
-  });
-
-  return form;
-};
-
 const getActiveFollowUpFormService = async () => {
   const form = await prisma.followUpForm.findFirst({
     where: {
@@ -69,13 +44,6 @@ createProjectFollowUpRequest = async ({ projectId, userId, body }) => {
   if (!responses || typeof responses !== "object" || Array.isArray(responses)) {
     createBadRequestError("پاسخ‌های فرم پیگیری معتبر نیست", 400);
   }
-
-  /**
-   * نکته مهم:
-   * اینجا فرض شده مدل Project فیلدی به نام userId دارد.
-   * اگر در پروژه تو نام فیلد مالک پروژه چیز دیگری است،
-   * مثلا ownerId یا createdById، همین قسمت را تغییر بده.
-   */
   const project = await prisma.project.findFirst({
     where: {
       id: projectId,
@@ -225,6 +193,5 @@ createProjectFollowUpRequest = async ({ projectId, userId, body }) => {
 };
 
 module.exports = {
-  createFollowUpFormService,
   getActiveFollowUpFormService,
 };

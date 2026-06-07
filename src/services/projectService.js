@@ -12,7 +12,7 @@ const { handleConversationStepService } = require("./analysisFormService");
 const { getFormById } = require("../repositories/analysisFormRepository");
 
 const createAnalysisProjectService = async (currentUser, payload) => {
-  const { formId, goalIds } = payload;
+  const { formId, goalIds, domain } = payload;
 
   if (!formId) {
     createBadRequestError("شناسه فرم الزامی است");
@@ -71,6 +71,7 @@ const createAnalysisProjectService = async (currentUser, payload) => {
           },
         })),
       },
+      domain: domain ? domain : "",
     },
     include: {
       goals: {

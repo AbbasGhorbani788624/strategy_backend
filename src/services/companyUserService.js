@@ -6,11 +6,9 @@ const {
   deleteUser,
 } = require("../repositories/userRepository");
 const prisma = require("../prismaClient");
-const { createBadRequestError, findUserAndDeleteImage } = require("../utils");
+const { createBadRequestError } = require("../utils");
 
-// ایجاد کاربر برای شرکت توسط ادمین شرکت
 const createCompanyUserService = async (creatorId, username, password) => {
-  // پیدا کردن کاربر Company که درخواست ساخت داده
   const creator = await prisma.user.findUnique({
     where: { id: creatorId },
     select: { id: true, role: true, companyId: true },
@@ -22,7 +20,6 @@ const createCompanyUserService = async (creatorId, username, password) => {
     createBadRequestError("کاربر مربوط به هیچ شرکتی نیست", 404);
   }
 
-  // پیدا کردن  شرکت
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     select: { userLimit: true },
@@ -32,7 +29,6 @@ const createCompanyUserService = async (creatorId, username, password) => {
     createBadRequestError("شرکت پیدا نشد", 404);
   }
 
-  // تعداد کاربران موجود
   const currentUsersCount = await countUsersByCompany(companyId);
 
   if (currentUsersCount >= company.userLimit) {
@@ -82,7 +78,6 @@ const deleteCompanyUserService = async (userId, creator) => {
   }
 
   await deleteUser(userId);
-  await findUserAndDeleteImage(userId);
 };
 
 const getColleaguesService = async (userId) => {
@@ -107,7 +102,6 @@ const getColleaguesService = async (userId) => {
             select: {
               id: true,
               username: true,
-              avatar: true,
               role: true,
             },
             take: 100,

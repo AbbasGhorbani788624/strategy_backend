@@ -1,3 +1,5 @@
+const prisma = require("../prismaClient");
+
 const isSectionCompleted = (records) => {
   if (!records) return false;
 
@@ -13,33 +15,19 @@ const isSectionCompleted = (records) => {
 };
 
 const calculateUserProgress = (profileData) => {
-  if (!profileData)
-    return { completed: false, steps: [0, 0, 0, 0], lastStep: 0 };
-
   const steps = [0, 0, 0, 0];
-  let lastStep = 0;
 
-  if (isSectionCompleted(profileData.basicInfoRecords)) {
-    steps[0] = 1;
-    lastStep = 1;
-  }
-  if (isSectionCompleted(profileData.academicRecords)) {
-    steps[1] = 1;
-    lastStep = 2;
-  }
-  if (isSectionCompleted(profileData.educationalRecords)) {
-    steps[2] = 1;
-    lastStep = 3;
-  }
-  if (isSectionCompleted(profileData.capabilitiesRecords)) {
-    steps[3] = 1;
-    lastStep = 4;
-  }
+  if (isSectionCompleted(profileData?.basicInfoRecords)) steps[0] = 1;
+  if (isSectionCompleted(profileData?.academicRecords)) steps[1] = 1;
+  if (isSectionCompleted(profileData?.educationalRecords)) steps[2] = 1;
+  if (isSectionCompleted(profileData?.capabilitiesRecords)) steps[3] = 1;
+
+  const firstIncompleteIndex = steps.findIndex((s) => s === 0);
 
   return {
-    completed: lastStep === 4,
-    lastStep,
     steps,
+    completed: firstIncompleteIndex === -1,
+    nextStep: firstIncompleteIndex === -1 ? null : firstIncompleteIndex + 1,
   };
 };
 
@@ -48,9 +36,7 @@ const calculateCompanyProgress = (profileData) => {
   let stepIndex = 0;
 
   const check = (records) => {
-    if (isSectionCompleted(records)) {
-      steps[stepIndex] = 1;
-    }
+    if (isSectionCompleted(records)) steps[stepIndex] = 1;
     stepIndex++;
   };
 
@@ -59,7 +45,6 @@ const calculateCompanyProgress = (profileData) => {
   const financial = profileData?.financialStuation;
   const resources = profileData?.resourcesCapabilities;
 
-  // companyInfo (7)
   check(companyInfo?.basicInfoRecords);
   check(companyInfo?.managmentsRecords);
   check(companyInfo?.revenueCentersRecords);
@@ -68,40 +53,35 @@ const calculateCompanyProgress = (profileData) => {
   check(companyInfo?.licensesRecords);
   check(companyInfo?.membershipsRecords);
 
-  // market (3)
   check(market?.productsServicesRecords);
   check(market?.marketsRecords);
   check(market?.keyCustomersRecords);
 
-  // financial (2)
   check(financial?.balanceSheetRecords);
   check(financial?.profitLossRecords);
 
-  // resources (1)
   check(resources?.resourcesCapabilitiesRecords);
 
-  const lastStep = steps.lastIndexOf(1) + 1;
+  const firstIncompleteIndex = steps.findIndex((s) => s === 0);
 
   return {
     steps,
-    lastStep,
-    completed: lastStep === 13,
+    completed: firstIncompleteIndex === -1,
+    nextStep: firstIncompleteIndex === -1 ? null : firstIncompleteIndex + 1,
   };
 };
 
 const resolveProfileRoute = ({ role, userProgress, companyProgress }) => {
-  // user profile incomplete
-  if (!userProgress.completed) {
+  if (!userProgress?.completed) {
     return {
       entity: "user",
       tab: 1,
-      step: userProgress.lastStep + 1,
+      step: userProgress.nextStep,
     };
   }
 
-  // company profile incomplete
   if (role === "COMPANY" && companyProgress && !companyProgress.completed) {
-    const step = companyProgress.lastStep + 1;
+    const step = companyProgress.nextStep;
 
     if (step <= 7) {
       return { entity: "company", tab: 2, step };
@@ -121,8 +101,87 @@ const resolveProfileRoute = ({ role, userProgress, companyProgress }) => {
   return null;
 };
 
+const getCompanyProfileForProgress = async (companyId) => {
+  const basicInfo = await prisma.companyBasicInfo.findUnique({
+    where: { companyId },
+  });
+
+  const managers = await prisma.companyManager.findMany({
+    where: { companyId },
+  });
+
+  const revenueCenters = await prisma.revenueCenter.findMany({
+    where: { companyId },
+  });
+
+  const shareholders = await prisma.companyShareholder.findMany({
+    where: { companyId },
+  });
+
+  const organizationUnits = await prisma.organizationUnit.findMany({
+    where: { companyId },
+  });
+
+  const licenseCertificates = await prisma.companyLicenseCertificate.findMany({
+    where: { companyId },
+  });
+
+  const memberships = await prisma.companyMembership.findMany({
+    where: { companyId },
+  });
+
+  const productServices = await prisma.companyProductService.findMany({
+    where: { companyId },
+  });
+
+  const markets = await prisma.companyMarket.findMany({
+    where: { companyId },
+  });
+
+  const keyCustomers = await prisma.keyCustomer.findMany({
+    where: { companyId },
+  });
+
+  const balanceSheets = await prisma.companyBalanceSheet.findMany({
+    where: { companyId },
+  });
+
+  const incomeStatements = await prisma.companyIncomeStatement.findMany({
+    where: { companyId },
+  });
+
+  const resourceCapabilities = await prisma.companyResourceCapability.findMany({
+    where: { companyId },
+  });
+
+  return {
+    companyInfo: {
+      basicInfoRecords: basicInfo ? [basicInfo] : [],
+      managmentsRecords: managers || [],
+      revenueCentersRecords: revenueCenters || [],
+      shareholdersRecords: shareholders || [],
+      orgStructureRecords: organizationUnits || [],
+      licensesRecords: licenseCertificates || [],
+      membershipsRecords: memberships || [],
+    },
+    market: {
+      productsServicesRecords: productServices || [],
+      marketsRecords: markets || [],
+      keyCustomersRecords: keyCustomers || [],
+    },
+    financialStuation: {
+      balanceSheetRecords: balanceSheets || [],
+      profitLossRecords: incomeStatements || [],
+    },
+    resourcesCapabilities: {
+      resourcesCapabilitiesRecords: resourceCapabilities || [],
+    },
+  };
+};
+
 module.exports = {
   calculateCompanyProgress,
   calculateUserProgress,
   resolveProfileRoute,
+  getCompanyProfileForProgress,
 };

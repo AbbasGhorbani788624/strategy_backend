@@ -60,7 +60,6 @@ const updateProfileService = async (
     dataPath,
   );
 
-  // normalize input => array
   let recordsToProcess = [];
   if (Array.isArray(newData)) recordsToProcess = newData;
   else if (newData && typeof newData === "object") recordsToProcess = [newData];
@@ -90,77 +89,26 @@ const updateProfileService = async (
 
   parentObj[finalKey] = updatedRecordsArray;
 
-  // ✅ FIX: compute progress from updated profile
   const userProgress = calculateUserProgress(currentProfile);
 
-  let companyProgress = null;
   if (user.role === "COMPANY" && user.companyId) {
     const company = await prisma.company.findUnique({
       where: { id: user.companyId },
-      select: { profile: true, profileCompleted: true },
     });
-    companyProgress = calculateCompanyProgress(company?.profile);
   }
 
   await prisma.user.update({
     where: { id: targetUserId },
     data: {
       profile: currentProfile,
-      profileCompleted: userProgress.completed, // ✅ دقیق
+      profileCompleted: userProgress.completed,
       progress: {
         user: userProgress,
-        company: companyProgress,
       },
     },
   });
-};
-
-const overViewProfileService = async (currentUser, targetUserId) => {
-  const user = await prisma.user.findUnique({
-    where: { id: targetUserId },
-    select: {
-      id: true,
-      username: true,
-      role: true,
-      profile: true,
-      profileCompleted: true,
-      company: {
-        select: {
-          id: true,
-          name: true,
-          industry: true,
-          profile: true,
-        },
-      },
-    },
-  });
-
-  if (!user) {
-    createBadRequestError("پروفایل کاربری با چنین ایدی وجود ندارد", 404);
-  }
-
-  const isSelf = currentUser.id === targetUserId;
-
-  if (currentUser.role === "MEMBER") {
-    if (!isSelf) {
-      createBadRequestError(
-        "شما فقط می‌توانید پروفایل خودتان را مشاهده کنید",
-        403,
-      );
-    }
-  } else if (currentUser.role === "COMPANY") {
-    if (!isSelf && user.company.id !== currentUser.companyId) {
-      createBadRequestError(
-        "شما فقط می‌توانید پروفایل اعضای شرکت خود را مشاهده کنید",
-        403,
-      );
-    }
-  }
-
-  return user;
 };
 
 module.exports = {
   updateProfileService,
-  overViewProfileService,
 };

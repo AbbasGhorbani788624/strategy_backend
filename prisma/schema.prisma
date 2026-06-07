@@ -7,7 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-
 enum Role {
   SUPER_ADMIN
   COMPANY
@@ -32,13 +31,12 @@ enum ProjectStatus {
   ANALYSIS_PENDING
   REVIEWING
   CHAT_MODE
-  RISK_ANALYSIS
   FINAL_ANALYSIS
 }
 
 enum NotificationType {
-  ADMIN_FEEDBACK     
-  PROJECT_RATED      
+  ADMIN_FEEDBACK
+  PROJECT_RATED
   PROJECT_ACCESS_GRANTED
   FOLLOW_UP_ANSWERED
 }
@@ -46,9 +44,6 @@ enum NotificationType {
 enum QuestionType {
   CHECKBOX
   RADIO
-  DROPDOWN
-  TEXT
-  TEXTAREA
   NUMBER
 }
 
@@ -68,31 +63,49 @@ enum PromptVersionStatus {
   ARCHIVED
 }
 
-model User {
-  id               String   @id @default(uuid())
-  avatar           String?
-  username         String   @unique
-  password         String
-  email            String?  @unique
-  phoneNumber      String?  @unique
-  role             Role
-  companyId        String?
-  profile          Json?
-  progress         Json?  
+enum CompanyDataModel {
+  COMPANY_BASIC_INFO
+  COMPANY_MANAGER
+  REVENUE_CENTER
+  COMPANY_SHAREHOLDER
+  ORGANIZATION_UNIT
+  COMPANY_LICENSE_CERTIFICATE
+  COMPANY_MEMBERSHIP
+  COMPANY_PRODUCT_SERVICE
+  COMPANY_MARKET
+  KEY_CUSTOMER
+  COMPANY_BALANCE_SHEET
+  COMPANY_INCOME_STATEMENT
+  COMPANY_RESOURCE_CAPABILITY
+}
 
-  profileCompleted Boolean  @default(false)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  company         Company?      @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: Cascade)
-  createdProjects Project[]
-  ratingHistory   ProjectRatingHistory[]
+model User {
+  id          String  @id @default(uuid())
+  username    String  @unique
+  password    String
+  email       String? @unique
+  phoneNumber String? @unique
+  role        Role
+  companyId   String?
+  profile     Json?
+  progress    Json?
+
+  profileCompleted Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  uploadedFiles    FileAttachment[]
+  
+  company             Company?               @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: Cascade)
+  createdProjects     Project[]
+  ratingHistory       ProjectRatingHistory[]
   profileViewAccesses ProfileViewAccess[]
   chatMessages        ChatMessage[]
   refreshTokens       RefreshToken[]
   notifications       Notification[]
-  projectAccesses   ProjectAccess[] 
-  followUpRequests FollowUpRequest[] @relation("UserFollowUpRequests")
-  answeredFollowUps FollowUpRequest[] @relation("AdminAnsweredFollowUps")
+  projectAccesses     ProjectAccess[]
+  followUpRequests    FollowUpRequest[]      @relation("UserFollowUpRequests")
+  answeredFollowUps   FollowUpRequest[]      @relation("AdminAnsweredFollowUps")
+
   @@index([role])
   @@index([companyId])
 }
@@ -102,27 +115,11 @@ model ProfileViewAccess {
   userId    String
   companyId String
   section   ProfileSection
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
   @@unique([userId, section])
   @@index([companyId])
-}
-
-model Company {
-  id                  String              @id @default(uuid())
-  name                String              @unique
-  industry            String?
-  profile             Json?
-  progress         Json?  
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-  userLimit           Int                 @default(1)
-  members             User[]              @relation("CompanyMembers")
-  projects            Project[]
-  profileViewAccesses ProfileViewAccess[]
-  adminData           CompanyAdminData?
-  profileCompleted Boolean @default(false)
-  @@index([id])
 }
 
 model CompanyAdminData {
@@ -131,53 +128,56 @@ model CompanyAdminData {
   data      Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model Project {
-  id String @id @default(uuid())
-  title String
+  id        String        @id @default(uuid())
+  title     String
   creatorId String
   companyId String?
-  mode ProjectMode @default(SINGLE)
-  status ProjectStatus @default(WAITING_FOR_FORM)
+  mode      ProjectMode   @default(SINGLE)
+  status    ProjectStatus @default(WAITING_FOR_FORM)
 
-  formResponses Json?
-  formId String?
+  formResponses       Json?
+  formId              String?
   multiAnalysisFormId String?
+  summaryAnalysis     String? @db.Text
 
   promptVersionId String?
 
   chatMessages ChatMessage[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
-  creator User @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  creator User     @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  form AnalysisForm? @relation(fields: [formId], references: [id], onDelete: SetNull)
-  multiAnalysisForm MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: SetNull)
-  promptVersion PromptVersion? @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
+  form              AnalysisForm?      @relation(fields: [formId], references: [id], onDelete: Cascade)
+  multiAnalysisForm MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
+  promptVersion     PromptVersion?     @relation(fields: [promptVersionId], references: [id], onDelete: Cascade)
+
+  domain String? @db.Text 
 
   initialAnalysis String? @db.Text
-  riskAnalysis String? @db.Text
-  finalAnalysis String? @db.Text
+  riskAnalysis    String? @db.Text
+  finalAnalysis   String? @db.Text
 
-  ratings ProjectRatingHistory[]
-  accesses ProjectAccess[]
-  goals ProjectGoal[]
-  multiGoals ProjectMultiGoal[]
+  ratings          ProjectRatingHistory[]
+  accesses         ProjectAccess[]
+  goals            ProjectGoal[]
+  multiGoals       ProjectMultiGoal[]
   followUpRequests FollowUpRequest[]
 
-  averageRating Float @default(0)
-  ratingCount Int @default(0)
-  hasRating Boolean @default(false)
+  averageRating Float   @default(0)
+  ratingCount   Int     @default(0)
+  hasRating     Boolean @default(false)
 
   chatModeStartedAt DateTime?
-  chatModeEndedAt DateTime?
+  chatModeEndedAt   DateTime?
 
   selectedSourceProjects MultiAnalysisProjectSource[] @relation("MultiProjectSources")
-  usedInMultiProjects MultiAnalysisProjectSource[] @relation("SourceProjectUsedInMulti")
+  usedInMultiProjects    MultiAnalysisProjectSource[] @relation("SourceProjectUsedInMulti")
 
   @@index([status])
   @@index([companyId])
@@ -187,28 +187,29 @@ model Project {
 }
 
 model ProjectRatingHistory {
-  id String @id @default(uuid())
+  id        String   @id @default(uuid())
   projectId String
-  raterId String 
-  score Int
-  comment String?
+  raterId   String
+  score     Int
+  comment   String?
   createdAt DateTime @default(now())
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  rater User @relation(fields: [raterId], references: [id]) 
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rater     User     @relation(fields: [raterId], references: [id])
+
   @@unique([projectId, raterId])
   @@index([projectId])
   @@index([raterId])
 }
 
 model ChatMessage {
-  id String @id @default(uuid())
+  id        String   @id @default(uuid())
   projectId String
-  userId String?
-  role String // "user" | "assistant" | "system"
-  content String @db.Text 
+  userId    String?
+  role      String // "user" | "assistant" | "system"
+  content   String   @db.Text
   createdAt DateTime @default(now())
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([userId])
@@ -216,11 +217,11 @@ model ChatMessage {
 }
 
 model AnalysisForm {
-  id        String   @id @default(uuid())
-  title     String
-  info      String?
-  order     Int?
-  isActive  Boolean  @default(true)
+  id       String  @id @default(uuid())
+  title    String
+  info     String?
+  order    Int?
+  isActive Boolean @default(true)
 
   questions FormQuestion[]
   goals     FormGoal[]
@@ -231,6 +232,8 @@ model AnalysisForm {
 
   requiredInMultiAnalysis MultiAnalysisRequiredForm[]
   multiProjectSources     MultiAnalysisProjectSource[]
+  profileFields           AnalysisFormProfileField[]
+  temperature             Float                        @default(0.7)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -240,13 +243,13 @@ model AnalysisForm {
 }
 
 model FormGoal {
-  id        String       @id @default(uuid())
+  id        String        @id @default(uuid())
   formId    String
   title     String
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  projects ProjectGoal[]
-  form AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  projects  ProjectGoal[]
+  form      AnalysisForm  @relation(fields: [formId], references: [id], onDelete: Cascade)
 
   @@index([formId])
 }
@@ -257,8 +260,8 @@ model ProjectGoal {
   goalId    String
   createdAt DateTime @default(now())
 
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  goal      FormGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  goal    FormGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, goalId])
   @@index([projectId])
@@ -274,16 +277,16 @@ model FormQuestion {
   required Boolean      @default(true)
   order    Int
 
-  form     AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  form AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
 
   @@index([formId, order])
 }
 
 model RefreshToken {
-  id        String @id @default(uuid())
-  tokenHash String @unique
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
   userId    String
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   revoked   Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -291,17 +294,18 @@ model RefreshToken {
 }
 
 model Notification {
-  id String @id @default(uuid())
-  userId String 
-  type NotificationType
-  title String 
-  message String 
-  isRead Boolean @default(false) 
-  referenceId String? 
+  id            String           @id @default(uuid())
+  userId        String
+  type          NotificationType
+  title         String
+  message       String
+  isRead        Boolean          @default(false)
+  referenceId   String?
   referenceType String?
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@index([userId, isRead]) 
+  createdAt     DateTime         @default(now())
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
   @@index([createdAt])
 }
 
@@ -311,10 +315,11 @@ model ProjectAccess {
   userId    String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
   @@unique([projectId, userId])
   @@index([projectId])
   @@index([userId])
-  createdAt DateTime @default(now())
 }
 
 model MultiAnalysisRequiredForm {
@@ -335,7 +340,7 @@ model MultiAnalysisRequiredForm {
 }
 
 model MultiAnalysisProjectSource {
-  id              String @id @default(uuid())
+  id              String   @id @default(uuid())
   multiProjectId  String
   sourceProjectId String
   formId          String
@@ -360,11 +365,12 @@ model MultiAnalysisForm {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  requiredForms MultiAnalysisRequiredForm[]
-  goals         MultiAnalysisGoal[]
-  projects      Project[]
-
+  requiredForms    MultiAnalysisRequiredForm[]
+  goals            MultiAnalysisGoal[]
+  projects         Project[]
   promptDefinition PromptDefinition?
+  profileFields    MultiAnalysisFormProfileField[]
+  temperature      Float                           @default(0.7)
 
   @@index([isActive])
   @@index([order])
@@ -377,11 +383,10 @@ model MultiAnalysisGoal {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  projects            ProjectMultiGoal[]
-  multiAnalysisForm   MultiAnalysisForm @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
+  projects          ProjectMultiGoal[]
+  multiAnalysisForm MultiAnalysisForm  @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
 
-
-@@unique([multiAnalysisFormId, title])
+  @@unique([multiAnalysisFormId, title])
   @@index([multiAnalysisFormId])
 }
 
@@ -391,8 +396,8 @@ model ProjectMultiGoal {
   goalId    String
   createdAt DateTime @default(now())
 
-  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  goal      MultiAnalysisGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  project Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  goal    MultiAnalysisGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, goalId])
   @@index([projectId])
@@ -400,17 +405,17 @@ model ProjectMultiGoal {
 }
 
 model FollowUpForm {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   title       String
   description String?
-  isActive    Boolean  @default(true)
+  isActive    Boolean @default(true)
   order       Int?
 
-  questions   FollowUpFormQuestion[]
-  requests    FollowUpRequest[]
+  questions FollowUpFormQuestion[]
+  requests  FollowUpRequest[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([isActive])
   @@index([order])
@@ -425,34 +430,34 @@ model FollowUpFormQuestion {
   required Boolean      @default(true)
   order    Int
 
-  form     FollowUpForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  form FollowUpForm @relation(fields: [formId], references: [id], onDelete: Cascade)
 
   @@index([formId, order])
 }
 
 model FollowUpRequest {
-  id          String         @id @default(uuid())
+  id String @id @default(uuid())
 
-  title       String
-  status      FollowUpStatus @default(PENDING)
+  title  String
+  status FollowUpStatus @default(PENDING)
 
-  projectId   String
-  userId      String
-  formId      String?
+  projectId String
+  userId    String
+  formId    String?
 
-  responses   Json
+  responses Json
 
-  adminAnswer String?        @db.Text
-  answeredAt  DateTime?
+  adminAnswer  String?   @db.Text
+  answeredAt   DateTime?
   answeredById String?
 
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user        User           @relation("UserFollowUpRequests", fields: [userId], references: [id], onDelete: Cascade)
-  form        FollowUpForm?  @relation(fields: [formId], references: [id], onDelete: SetNull)
-  answeredBy  User?          @relation("AdminAnsweredFollowUps", fields: [answeredById], references: [id], onDelete: SetNull)
+  project    Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user       User          @relation("UserFollowUpRequests", fields: [userId], references: [id], onDelete: Cascade)
+  form       FollowUpForm? @relation(fields: [formId], references: [id], onDelete: Cascade)
+  answeredBy User?         @relation("AdminAnsweredFollowUps", fields: [answeredById], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@index([userId])
@@ -463,24 +468,24 @@ model FollowUpRequest {
 }
 
 model PromptDefinition {
-  id                  String   @id @default(uuid())
+  id                  String          @id @default(uuid())
   ownerType           PromptOwnerType
   title               String?
-  analysisFormId      String?  @unique
-  multiAnalysisFormId String?  @unique
+  analysisFormId      String?         @unique
+  multiAnalysisFormId String?         @unique
 
-  analysisForm        AnalysisForm?      @relation(fields: [analysisFormId], references: [id])
-  multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id])
+  analysisForm      AnalysisForm?      @relation(fields: [analysisFormId], references: [id])
+  multiAnalysisForm MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id])
 
-  segments            PromptSegmentDefinition[]
-  versions            PromptVersion[]
+  segments PromptSegmentDefinition[]
+  versions PromptVersion[]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model PromptSegmentDefinition {
-  id                 String   @id @default(uuid())
+  id                 String  @id @default(uuid())
   promptDefinitionId String
   key                String
   label              String
@@ -488,46 +493,405 @@ model PromptSegmentDefinition {
   sortOrder          Int?
   isRequired         Boolean @default(false)
 
-  promptDefinition   PromptDefinition @relation(fields: [promptDefinitionId], references: [id])
-  values             PromptVersionSegmentValue[]
+  promptDefinition PromptDefinition            @relation(fields: [promptDefinitionId], references: [id])
+  values           PromptVersionSegmentValue[]
 
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([promptDefinitionId, key])
   @@index([promptDefinitionId, sortOrder])
 }
 
 model PromptVersion {
-  id                 String   @id @default(uuid())
+  id                 String              @id @default(uuid())
   promptDefinitionId String
   versionNumber      Int
   versionKey         String
   status             PromptVersionStatus
   publishedAt        DateTime?
 
-  promptDefinition   PromptDefinition @relation(fields: [promptDefinitionId], references: [id])
-  values             PromptVersionSegmentValue[]
-  projects           Project[]
+  promptDefinition PromptDefinition            @relation(fields: [promptDefinitionId], references: [id])
+  values           PromptVersionSegmentValue[]
+  projects         Project[]
 
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([promptDefinitionId, versionNumber])
   @@unique([promptDefinitionId, versionKey])
 }
 
 model PromptVersionSegmentValue {
-  id                  String   @id @default(uuid())
+  id                  String @id @default(uuid())
   promptVersionId     String
   segmentDefinitionId String
-  content             String
+  content             String @db.Text
 
-  promptVersion       PromptVersion @relation(fields: [promptVersionId], references: [id])
-  segmentDefinition   PromptSegmentDefinition @relation(fields: [segmentDefinitionId], references: [id])
+  promptVersion     PromptVersion           @relation(fields: [promptVersionId], references: [id])
+  segmentDefinition PromptSegmentDefinition @relation(fields: [segmentDefinitionId], references: [id])
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([promptVersionId, segmentDefinitionId])
+}
+
+model Company {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name     String
+  industry String?
+
+  members             User[]                      @relation("CompanyMembers")
+  profileViewAccesses ProfileViewAccess[]
+  companyAdminData    CompanyAdminData?
+  projects            Project[]
+  userLimit           Int                         @default(1)
+  basicInfo           CompanyBasicInfo?
+  managers            CompanyManager[]
+  revenueCenters      RevenueCenter[]
+  shareholders        CompanyShareholder[]
+  organizationUnits   OrganizationUnit[]
+  licenseCertificates CompanyLicenseCertificate[]
+  memberships         CompanyMembership[]
+
+  productServices CompanyProductService[]
+  markets         CompanyMarket[]
+  keyCustomers    KeyCustomer[]
+
+  balanceSheets    CompanyBalanceSheet[]
+  incomeStatements CompanyIncomeStatement[]
+
+  resourceCapabilities CompanyResourceCapability[]
+}
+
+model CompanyBasicInfo {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  brandTitle                  String?
+  nationalId                  String?
+  companyType                 String?
+  establishmentYear           String?
+  commercialActivityStartYear String?
+  isListed                    Boolean?
+  isHolding                   Boolean?
+  isHoldingSubsidiary         Boolean?
+  parentCompanyName           String?
+  totalPersonnelCount         Int?
+  operationalPersonnelCount   Int?
+  phoneNumber                 String?
+  website                     String?
+}
+
+model CompanyManager {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  fullName              String
+  positionTitle         String?
+  isBoardMember         Boolean?
+  isStrategyTeamMember  Boolean?
+  companyWorkExperience Int?
+  totalWorkExperience   Int?
+
+  resumeFileId String?
+  resumeFile   FileAttachment? @relation(fields: [resumeFileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int?
+
+  @@index([companyId])
+  @@index([resumeFileId])
+}
+
+model RevenueCenter {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId                String
+  company                  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title                    String
+  activityYearsCount       Int?
+  totalRevenueSharePercent Decimal? @db.Decimal(5, 2)
+  personnelCount           Int?
+  sortOrder                Int?
+
+  @@index([companyId])
+}
+
+model CompanyShareholder {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name              String
+  shareholderType   String?
+  isBoardMember     Boolean?
+  hasPreferredShare Boolean?
+  sharePercent      Decimal? @db.Decimal(5, 2)
+
+  @@index([companyId])
+}
+
+model OrganizationUnit {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  unitName        String
+  structureLevel  String?
+  isRevenueCenter Boolean?
+
+  parentUnitName String?
+
+  managerName   String?
+  employeeCount Int?
+
+  structureFileId String?
+  structureFile   FileAttachment? @relation(fields: [structureFileId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([structureFileId])
+}
+
+model CompanyLicenseCertificate {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  title           String
+  issuerReference String?
+  issueDate       DateTime?
+  type            String?
+
+  attachmentFileId String?
+  attachmentFile   FileAttachment? @relation(fields: [attachmentFileId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([attachmentFileId])
+}
+
+model CompanyMembership {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  associationName String
+  membershipDate  DateTime?
+  isBoardMember   Boolean?
+
+  @@index([companyId])
+}
+
+model CompanyProductService {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name          String
+  revenueCenter String?
+
+  type                String?
+  revenueSharePercent String?
+  distinctiveFeatures String?
+  startYear           Int?
+  marketPosition      String?
+  isExported          Boolean?
+  sortOrder           Int?
+
+  @@index([companyId])
+}
+
+model CompanyMarket {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  marketName             String
+  marketType             String?
+  marketSharePercent     Decimal? @db.Decimal(5, 2)
+  marketPenetrationLevel String?
+  yearsInMarket          Int?
+
+  relatedProductService String?
+
+  sortOrder Int?
+
+  @@index([companyId])
+}
+
+model KeyCustomer {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  customerName           String
+  category               String?
+  businessField          String?
+  productImportanceLevel String?
+  revenueImpactLevel     String?
+  loyaltyLevel           String?
+  walletShareLevel       String?
+  sortOrder              Int?
+
+  @@index([companyId])
+}
+
+model CompanyBalanceSheet {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  fiscalPeriodStart DateTime?
+  fiscalPeriodEnd   DateTime?
+
+  category String?
+  title    String
+  amount   Decimal? @db.Decimal(18, 2)
+
+  balanceFileId String?
+  balanceFile   FileAttachment? @relation(fields: [balanceFileId], references: [id], onDelete: Cascade)
+
+  description String?
+  sortOrder   Int?
+
+  @@index([companyId])
+  @@index([balanceFileId])
+  @@index([fiscalPeriodStart, fiscalPeriodEnd])
+}
+
+model CompanyIncomeStatement {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  fiscalPeriodStart DateTime?
+  fiscalPeriodEnd   DateTime?
+
+  category String?
+  title    String
+  amount   Decimal? @db.Decimal(18, 2)
+
+  incomeFileId String?
+  incomeFile   FileAttachment? @relation(fields: [incomeFileId], references: [id], onDelete: Cascade)
+
+  description String?
+  sortOrder   Int?
+
+  @@index([companyId])
+  @@index([incomeFileId])
+  @@index([fiscalPeriodStart, fiscalPeriodEnd])
+}
+
+model CompanyResourceCapability {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  capability         String
+  category           String?
+  importanceLevel    String?
+  availabilityLevel  String?
+  rarityLevel        String?
+  inimitabilityLevel String?
+
+  sortOrder Int @default(0)
+
+  @@index([companyId])
+  @@index([companyId, sortOrder])
+}
+
+model FileAttachment {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  originalName String?
+  fileName     String?
+  filePath     String?
+  uploadKey    String?
+
+  mimeType  String?
+  extension String?
+  size      Int?
+
+  uploadedById String?
+  uploadedBy   User?   @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  managerResumes          CompanyManager[]
+  organizationUnitFiles   OrganizationUnit[]
+  licenseCertificateFiles CompanyLicenseCertificate[]
+
+  balanceSheetFiles    CompanyBalanceSheet[]
+  incomeStatementFiles CompanyIncomeStatement[]
+}
+
+model AnalysisFormProfileField {
+  id String @id @default(uuid())
+
+  formId String
+  form   AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  profileFieldKey String
+  isArray         Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([formId, profileFieldKey])
+}
+
+model MultiAnalysisFormProfileField {
+  id String @id @default(uuid())
+
+  multiAnalysisFormId String
+  multiAnalysisForm   MultiAnalysisForm @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
+
+  profileFieldKey String
+  isArray         Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([multiAnalysisFormId, profileFieldKey])
 }

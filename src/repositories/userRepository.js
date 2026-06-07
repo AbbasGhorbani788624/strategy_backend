@@ -7,12 +7,10 @@ const findUserByUsername = async (username) => {
 };
 
 const findById = async (id, props = []) => {
-  // select پیش‌فرض
   const defaultSelect = {
     id: true,
     username: true,
     role: true,
-    avatar: true,
     profileCompleted: true,
     company: {
       select: {
@@ -22,7 +20,6 @@ const findById = async (id, props = []) => {
     companyId: true,
   };
 
-  // تبدیل props به شی select با مقدار true
   const propSelect = props.reduce((acc, field) => {
     acc[field] = true;
     return acc;

@@ -1,15 +1,5 @@
 const prisma = require("../prismaClient");
 
-const createCompany = async (data) => {
-  return prisma.company.create({ data });
-};
-
-const findCompanyByName = async (name) => {
-  return prisma.company.findFirst({
-    where: { name },
-  });
-};
-
 const findCompanyById = (companyId) => {
   return prisma.company.findUnique({
     where: { id: companyId },
@@ -27,9 +17,7 @@ const createUser = async (data) => {
 };
 
 module.exports = {
-  createCompany,
   createUser,
-  findCompanyByName,
   findCompanyById,
   isCompanyExists,
 };

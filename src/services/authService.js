@@ -20,6 +20,7 @@ const {
   calculateUserProgress,
   calculateCompanyProgress,
   resolveProfileRoute,
+  getCompanyProfileForProgress,
 } = require("../utils/profileUtils");
 const prisma = require("../prismaClient");
 
@@ -66,16 +67,15 @@ const getMeService = async (userId) => {
   let companyProgress = null;
 
   if (user.role === "COMPANY" && user.companyId) {
-    const company = await prisma.company.findUnique({
-      where: { id: user.companyId },
-      select: {
-        profile: true,
-        progress: true,
-      },
-    });
+    const companyProfileData = await getCompanyProfileForProgress(
+      user.companyId,
+    );
 
-    companyProgress =
-      company?.progress ?? calculateCompanyProgress(company?.profile);
+    companyProgress = user.progress?.company;
+
+    if (!companyProgress) {
+      companyProgress = calculateCompanyProgress(companyProfileData);
+    }
   }
 
   const nextRoute = resolveProfileRoute({
@@ -89,12 +89,10 @@ const getMeService = async (userId) => {
     username: user.username,
     role: user.role,
     companyId: user.companyId,
-
     progress: {
       user: userProgress,
       company: companyProgress,
     },
-
     nextRoute,
   };
 };

@@ -13,12 +13,13 @@ const { successResponse } = require("../utils/responses");
 
 exports.createProject = async (req, res, next) => {
   try {
-    const { formId, goalIds } = req.body;
+    const { formId, goalIds, domain } = req.body;
     const currentUser = req.user;
 
     const project = await createAnalysisProjectService(currentUser, {
       formId,
       goalIds,
+      domain,
     });
 
     return successResponse(res, 201, {

@@ -1,61 +1,5 @@
 const prisma = require("../prismaClient");
 
-const createWithQuestions = async (data) => {
-  const { questions = [], goals = [], promptDefinition, ...formData } = data;
-
-  return prisma.analysisForm.create({
-    data: {
-      ...formData,
-      questions: {
-        create: questions.map((q) => ({
-          label: q.label,
-          type: q.type,
-          options: q.options || null,
-          required: q.required ?? true,
-          order: q.order,
-        })),
-      },
-      goals: {
-        create: goals.map((g) => ({
-          title: g.title,
-        })),
-      },
-      ...(promptDefinition
-        ? {
-            promptDefinition: {
-              create: {
-                ownerType: "ANALYSIS_FORM",
-                segments: {
-                  create: (promptDefinition.segments || []).map((s) => ({
-                    key: s.key,
-                    label: s.label,
-                    sortOrder: s.sortOrder,
-                    description: s.description || null,
-                    isRequired: s.isRequired ?? true,
-                  })),
-                },
-              },
-            },
-          }
-        : {}),
-    },
-    include: {
-      questions: true,
-      goals: true,
-      promptDefinition: {
-        include: {
-          segments: {
-            orderBy: {
-              sortOrder: "asc",
-            },
-          },
-          versions: true,
-        },
-      },
-    },
-  });
-};
-
 const deleteFormRepo = async (id) => {
   return prisma.$transaction(async (tx) => {
     const form = await tx.analysisForm.findUnique({
@@ -154,10 +98,6 @@ const getFormById = async (id) => {
   });
 };
 
-const isFromExists = async (id) => {
-  return await prisma.analysisForm.count({ where: { id } });
-};
-
 const getExistingFormsByIds = async (formIds) => {
   if (!formIds || formIds.length === 0) return [];
 
@@ -167,153 +107,6 @@ const getExistingFormsByIds = async (formIds) => {
   });
 
   return forms;
-};
-
-const getAllAnalysisForms = async ({ page = 1, limit = 10, search = "" }) => {
-  const skip = (page - 1) * limit;
-
-  const where = search
-    ? {
-        title: {
-          contains: search,
-        },
-      }
-    : {};
-
-  const [forms, total] = await Promise.all([
-    prisma.analysisForm.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: {
-        createdAt: "desc",
-      },
-      select: {
-        id: true,
-        title: true,
-        order: true,
-        isActive: true,
-        info: true,
-        createdAt: true,
-        updatedAt: true,
-
-        _count: {
-          select: {
-            questions: true,
-            goals: true,
-          },
-        },
-
-        promptDefinition: {
-          select: {
-            id: true,
-
-            _count: {
-              select: {
-                segments: true,
-                versions: true,
-              },
-            },
-
-            versions: {
-              where: {
-                status: "PUBLISHED",
-              },
-              orderBy: {
-                versionNumber: "desc",
-              },
-              take: 1,
-              select: {
-                id: true,
-                versionNumber: true,
-                versionKey: true,
-                status: true,
-                publishedAt: true,
-              },
-            },
-          },
-        },
-      },
-    }),
-
-    prisma.analysisForm.count({ where }),
-  ]);
-
-  const mappedForms = forms.map((form) => {
-    const publishedVersion = form.promptDefinition?.versions?.[0] || null;
-
-    return {
-      id: form.id,
-      title: form.title,
-      order: form.order,
-      isActive: form.isActive,
-      info: form.info,
-      createdAt: form.createdAt,
-      updatedAt: form.updatedAt,
-
-      questionsCount: form._count.questions,
-      goalsCount: form._count.goals,
-
-      promptDefinition: form.promptDefinition
-        ? {
-            id: form.promptDefinition.id,
-            segmentsCount: form.promptDefinition._count.segments,
-            versionsCount: form.promptDefinition._count.versions,
-            publishedVersion,
-          }
-        : null,
-    };
-  });
-
-  return {
-    forms: mappedForms,
-    meta: {
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    },
-  };
-};
-
-const getAnalysisFormById = async (id) => {
-  return prisma.analysisForm.findUnique({
-    where: { id },
-    include: {
-      questions: {
-        orderBy: {
-          order: "asc",
-        },
-      },
-      goals: true,
-      promptDefinition: {
-        include: {
-          segments: {
-            orderBy: {
-              sortOrder: "asc",
-            },
-          },
-          versions: {
-            orderBy: {
-              versionNumber: "desc",
-            },
-            include: {
-              segmentValues: {
-                include: {
-                  segmentDefinition: true,
-                },
-                orderBy: {
-                  segmentDefinition: {
-                    sortOrder: "asc",
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  });
 };
 
 const getSingleForms = async () => {
@@ -412,13 +205,9 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
 };
 
 module.exports = {
-  createWithQuestions,
   deleteFormRepo,
   getFormById,
   getExistingFormsByIds,
-  getAllAnalysisForms,
-  getAnalysisFormById,
   getSingleForms,
-  isFromExists,
   getAvailableMultiAnalysisFormsService,
 };

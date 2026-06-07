@@ -1,5 +1,4 @@
 import "dotenv/config";
-
 import express from "express";
 import session from "express-session";
 import bcrypt from "bcrypt";
@@ -18,6 +17,28 @@ import {
   questionTypeValues,
   validateQuestionOptions,
 } from "./component-loader.mjs";
+import {
+  companyBalanceSheetActions,
+  companyBasicInfoActions,
+  companyIncomeStatementActions,
+  companyLicenseCertificateActions,
+  companyManagerActions,
+  companyMarketActions,
+  companyMembershipActions,
+  companyProductServiceActions,
+  companyResourceCapabilityActions,
+  companyShareholderActions,
+  keyCustomerActions,
+  organizationUnitActions,
+  revenueCenterActions,
+} from "./child-actions-map.mjs";
+
+import path from "path";
+import fs from "fs/promises";
+import { fileURLToPath } from "url";
+import uploadFeature from "@adminjs/upload";
+import { validateProfileFieldKey } from "./profileFieldKey.mjs";
+import { COMPANY_PROFILE_FIELD_OPTIONS } from "./companyProfileFieldKeys.mjs";
 
 AdminJS.registerAdapter({
   Database,
@@ -37,17 +58,37 @@ const ADMIN_COOKIE_SECRET =
 const ADMIN_SESSION_SECRET =
   process.env.ADMIN_SESSION_SECRET || "unsafe-admin-session-secret";
 
-/**
- * Helper برای ساخت resource های Prisma
- */
+const companyProfileNavigation = {
+  name: "پروفایل شرکت",
+  icon: "Building",
+};
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const PROJECT_ROOT = path.join(__dirname, "..");
+
+const UPLOADS_ROOT = path.join(PROJECT_ROOT, "uploads");
+const UPLOADS_FILES_ROOT = path.join(UPLOADS_ROOT, "file");
+const ADMIN_UPLOAD_TMP = path.join(PROJECT_ROOT, "tmp", "admin-uploads");
+
+await fs.mkdir(UPLOADS_ROOT, { recursive: true });
+await fs.mkdir(UPLOADS_FILES_ROOT, { recursive: true });
+await fs.mkdir(ADMIN_UPLOAD_TMP, { recursive: true });
+
+process.env.TMP = ADMIN_UPLOAD_TMP;
+process.env.TEMP = ADMIN_UPLOAD_TMP;
+process.env.TMPDIR = ADMIN_UPLOAD_TMP;
+
 const prismaResource = (modelName, options = {}) => {
+  const { actions, features, ...restOptions } = options;
+
   const resourceOptions = {
     resource: {
       model: getModelByName(modelName),
       client: prisma,
     },
     options: {
-      ...options, // Merging provided options
+      ...restOptions,
       actions: {
         new: {
           isAccessible: true,
@@ -58,6 +99,11 @@ const prismaResource = (modelName, options = {}) => {
                 10,
               );
             }
+
+            if (actions?.new?.before) {
+              return actions.new.before(request);
+            }
+
             return request;
           },
         },
@@ -65,17 +111,20 @@ const prismaResource = (modelName, options = {}) => {
           isAccessible: true,
           before: async (request) => {
             if (request.payload?.password && modelName === "User") {
-              // Only hash if password is provided, otherwise leave it
               if (request.payload.password) {
                 request.payload.password = await bcrypt.hash(
                   request.payload.password,
                   10,
                 );
               } else {
-                // If password is empty, remove it from payload to avoid setting it to empty
                 delete request.payload.password;
               }
             }
+
+            if (actions?.edit?.before) {
+              return actions.edit.before(request);
+            }
+
             return request;
           },
         },
@@ -91,19 +140,534 @@ const prismaResource = (modelName, options = {}) => {
         list: {
           isAccessible: true,
         },
+        ...(actions || {}),
       },
     },
+    ...(features ? { features } : {}),
   };
 
-  // Override actions if they are explicitly provided in options
-  if (options.actions) {
-    resourceOptions.options.actions = {
-      ...resourceOptions.options.actions,
-      ...options.actions,
-    };
+  return resourceOptions;
+};
+
+const resolveStoredFileAbsolutePath = (filePath) => {
+  if (!filePath) return null;
+
+  const relativePath = filePath.replace(/^\/?uploads\//, "");
+
+  return path.join(UPLOADS_ROOT, relativePath);
+};
+
+function validateAdminProfileFieldPayload(request) {
+  if (request.method !== "post") {
+    return;
   }
 
-  return resourceOptions;
+  const { profileFieldKey } = request.payload || {};
+
+  try {
+    validateProfileFieldKey(profileFieldKey);
+  } catch (error) {
+    throw new ValidationError({
+      profileFieldKey: {
+        message: error.message,
+      },
+    });
+  }
+}
+
+export const companyBasicInfoResource = prismaResource("CompanyBasicInfo", {
+  navigation: companyProfileNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+  },
+
+  actions: {
+    ...companyBasicInfoActions,
+  },
+});
+
+export const companyManagerResource = prismaResource("CompanyManager", {
+  navigation: companyProfileNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    resumeFileId: {
+      reference: "FileAttachment",
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+  },
+
+  actions: {
+    ...companyManagerActions,
+  },
+});
+
+export const organizationUnitResource = prismaResource("OrganizationUnit", {
+  navigation: companyProfileNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+    },
+
+    structureFileId: {
+      reference: "FileAttachment",
+    },
+  },
+
+  actions: {
+    ...organizationUnitActions,
+  },
+});
+
+export const companyLicenseCertificateResource = prismaResource(
+  "CompanyLicenseCertificate",
+  {
+    navigation: companyProfileNavigation,
+
+    properties: {
+      companyId: {
+        reference: "Company",
+      },
+
+      attachmentFileId: {
+        reference: "FileAttachment",
+      },
+    },
+
+    actions: {
+      ...companyLicenseCertificateActions,
+    },
+  },
+);
+
+export const companyBalanceSheetResource = prismaResource(
+  "CompanyBalanceSheet",
+  {
+    navigation: companyProfileNavigation,
+
+    properties: {
+      companyId: {
+        reference: "Company",
+      },
+
+      balanceFileId: {
+        reference: "FileAttachment",
+      },
+    },
+
+    actions: {
+      ...companyBalanceSheetActions,
+    },
+  },
+);
+
+export const companyIncomeStatementResource = prismaResource(
+  "CompanyIncomeStatement",
+  {
+    navigation: companyProfileNavigation,
+
+    properties: {
+      companyId: {
+        reference: "Company",
+      },
+
+      incomeFileId: {
+        reference: "FileAttachment",
+      },
+    },
+
+    actions: {
+      ...companyIncomeStatementActions,
+    },
+  },
+);
+
+export const revenueCenterResource = prismaResource("RevenueCenter", {
+  navigation: companyProfileNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+    },
+  },
+
+  actions: {
+    ...revenueCenterActions,
+  },
+});
+
+export const companyShareholderResource = prismaResource("CompanyShareholder", {
+  navigation: companyProfileNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+    },
+  },
+
+  actions: {
+    ...companyShareholderActions,
+  },
+});
+
+export const companyMembershipResource = prismaResource("CompanyMembership", {
+  navigation: companyProfileNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+    },
+  },
+
+  actions: {
+    ...companyMembershipActions,
+  },
+});
+
+export const companyProductServiceResource = prismaResource(
+  "CompanyProductService",
+  {
+    navigation: companyProfileNavigation,
+
+    properties: {
+      companyId: {
+        reference: "Company",
+      },
+    },
+
+    actions: {
+      ...companyProductServiceActions,
+    },
+  },
+);
+
+export const companyMarketResource = prismaResource("CompanyMarket", {
+  navigation: companyProfileNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+    },
+  },
+
+  actions: {
+    ...companyMarketActions,
+  },
+});
+
+export const keyCustomerResource = prismaResource("KeyCustomer", {
+  navigation: companyProfileNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+    },
+  },
+
+  actions: {
+    ...keyCustomerActions,
+  },
+});
+
+export const companyResourceCapabilityResource = prismaResource(
+  "CompanyResourceCapability",
+  {
+    navigation: companyProfileNavigation,
+
+    properties: {
+      companyId: {
+        reference: "Company",
+      },
+    },
+
+    actions: {
+      ...companyResourceCapabilityActions,
+    },
+  },
+);
+
+const fileAttachmentResource = {
+  resource: {
+    model: getModelByName("FileAttachment"),
+    client: prisma,
+  },
+  options: {
+    navigation: {
+      name: "مدیریت فایل‌ها",
+      icon: "Attachment",
+    },
+
+    properties: {
+      id: {
+        isVisible: {
+          list: false,
+          filter: false,
+          show: true,
+          edit: false,
+        },
+      },
+
+      uploadFile: {
+        isVisible: {
+          list: false,
+          filter: false,
+          show: false,
+          edit: true,
+        },
+      },
+
+      uploadKey: {
+        isVisible: {
+          list: false,
+          filter: false,
+          show: false,
+          edit: false,
+        },
+      },
+
+      filePath: {
+        isVisible: {
+          list: true,
+          show: true,
+          edit: false,
+          filter: false,
+        },
+      },
+
+      originalName: {
+        isVisible: {
+          list: true,
+          show: true,
+          edit: false,
+          filter: false,
+        },
+      },
+
+      fileName: {
+        isVisible: {
+          list: false,
+          show: true,
+          edit: false,
+          filter: false,
+        },
+      },
+
+      extension: {
+        isVisible: {
+          list: true,
+          show: true,
+          edit: false,
+          filter: true,
+        },
+      },
+
+      mimeType: {
+        isVisible: {
+          list: false,
+          show: true,
+          edit: false,
+          filter: true,
+        },
+      },
+
+      size: {
+        isVisible: {
+          list: true,
+          show: true,
+          edit: false,
+          filter: false,
+        },
+      },
+
+      uploadedById: {
+        isVisible: {
+          list: false,
+          show: true,
+          edit: false,
+          filter: true,
+        },
+      },
+
+      uploadedBy: {
+        isVisible: {
+          list: false,
+          show: false,
+          edit: false,
+          filter: false,
+        },
+      },
+
+      createdAt: {
+        isVisible: {
+          list: true,
+          show: true,
+          edit: false,
+          filter: true,
+        },
+      },
+
+      updatedAt: {
+        isVisible: {
+          list: false,
+          show: true,
+          edit: false,
+          filter: true,
+        },
+      },
+    },
+
+    actions: {
+      new: {
+        before: async (request, context) => {
+          if (request.method !== "post") return request;
+
+          const uploadedFile = request.payload?.uploadFile;
+
+          if (uploadedFile) {
+            request.payload.originalName = uploadedFile.name;
+            request.payload.extension = path
+              .extname(uploadedFile.name)
+              .replace(".", "")
+              .toLowerCase();
+
+            if (!request.payload.fileName) {
+              request.payload.fileName = uploadedFile.name;
+            }
+          }
+
+          if (!request.payload.originalName) {
+            request.payload.originalName = "unknown";
+          }
+
+          if (!request.payload.fileName) {
+            request.payload.fileName = "unknown";
+          }
+
+          if (!request.payload.filePath) {
+            request.payload.filePath = "";
+          }
+
+          // اگر خواستی uploader را هم ثبت کنی:
+          // request.payload.uploadedById = context.currentAdmin?.id || null;
+
+          return request;
+        },
+
+        after: async (response) => {
+          const recordId = response.record?.params?.id;
+          const uploadKey = response.record?.params?.uploadKey;
+
+          if (recordId && uploadKey) {
+            const filePath = `/uploads/${uploadKey}`;
+
+            await prisma.fileAttachment.update({
+              where: { id: recordId },
+              data: { filePath },
+            });
+
+            response.record.params.filePath = filePath;
+          }
+
+          return response;
+        },
+      },
+
+      edit: {
+        before: async (request) => {
+          if (request.method !== "post") return request;
+
+          const uploadedFile = request.payload?.uploadFile;
+
+          if (uploadedFile) {
+            request.payload.originalName = uploadedFile.name;
+            request.payload.extension = path
+              .extname(uploadedFile.name)
+              .replace(".", "")
+              .toLowerCase();
+
+            if (!request.payload.fileName) {
+              request.payload.fileName = uploadedFile.name;
+            }
+          }
+
+          return request;
+        },
+
+        after: async (response) => {
+          const recordId = response.record?.params?.id;
+          const uploadKey = response.record?.params?.uploadKey;
+
+          if (recordId && uploadKey) {
+            const filePath = `/uploads/${uploadKey}`;
+
+            await prisma.fileAttachment.update({
+              where: { id: recordId },
+              data: { filePath },
+            });
+
+            response.record.params.filePath = filePath;
+          }
+
+          return response;
+        },
+      },
+    },
+  },
+
+  features: [
+    uploadFeature({
+      componentLoader,
+
+      provider: {
+        local: {
+          bucket: UPLOADS_ROOT,
+          opts: {
+            baseUrl: "/uploads",
+          },
+        },
+      },
+
+      properties: {
+        key: "uploadKey",
+        file: "uploadFile",
+        mimeType: "mimeType",
+        size: "size",
+        filename: "fileName",
+      },
+
+      uploadPath: (record, filename) => {
+        return `file/${Date.now()}-${filename}`;
+      },
+
+      validation: {
+        maxSize: 5 * 1024 * 1024,
+      },
+    }),
+  ],
 };
 
 const admin = new AdminJS({
@@ -177,39 +741,33 @@ const admin = new AdminJS({
   resources: [
     prismaResource("Company", {
       navigation: {
-        name: "مدیریت کاربران",
+        name: "مدیریت شرکت‌ها",
         icon: "Building",
       },
       properties: {
-        profile: {
-          type: "textarea",
-        },
-        progress: { type: "mixed" },
-        createdAt: {
-          isVisible: { list: true, filter: true, show: true, edit: false },
-        },
-        updatedAt: {
-          isVisible: { list: false, filter: true, show: true, edit: false },
+        name: { isTitle: true },
+        userLimit: {
+          type: "number",
+          help: "حداکثر تعداد کاربران مجاز برای این شرکت",
         },
       },
-      listProperties: [
-        "id",
-        "name",
-        "industry",
-        "userLimit",
-        "profileCompleted",
-        "createdAt",
-      ],
-      editProperties: [
-        "name",
-        "industry",
-        "profile",
-        "progress",
-        "userLimit",
-        "profileCompleted",
-      ],
+      listProperties: ["id", "name", "industry", "userLimit", "createdAt"],
+      editProperties: ["name", "industry", "userLimit"],
     }),
-
+    companyBasicInfoResource,
+    companyManagerResource,
+    organizationUnitResource,
+    companyLicenseCertificateResource,
+    companyBalanceSheetResource,
+    companyIncomeStatementResource,
+    revenueCenterResource,
+    companyShareholderResource,
+    companyMembershipResource,
+    companyProductServiceResource,
+    companyMarketResource,
+    keyCustomerResource,
+    companyResourceCapabilityResource,
+    fileAttachmentResource,
     prismaResource("User", {
       navigation: {
         name: "مدیریت کاربران",
@@ -223,15 +781,6 @@ const admin = new AdminJS({
             filter: true,
             show: true,
             edit: false,
-          },
-        },
-
-        avatar: {
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
           },
         },
 
@@ -291,35 +840,6 @@ const admin = new AdminJS({
           },
         },
 
-        profile: {
-          type: "textarea",
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
-        },
-
-        progress: {
-          type: "mixed",
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
-        },
-
-        profileCompleted: {
-          isVisible: {
-            list: true,
-            filter: true,
-            show: true,
-            edit: true,
-          },
-        },
-
         createdAt: {
           isVisible: {
             list: true,
@@ -350,7 +870,6 @@ const admin = new AdminJS({
         "phoneNumber",
         "role",
         "companyId",
-        "profileCompleted",
         "createdAt",
       ],
 
@@ -360,36 +879,27 @@ const admin = new AdminJS({
         "phoneNumber",
         "role",
         "companyId",
-        "profileCompleted",
         "createdAt",
       ],
 
       showProperties: [
         "id",
-        "avatar",
         "username",
         "email",
         "phoneNumber",
         "role",
         "companyId",
-        "profile",
-        "progress",
-        "profileCompleted",
         "createdAt",
         "updatedAt",
       ],
 
       editProperties: [
-        "avatar",
         "username",
         "password",
         "email",
         "phoneNumber",
         "role",
         "companyId",
-        "profile",
-        "progress",
-        "profileCompleted",
       ],
 
       actions: {
@@ -406,7 +916,6 @@ const admin = new AdminJS({
 
             const payload = request.payload ?? {};
 
-            const avatar = payload.avatar;
             const username = payload.username;
             const password = payload.password;
             const email = payload.email;
@@ -439,7 +948,6 @@ const admin = new AdminJS({
               const hashedPassword = await bcrypt.hash(String(password), 10);
 
               const data = {
-                avatar: avatar ? String(avatar).trim() : null,
                 username: String(username).trim(),
                 password: hashedPassword,
                 email: email ? String(email).trim() : null,
@@ -513,7 +1021,6 @@ const admin = new AdminJS({
 
             const payload = request.payload ?? {};
 
-            const avatar = payload.avatar;
             const username = payload.username;
             const password = payload.password;
             const email = payload.email;
@@ -540,7 +1047,6 @@ const admin = new AdminJS({
 
             try {
               const data = {
-                avatar: avatar ? String(avatar).trim() : null,
                 username: String(username).trim(),
                 email: email ? String(email).trim() : null,
                 phoneNumber: phoneNumber ? String(phoneNumber).trim() : null,
@@ -618,7 +1124,6 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("CompanyAdminData", {
       navigation: {
         name: "مدیریت کاربران",
@@ -900,7 +1405,6 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("ProfileViewAccess", {
       navigation: {
         name: "دسترسی‌ها",
@@ -920,7 +1424,6 @@ const admin = new AdminJS({
       listProperties: ["id", "userId", "companyId", "section"],
       editProperties: ["userId", "companyId", "section"],
     }),
-
     prismaResource("ProjectAccess", {
       navigation: {
         name: "دسترسی‌ها",
@@ -937,7 +1440,6 @@ const admin = new AdminJS({
       listProperties: ["id", "projectId", "userId", "createdAt"],
       editProperties: ["projectId", "userId"],
     }),
-
     prismaResource("Project", {
       navigation: {
         name: "پروژه‌ها",
@@ -1035,7 +1537,6 @@ const admin = new AdminJS({
         "chatModeEndedAt",
       ],
     }),
-
     prismaResource("ProjectRatingHistory", {
       navigation: {
         name: "پروژه‌ها",
@@ -1234,7 +1735,9 @@ const admin = new AdminJS({
         title: {
           isTitle: true,
         },
-
+        temperature: {
+          type: "number",
+        },
         createdAt: {
           isVisible: {
             list: true,
@@ -1243,7 +1746,6 @@ const admin = new AdminJS({
             edit: false,
           },
         },
-
         updatedAt: {
           isVisible: {
             list: false,
@@ -1254,9 +1756,22 @@ const admin = new AdminJS({
         },
       },
 
-      listProperties: ["id", "title", "isActive", "order", "createdAt"],
+      listProperties: [
+        "id",
+        "title",
+        "isActive",
+        "order",
+        "temperature",
+        "createdAt",
+      ],
 
-      filterProperties: ["title", "isActive", "order", "createdAt"],
+      filterProperties: [
+        "title",
+        "isActive",
+        "order",
+        "temperature",
+        "createdAt",
+      ],
 
       showProperties: [
         "id",
@@ -1264,13 +1779,13 @@ const admin = new AdminJS({
         "info",
         "order",
         "isActive",
+        "temperature",
         "createdAt",
         "updatedAt",
       ],
 
-      editProperties: ["title", "info", "order", "isActive"],
+      editProperties: ["title", "info", "order", "isActive", "temperature"],
     }),
-
     prismaResource("FormQuestion", {
       navigation: {
         name: "فرم‌های تحلیل",
@@ -1649,7 +2164,6 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("FormGoal", {
       navigation: {
         name: "فرم‌های تحلیل",
@@ -1864,7 +2378,6 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("MultiAnalysisRequiredForm", {
       navigation: {
         name: "تحلیل چندگانه",
@@ -1933,31 +2446,74 @@ const admin = new AdminJS({
 
       editProperties: ["multiAnalysisForm", "form", "order"],
     }),
-
     prismaResource("MultiAnalysisForm", {
       navigation: {
         name: "تحلیل چندگانه",
         icon: "Layers",
       },
+
       properties: {
+        title: {
+          isTitle: true,
+        },
+        temperature: {
+          type: "number",
+        },
         createdAt: {
-          isVisible: { list: true, filter: true, show: true, edit: false },
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: false,
+          },
         },
         updatedAt: {
-          isVisible: { list: false, filter: true, show: true, edit: false },
+          isVisible: {
+            list: false,
+            filter: true,
+            show: true,
+            edit: false,
+          },
         },
       },
+
       listProperties: [
         "id",
         "title",
         "description",
         "isActive",
         "order",
+        "temperature",
         "createdAt",
       ],
-      editProperties: ["title", "description", "isActive", "order"],
-    }),
 
+      filterProperties: [
+        "title",
+        "isActive",
+        "order",
+        "temperature",
+        "createdAt",
+      ],
+
+      showProperties: [
+        "id",
+        "title",
+        "description",
+        "isActive",
+        "order",
+        "temperature",
+        "createdAt",
+        "updatedAt",
+      ],
+
+      editProperties: [
+        "title",
+        "description",
+        "isActive",
+        "order",
+        "temperature",
+      ],
+    }),
     prismaResource("MultiAnalysisGoal", {
       navigation: {
         name: "تحلیل چندگانه",
@@ -2226,7 +2782,6 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("FollowUpForm", {
       navigation: {
         name: "پیگیری‌ها",
@@ -2450,7 +3005,6 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("FollowUpFormQuestion", {
       navigation: {
         name: "پیگیری‌ها",
@@ -2812,7 +3366,6 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("Notification", {
       navigation: {
         name: "اعلان‌ها",
@@ -2854,7 +3407,6 @@ const admin = new AdminJS({
         "referenceType",
       ],
     }),
-
     prismaResource("RefreshToken", {
       navigation: {
         name: "امنیت",
@@ -2863,7 +3415,7 @@ const admin = new AdminJS({
       properties: {
         tokenHash: {
           isVisible: { list: false, filter: false, show: true, edit: false },
-        }, // Token hash should not be editable
+        },
         userId: {
           isVisible: { list: true, filter: true, show: true, edit: true },
         },
@@ -2883,7 +3435,6 @@ const admin = new AdminJS({
       listProperties: ["id", "userId", "expiresAt", "revoked", "createdAt"],
       editProperties: ["userId", "expiresAt", "revoked"],
     }),
-
     prismaResource("PromptDefinition", {
       navigation: {
         name: "پرامپت‌ها",
@@ -3219,14 +3770,11 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("PromptSegmentDefinition", {
       navigation: {
         name: "پرامپت‌ها",
         icon: "List",
       },
-
-      // برای نمایش در dropdownهای reference
       titleProperty: "label",
 
       properties: {
@@ -3520,15 +4068,12 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("PromptVersion", {
       navigation: {
         name: "پرامپت‌ها",
         icon: "GitCommit",
       },
 
-      // برای dropdownها (مثل PromptVersionSegmentValue.promptVersionId)
-      // نسخه را با versionKey نمایش می‌دهیم
       titleProperty: "versionKey",
 
       properties: {
@@ -3794,7 +4339,6 @@ const admin = new AdminJS({
               );
             }
 
-            // اگر PUBLISHED شد و publishedAt خالی بود، الان را بگذار
             if (status === "PUBLISHED" && !publishedAt) {
               publishedAt = new Date();
             }
@@ -3834,7 +4378,6 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("PromptVersionSegmentValue", {
       navigation: {
         name: "پرامپت‌ها",
@@ -4136,6 +4679,156 @@ const admin = new AdminJS({
         },
       },
     }),
+    prismaResource("AnalysisFormProfileField", {
+      navigation: {
+        name: "تنظیمات تحلیل",
+        icon: "Settings",
+      },
+
+      properties: {
+        id: {
+          isTitle: true,
+        },
+
+        form: {
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: true,
+          },
+        },
+
+        profileFieldKey: {
+          availableValues: COMPANY_PROFILE_FIELD_OPTIONS,
+        },
+
+        isArray: {
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: true,
+          },
+        },
+
+        createdAt: {
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: false,
+          },
+        },
+      },
+
+      listProperties: ["id", "form", "profileFieldKey", "isArray", "createdAt"],
+
+      filterProperties: ["form", "profileFieldKey", "isArray", "createdAt"],
+
+      showProperties: ["id", "form", "profileFieldKey", "isArray", "createdAt"],
+
+      editProperties: ["form", "profileFieldKey", "isArray"],
+
+      actions: {
+        new: {
+          before: async (request) => {
+            validateAdminProfileFieldPayload(request);
+            return request;
+          },
+        },
+
+        edit: {
+          before: async (request) => {
+            validateAdminProfileFieldPayload(request);
+            return request;
+          },
+        },
+      },
+    }),
+    prismaResource("MultiAnalysisFormProfileField", {
+      navigation: {
+        name: "تنظیمات تحلیل",
+        icon: "Settings",
+      },
+
+      properties: {
+        id: {
+          isTitle: true,
+        },
+
+        multiAnalysisForm: {
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: true,
+          },
+        },
+
+        profileFieldKey: {
+          availableValues: COMPANY_PROFILE_FIELD_OPTIONS,
+        },
+
+        isArray: {
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: true,
+          },
+        },
+
+        createdAt: {
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: false,
+          },
+        },
+      },
+
+      listProperties: [
+        "id",
+        "multiAnalysisForm",
+        "profileFieldKey",
+        "isArray",
+        "createdAt",
+      ],
+
+      filterProperties: [
+        "multiAnalysisForm",
+        "profileFieldKey",
+        "isArray",
+        "createdAt",
+      ],
+
+      showProperties: [
+        "id",
+        "multiAnalysisForm",
+        "profileFieldKey",
+        "isArray",
+        "createdAt",
+      ],
+
+      editProperties: ["multiAnalysisForm", "profileFieldKey", "isArray"],
+      actions: {
+        new: {
+          before: async (request) => {
+            validateAdminProfileFieldPayload(request);
+            return request;
+          },
+        },
+
+        edit: {
+          before: async (request) => {
+            validateAdminProfileFieldPayload(request);
+            return request;
+          },
+        },
+      },
+    }),
   ],
 });
 
@@ -4143,64 +4836,27 @@ const authenticate = async (emailOrUsername, password) => {
   const user = await prisma.user.findFirst({
     where: {
       OR: [{ email: emailOrUsername }, { username: emailOrUsername }],
-      role: "SUPER_ADMIN", // Only Super Admins can log in to the admin panel
+      role: "SUPER_ADMIN",
     },
   });
 
   if (!user) {
-    return null; // User not found or not a super admin
+    return null;
   }
 
-  // Compare password with the hashed password in the database
   const isValid = await bcrypt.compare(password, user.password);
 
   if (!isValid) {
-    return null; // Invalid password
+    return null;
   }
 
-  // Return user information for authentication
   return {
     id: user.id,
     email: user.email || user.username,
-    title: user.username, // Display username in the admin panel header
+    title: user.username,
     role: user.role,
   };
 };
-
-const router = AdminJSExpress.buildAuthenticatedRouter(
-  admin,
-  {
-    authenticate,
-    cookieName: "strategy_proposal_admin",
-    cookiePassword: ADMIN_COOKIE_SECRET,
-  },
-  null,
-  {
-    secret: ADMIN_SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 8, // 8 hours
-    },
-  },
-);
-
-app.use(
-  session({
-    secret: ADMIN_SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-  }),
-);
-
-app.use(admin.options.rootPath, router);
-
-app.get("/", (req, res) => {
-  res.redirect(admin.options.rootPath);
-});
 
 const start = async () => {
   await admin.initialize();
@@ -4223,6 +4879,9 @@ const start = async () => {
         sameSite: "lax",
         maxAge: 1000 * 60 * 60 * 8,
       },
+    },
+    {
+      uploadDir: ADMIN_UPLOAD_TMP,
     },
   );
 
@@ -4268,3 +4927,90 @@ process.on("SIGTERM", async () => {
   await prisma.$disconnect();
   process.exit(0);
 });
+
+// const prismaResource = (modelName, options = {}) => {
+//   const resourceOptions = {
+//     resource: {
+//       model: getModelByName(modelName),
+//       client: prisma,
+//     },
+//     options: {
+//       ...options,
+//       actions: {
+//         new: {
+//           isAccessible: true,
+//           before: async (request) => {
+//             if (request.payload?.password && modelName === "User") {
+//               request.payload.password = await bcrypt.hash(
+//                 request.payload.password,
+//                 10,
+//               );
+//             }
+//             return request;
+//           },
+//         },
+//         edit: {
+//           isAccessible: true,
+//           before: async (request) => {
+//             if (request.payload?.password && modelName === "User") {
+//               // Only hash if password is provided, otherwise leave it
+//               if (request.payload.password) {
+//                 request.payload.password = await bcrypt.hash(
+//                   request.payload.password,
+//                   10,
+//                 );
+//               } else {
+//                 delete request.payload.password;
+//               }
+//             }
+//             return request;
+//           },
+//         },
+//         delete: {
+//           isAccessible: true,
+//         },
+//         bulkDelete: {
+//           isAccessible: true,
+//         },
+//         show: {
+//           isAccessible: true,
+//         },
+//         list: {
+//           isAccessible: true,
+//         },
+//       },
+//     },
+//   };
+
+//   // Override actions if they are explicitly provided in options
+//   if (options.actions) {
+//     resourceOptions.options.actions = {
+//       ...resourceOptions.options.actions,
+//       ...options.actions,
+//     };
+//   }
+
+//   return resourceOptions;
+// };
+
+// const router = AdminJSExpress.buildAuthenticatedRouter(
+//   admin,
+//   {
+//     authenticate,
+//     cookieName: "strategy_proposal_admin",
+//     cookiePassword: ADMIN_COOKIE_SECRET,
+//   },
+//   null,
+//   {
+//     secret: ADMIN_SESSION_SECRET,
+//     resave: false,
+//     saveUninitialized: false,
+//     cookie: {
+//       httpOnly: true,
+//       secure: process.env.NODE_ENV === "production",
+//       sameSite: "lax",
+//       maxAge: 1000 * 60 * 60 * 8, // 8 hours
+//     },
+//   },
+
+// );
