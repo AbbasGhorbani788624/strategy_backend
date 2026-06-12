@@ -74,7 +74,7 @@ router.put(
 );
 
 //گرفتن لیست همکاران
-router.get("/colleague", auth, usersColleague);
+router.get("/colleague/:id", auth, usersColleague);
 
 ///
 router.post(

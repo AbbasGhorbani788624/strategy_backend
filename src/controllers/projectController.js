@@ -72,16 +72,15 @@ exports.getProjectsTabs = async (req, res, next) => {
 
 exports.getAllProjectsAccess = async (req, res, next) => {
   try {
-    const { projectId } = req.params;
-    const { colleagueIds } = req.body;
     const userId = req.user.id;
-    await grantProjectAccessService(projectId, colleagueIds, userId);
-    return successResponse(res, 201, {
-      message: "دسترسی ها با موفقیت ایجاد شد",
-    });
-  } catch (err) {
-    console.error(err);
-    next(err);
+    const { id } = req.params;
+    const { colleagueIds } = req.body;
+
+    const result = await grantProjectAccessService(id, colleagueIds, userId);
+
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
   }
 };
 

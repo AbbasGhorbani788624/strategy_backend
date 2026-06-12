@@ -48,7 +48,7 @@ router.get(
 router.get("/:id", auth, getProject);
 
 //دسترسی دادن به پروژه ها
-router.get("/:id/access", auth, projectAccessSchema, getAllProjectsAccess);
+router.put("/:id/access", auth, projectAccessSchema, getAllProjectsAccess);
 
 //دادن امتیاز به پروژه
 router.post("/:id", auth, rateCommentSchema, giveReteAndComment);

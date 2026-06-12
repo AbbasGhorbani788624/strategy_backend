@@ -16,9 +16,52 @@ const {
   parseFinalAnalysisResponse,
   buildInitialMultiAnalysisPrompt,
   buildSelectedSourceProjectSummaries,
+  getOrderedPromptSegments,
+  pickPromptSegments,
 } = require("../utils");
 const prisma = require("../prismaClient");
 const runAI = require("../ai");
+const axios = require("axios");
+
+const sendPromptToAnalyze = async (prompt) => {
+  try {
+    const payload = typeof prompt === "string" ? JSON.parse(prompt) : prompt;
+
+    console.log("analyze request payload =>", JSON.stringify(payload, null, 2));
+
+    const response = await axios.post(
+      "http://185.237.85.53:8080/analyze",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    console.log("analyze status =>", response.status);
+    console.log("analyze data =>", response.data);
+
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      console.error("status =>", error.response?.status);
+      console.error("statusText =>", error.response?.statusText);
+      console.error(
+        "response data =>",
+        JSON.stringify(error.response?.data, null, 2),
+      );
+      console.error(
+        "detail =>",
+        JSON.stringify(error.response?.data?.detail, null, 2),
+      );
+    } else {
+      console.error("unknown error =>", error);
+    }
+
+    throw error;
+  }
+};
 
 const submitFormAnswersService = async (projectId, userId, answers) => {
   const project = await prisma.project.findUnique({
@@ -124,62 +167,64 @@ const handleConversationStepService = async (
   userId,
   userInput = "",
 ) => {
+  const now = new Date();
+
   const project = await prisma.project.findFirst({
-    where: {
-      id: projectId,
-      creatorId: userId,
-    },
+    where: { id: projectId, creatorId: userId },
     include: {
-      company: {
-        include: {
-          companyAdminData: true,
-        },
-      },
+      company: { include: { companyAdminData: true } },
       form: {
         include: {
           profileFields: true,
+          promptDefinition: {
+            include: {
+              versions: {
+                where: { status: "PUBLISHED" },
+                orderBy: { versionNumber: "desc" },
+                take: 1,
+                include: {
+                  values: {
+                    include: {
+                      segmentDefinition: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
       multiAnalysisForm: {
         include: {
           profileFields: true,
           requiredForms: {
-            orderBy: {
-              order: "asc",
-            },
+            orderBy: { order: "asc" },
+            include: { form: true },
+          },
+          promptDefinition: {
             include: {
-              form: true,
+              versions: {
+                where: { status: "PUBLISHED" },
+                orderBy: { versionNumber: "desc" },
+                take: 1,
+                include: {
+                  values: {
+                    include: {
+                      segmentDefinition: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
       },
-      chatMessages: {
-        orderBy: {
-          createdAt: "asc",
-        },
-        select: {
-          role: true,
-          content: true,
-        },
-      },
-      goals: {
-        include: {
-          goal: true,
-        },
-      },
-      multiGoals: {
-        include: {
-          goal: true,
-        },
-      },
+      goals: { include: { goal: true } },
+      multiGoals: { include: { goal: true } },
       selectedSourceProjects: {
         include: {
           form: true,
-          sourceProject: {
-            select: {
-              summaryAnalysis: true,
-            },
-          },
+          sourceProject: { select: { summaryAnalysis: true } },
         },
       },
     },
@@ -189,28 +234,26 @@ const handleConversationStepService = async (
     createBadRequestError("پروژه یافت نشد", 404);
   }
 
-  const now = new Date();
+  const trimmedInput = userInput?.trim() || "";
 
-  const formPrompts =
-    project.mode === "SINGLE"
-      ? project.formId
-        ? await getPublishedPromptContentsForAnalysisForm(project.formId)
-        : {}
-      : project.multiAnalysisFormId
-        ? await getPublishedPromptContentsForMultiAnalysisForm(
-            project.multiAnalysisFormId,
-          )
-        : {};
+  const isSingle = project.mode === "SINGLE";
+  const isMulti = project.mode === "MULTI";
 
-  const selectedGoals =
-    project.mode === "SINGLE"
-      ? project.goals.map((item) => item.goal?.title).filter(Boolean)
-      : project.multiGoals.map((item) => item.goal?.title).filter(Boolean);
+  const analysisTitle = isSingle
+    ? project.form?.title
+    : project.multiAnalysisForm?.title;
 
-  const rawTemperature =
-    project.mode === "MULTI"
-      ? project.multiAnalysisForm?.temperature
-      : project.form?.temperature;
+  if (!analysisTitle) {
+    createBadRequestError("عنوان فرم تحلیل یافت نشد", 400);
+  }
+
+  const selectedGoals = (isSingle ? project.goals : project.multiGoals)
+    .map((item) => item.goal?.title)
+    .filter(Boolean);
+
+  const rawTemperature = isMulti
+    ? project.multiAnalysisForm?.temperature
+    : project.form?.temperature;
 
   const temperature =
     typeof rawTemperature === "number" &&
@@ -219,230 +262,224 @@ const handleConversationStepService = async (
       ? rawTemperature
       : 0.7;
 
-  try {
-    if (userInput && userInput.trim() !== "") {
-      await prisma.chatMessage.create({
-        data: {
-          projectId,
-          userId,
-          role: "user",
-          content: userInput,
-          createdAt: now,
-        },
-      });
-    }
-    if (project.status === "ANALYSIS_PENDING") {
-      let prompt = "";
+  const activePromptVersion = isSingle
+    ? project.form?.promptDefinition?.versions?.[0]
+    : project.multiAnalysisForm?.promptDefinition?.versions?.[0];
 
-      if (project.mode === "SINGLE") {
-        const readableFormResponses = await buildReadableFormResponses({
-          formId: project.formId,
-          formResponses: project.formResponses,
-        });
+  if (!activePromptVersion) {
+    createBadRequestError(
+      "نسخه منتشرشده پرامپت برای فرم این پروژه یافت نشد",
+      400,
+    );
+  }
 
-        const companyProfileData = await getCompanyProfileDataForForm(
-          project.companyId,
-          project.form?.profileFields || [],
-        );
+  const orderedPromptSegments = getOrderedPromptSegments(activePromptVersion);
 
-        prompt = buildInitialAnalysisPrompt({
-          formPrompts,
-          companyProfileData,
-          readableFormResponses,
-          selectedGoals,
-          domain: project.domain,
-          temperature,
-        });
-      } else if (project.mode === "MULTI") {
-        const sourceProjectSummaries = buildSelectedSourceProjectSummaries(
-          project.selectedSourceProjects,
-        );
+  const firstPromptSegment = pickPromptSegments(orderedPromptSegments, [0]);
 
-        const companyProfileData = await getCompanyProfileDataForForm(
-          project.companyId,
-          project.multiAnalysisForm?.profileFields || [],
-        );
+  const secondAndThirdPromptSegments = pickPromptSegments(
+    orderedPromptSegments,
+    [1, 2],
+  );
 
-        prompt = buildInitialMultiAnalysisPrompt({
-          formPrompts,
-          selectedGoals,
-          companyProfileData,
-          sourceProjectSummaries,
-          domain: project.domain,
-          temperature,
-        });
-      }
+  if (!firstPromptSegment.length) {
+    createBadRequestError("سگمنت مرحله اول پرامپت یافت نشد", 400);
+  }
 
-      const aiResponse = await runAI({
-        system: "",
-        user: prompt,
-        temperature: 0.7,
-      });
+  let companyProfileData = null;
+  let readableFormResponses = null;
+  let sourceProjectSummaries = null;
 
-      await prisma.chatMessage.create({
-        data: {
-          projectId,
-          role: "assistant",
-          content: aiResponse,
-        },
-      });
+  if (isSingle) {
+    readableFormResponses = await buildReadableFormResponses({
+      formId: project.formId,
+      formResponses: project.formResponses,
+    });
+
+    companyProfileData = await getCompanyProfileDataForForm(
+      project.companyId,
+      project.form?.profileFields || [],
+    );
+  }
+
+  if (isMulti) {
+    sourceProjectSummaries = buildSelectedSourceProjectSummaries(
+      project.selectedSourceProjects,
+    );
+
+    companyProfileData = await getCompanyProfileDataForForm(
+      project.companyId,
+      project.multiAnalysisForm?.profileFields || [],
+    );
+  }
+
+  const generateAndPersistFinalAnalysis = async (prompt, transitionReason) => {
+    const aiResponse = await sendPromptToAnalyze(prompt);
+    console.log("final analyze result =>", aiResponse);
+
+    return {
+      success: true,
+      aiResponse,
+      transitionReason,
+    };
+  };
+
+  switch (project.status) {
+    case "ANALYSIS_PENDING": {
+      const prompt = isSingle
+        ? buildInitialAnalysisPrompt({
+            promptSegments: firstPromptSegment,
+            title: analysisTitle,
+            companyProfileData,
+            readableFormResponses,
+            selectedGoals,
+            domain: project.domain,
+            temperature,
+          })
+        : buildInitialMultiAnalysisPrompt({
+            promptSegments: firstPromptSegment,
+            title: analysisTitle,
+            companyProfileData,
+            selectedGoals,
+            sourceProjectSummaries,
+            domain: project.domain,
+            temperature,
+          });
+
+      const aiResponse = await sendPromptToAnalyze(prompt);
+      console.log("initial analyze result =>", aiResponse);
 
       await prisma.project.update({
         where: { id: projectId },
         data: {
           status: "REVIEWING",
-          initialAnalysis: aiResponse,
-        },
-      });
-
-      return { success: true, aiResponse, newStatus: "REVIEWING" };
-    }
-
-    if (project.status === "REVIEWING") {
-      const { nextStatus, transitionReason } = resolveNextProjectStep({
-        currentStatus: project.status,
-        userInput,
-      });
-
-      if (nextStatus === "CHAT_MODE") {
-        await prisma.project.update({
-          where: { id: projectId },
-          data: {
-            status: "CHAT_MODE",
-            chatModeStartedAt: project.chatModeStartedAt || now,
-            chatModeEndedAt: null,
-          },
-        });
-
-        return {
-          success: true,
-          aiResponse: null,
-          newStatus: "CHAT_MODE",
-          transitionReason,
-          message: "لطفاً توضیح اصلاحی خود را وارد کنید.",
-        };
-      }
-
-      if (nextStatus === "FINAL_ANALYSIS") {
-        const prompt = buildFinalAnalysisPrompt({
-          initialAnalysis: project.initialAnalysis,
-        });
-
-        const aiResponse = await runAI({
-          system: "",
-          user: prompt,
-          temperature: 0.7,
-          max_tokens: 3500,
-        });
-
-        const parsedAnalysis = parseFinalAnalysisResponse(aiResponse);
-
-        await prisma.chatMessage.create({
-          data: {
-            projectId,
-            role: "assistant",
-            content: aiResponse,
-            createdAt: new Date(),
-          },
-        });
-
-        await prisma.project.update({
-          where: { id: projectId },
-          data: {
-            status: "FINAL_ANALYSIS",
-            riskAnalysis: parsedAnalysis.riskAnalysis,
-            finalAnalysis: parsedAnalysis.finalAnalysis,
-            summaryAnalysis: parsedAnalysis.summary,
-          },
-        });
-
-        return {
-          success: true,
-          aiResponse,
-          analysis: parsedAnalysis,
-          newStatus: "FINAL_ANALYSIS",
-          transitionReason,
-        };
-      }
-
-      return {
-        success: false,
-        aiResponse: null,
-        newStatus: "REVIEWING",
-        message: "لطفاً با کلماتی مثل 'تایید' یا 'عدم تایید' پاسخ دهید.",
-      };
-    }
-
-    if (project.status === "CHAT_MODE") {
-      if (!userInput || userInput.trim() === "") {
-        throw createBadRequestError("توضیح اصلاحی الزامی است");
-      }
-
-      const prompt = buildFinalAnalysisWithCorrectionPrompt({
-        userCorrection: userInput,
-        initialAnalysis: project.initialAnalysis,
-      });
-
-      const aiResponse = await runAI({
-        system: "",
-        user: prompt,
-        temperature: 0.7,
-        max_tokens: 3500,
-      });
-
-      const parsedAnalysis = parseFinalAnalysisResponse(aiResponse);
-
-      await prisma.chatMessage.create({
-        data: {
-          projectId,
-          role: "assistant",
-          content: aiResponse,
-          createdAt: new Date(),
-        },
-      });
-
-      await prisma.project.update({
-        where: { id: projectId },
-        data: {
-          status: "FINAL_ANALYSIS",
-          riskAnalysis: parsedAnalysis.riskAnalysis,
-          finalAnalysis: parsedAnalysis.finalAnalysis,
-          summaryAnalysis: parsedAnalysis.summary,
-          chatModeEndedAt: now,
+          initialAnalysis:
+            typeof aiResponse === "string"
+              ? aiResponse
+              : JSON.stringify(aiResponse),
         },
       });
 
       return {
         success: true,
         aiResponse,
-        analysis: parsedAnalysis,
-        newStatus: "FINAL_ANALYSIS",
-        transitionReason: "FINAL_ANALYSIS_GENERATED_AFTER_CORRECTION",
+        newStatus: "REVIEWING",
+        transitionReason: "INITIAL_ANALYSIS_GENERATED",
       };
     }
 
-    if (project.status === "FINAL_ANALYSIS") {
+    case "REVIEWING": {
+      if (trimmedInput) {
+        await prisma.project.update({
+          where: { id: projectId },
+          data: {
+            status: "CHAT_MODE",
+            chatModeStartedAt: now,
+            chatModeEndedAt: null,
+          },
+        });
+
+        const prompt = buildFinalAnalysisWithCorrectionPrompt({
+          promptSegments: orderedPromptSegments,
+          title: analysisTitle,
+          mode: project.mode,
+          userCorrection: trimmedInput,
+          temperature,
+          companyProfileData,
+          selectedGoals,
+          domain: project.domain,
+          readableFormResponses,
+          sourceProjectSummaries,
+        });
+
+        return generateAndPersistFinalAnalysis(
+          prompt,
+          "FINAL_ANALYSIS_AFTER_USER_CORRECTION",
+        );
+      }
+
+      if (secondAndThirdPromptSegments.length < 2) {
+        createBadRequestError("سگمنت‌های مرحله نهایی پرامپت یافت نشد", 400);
+      }
+
+      const prompt = buildFinalAnalysisPrompt({
+        promptSegments: secondAndThirdPromptSegments,
+        initialAnalysis: project.initialAnalysis,
+        title: analysisTitle,
+        temperature,
+      });
+
+      const result = await generateAndPersistFinalAnalysis(
+        prompt,
+        "FINAL_ANALYSIS_APPROVED",
+      );
+
+      await prisma.project.update({
+        where: { id: projectId },
+        data: {
+          status: "FINAL_ANALYSIS",
+        },
+      });
+
+      return {
+        ...result,
+        newStatus: "FINAL_ANALYSIS",
+      };
+    }
+
+    case "CHAT_MODE": {
+      if (!trimmedInput) {
+        createBadRequestError("توضیح اصلاحی الزامی است", 400);
+      }
+
+      await prisma.chatMessage.create({
+        data: {
+          projectId,
+          userId,
+          role: "user",
+          content: trimmedInput,
+          createdAt: now,
+        },
+      });
+
+      const prompt = buildFinalAnalysisWithCorrectionPrompt({
+        promptSegments: orderedPromptSegments,
+        title: analysisTitle,
+        mode: project.mode,
+        userCorrection: trimmedInput,
+        temperature,
+        companyProfileData,
+        selectedGoals,
+        domain: project.domain,
+        readableFormResponses,
+        sourceProjectSummaries,
+      });
+
+      return generateAndPersistFinalAnalysis(
+        prompt,
+        "FINAL_ANALYSIS_GENERATED_AFTER_CORRECTION",
+      );
+    }
+
+    case "FINAL_ANALYSIS":
       return {
         success: true,
         aiResponse: project.finalAnalysis,
         analysis: {
-          riskAnalysis: project.riskAnalysis,
           finalAnalysis: project.finalAnalysis,
+          riskAnalysis: project.riskAnalysis,
           summary: project.summaryAnalysis,
         },
         newStatus: "FINAL_ANALYSIS",
         transitionReason: "FINAL_ANALYSIS_ALREADY_GENERATED",
       };
-    }
 
-    return {
-      success: false,
-      newStatus: project.status,
-      transitionReason: "UNSUPPORTED_STATUS",
-    };
-  } catch (error) {
-    console.error("Error in Service:", error);
-    throw error;
+    default:
+      return {
+        success: false,
+        newStatus: project.status,
+        transitionReason: "UNSUPPORTED_STATUS",
+      };
   }
 };
 

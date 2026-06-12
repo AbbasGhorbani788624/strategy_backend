@@ -13,8 +13,8 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     scoreFilter,
   } = query;
 
-  const parsedPage = Math.max(parseInt(page) || 1, 1);
-  const parsedLimit = Math.max(parseInt(limit) || 10, 1);
+  const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
+  const parsedLimit = Math.max(parseInt(limit, 10) || 10, 1);
 
   const skip = (parsedPage - 1) * parsedLimit;
   const take = parsedLimit;
@@ -67,7 +67,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
 
   if (formId) {
     filters.push({
-      formId,
+      OR: [{ formId }, { multiAnalysisFormId: formId }],
     });
   }
 
@@ -82,19 +82,11 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
   const allowedSortOrders = ["asc", "desc"];
 
   const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : "createdAt";
-
   const safeSortOrder = allowedSortOrders.includes(sortOrder)
     ? sortOrder
     : "desc";
 
-  let orderBy = [
-    {
-      createdAt: "desc",
-    },
-    {
-      id: "desc",
-    },
-  ];
+  let orderBy = [{ createdAt: "desc" }, { id: "desc" }];
 
   if (safeSortBy === "createdAt") {
     orderBy = [{ createdAt: safeSortOrder }, { id: "desc" }];
@@ -120,6 +112,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
       mode: true,
       status: true,
       formId: true,
+      multiAnalysisFormId: true,
       createdAt: true,
 
       averageRating: true,
@@ -139,7 +132,9 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
         },
       },
       ratings: {
-        orderBy: { createdAt: "desc" },
+        orderBy: {
+          createdAt: "desc",
+        },
         include: {
           rater: {
             select: {
@@ -190,10 +185,7 @@ const getProject = async (projectId, userId, userRole, companyId) => {
       ],
     };
   } else if (userRole === "COMPANY") {
-    if (!companyId) {
-      return null;
-    }
-
+    if (!companyId) return null;
     whereClause = {
       id: projectId,
       companyId: companyId,
@@ -206,63 +198,26 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     where: whereClause,
     include: {
       creator: {
-        select: {
-          id: true,
-          username: true,
-        },
+        select: { id: true, username: true },
       },
-
       company: {
-        select: {
-          id: true,
-          name: true,
-          industry: true,
-        },
+        select: { id: true, name: true, industry: true },
       },
-
       ratings: {
         orderBy: { createdAt: "desc" },
         include: {
           rater: {
-            select: {
-              id: true,
-              username: true,
-              role: true,
-            },
+            select: { id: true, username: true, role: true },
           },
         },
       },
-
-      items: {
-        orderBy: { order: "asc" },
-        select: {
-          id: true,
-          formTitle: true,
-          analysis: true,
-          createdAt: true,
-          order: true,
-          isFinal: true,
-        },
-      },
-
       chatMessages: {
         orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          role: true,
-          content: true,
-          createdAt: true,
-        },
+        select: { id: true, role: true, content: true, createdAt: true },
       },
-
       goals: {
         include: {
-          goal: {
-            select: {
-              id: true,
-              title: true,
-            },
-          },
+          goal: { select: { id: true, title: true } },
         },
       },
     },
@@ -284,18 +239,31 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     ratedAt: history.createdAt,
   }));
 
-  let formQuestionAnswers = [];
+  const superAdminRatingRaw = ratingsListRaw.find(
+    (history) => history.rater?.role === "SUPER_ADMIN",
+  );
 
+  const superAdminRating = superAdminRatingRaw
+    ? {
+        id: superAdminRatingRaw.id,
+        score: superAdminRatingRaw.score,
+        comment: superAdminRatingRaw.comment,
+        ratedBy: {
+          id: superAdminRatingRaw.rater.id,
+          name: superAdminRatingRaw.rater.username,
+          role: superAdminRatingRaw.rater.role,
+        },
+        ratedAt: superAdminRatingRaw.createdAt,
+      }
+    : null;
+
+  let formQuestionAnswers = [];
   if (project.formId && project.formResponses) {
     const form = await prisma.analysisForm.findUnique({
-      where: {
-        id: project.formId,
-      },
+      where: { id: project.formId },
       include: {
         questions: {
-          orderBy: {
-            order: "asc",
-          },
+          orderBy: { order: "asc" },
           select: {
             id: true,
             label: true,
@@ -309,7 +277,6 @@ const getProject = async (projectId, userId, userRole, companyId) => {
 
     if (form) {
       const responses = project.formResponses || {};
-
       formQuestionAnswers = form.questions.map((question) => ({
         questionId: question.id,
         questionText: question.label,
@@ -326,25 +293,7 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     title: projectGoal.goal.title,
   }));
 
-  const chatUiMessages = (project.chatMessages || []).filter((message) => {
-    if (!project.chatModeStartedAt) return false;
-
-    const messageTime = new Date(message.createdAt).getTime();
-    const startedAt = new Date(project.chatModeStartedAt).getTime();
-
-    // فقط پیام‌های بعد از "کافی نبود"
-    if (messageTime <= startedAt) return false;
-
-    // اگر "فهم کامل" زده شده، فقط پیام‌های قبل از آن
-    if (project.chatModeEndedAt) {
-      const endedAt = new Date(project.chatModeEndedAt).getTime();
-
-      // خود پیام "فهم کامل" و هر چیزی بعد از آن حذف شود
-      if (messageTime >= endedAt) return false;
-    }
-
-    return true;
-  });
+  const chatUiMessages = project.chatMessages || [];
 
   return {
     id: project.id,
@@ -363,18 +312,21 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     goals: selectedGoals,
 
     items: project.items,
-
+    domain: project.domain,
     chatMessages: chatUiMessages,
-
     initialAnalysis: project.initialAnalysis,
     riskAnalysis: project.riskAnalysis,
     finalAnalysis: project.finalAnalysis,
 
     status: project.status,
+    averageRating: project.averageRating,
+    ratingCount: project.ratingCount,
+    superAdminRating,
 
-    ratings: {
-      list: ratingsList,
-    },
+    // اگر خواستی لیست همه امتیازها هم برگردد این را باز کن
+    // ratings: {
+    //   list: ratingsList,
+    // },
   };
 };
 

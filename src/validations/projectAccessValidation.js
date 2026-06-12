@@ -1,11 +1,7 @@
 const yup = require("yup");
 
 const schema = yup.object().shape({
-  colleagueIds: yup
-    .array()
-    .of(yup.string().uuid())
-    .min(1, "حداقل یک همکار را انتخاب کنید.")
-    .required("لیست همکاران الزامی است."),
+  colleagueIds: yup.array().of(yup.string().uuid()).required(),
 });
 
 exports.projectAccessSchema = async (req, res, next) => {

@@ -8,6 +8,7 @@ module.exports = async function runAI(prompt) {
     case "ollama":
     case "openai":
     case "openai_compatible":
+    case "openrouter":
       return await useOpenAICompatible(prompt);
 
     case "custom":

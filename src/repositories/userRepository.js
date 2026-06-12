@@ -43,7 +43,7 @@ const createRefreshToken = async (userId, refreshToken) => {
     data: {
       tokenHash: hashToken(refreshToken),
       userId,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000),
     },
   });
 };

@@ -114,8 +114,6 @@ const isUuid = (value) =>
 const isEmpty = (value) =>
   value === undefined || value === null || value === "";
 
-//////////
-
 const normalizeProfileFields = (profileFields = []) => {
   return profileFields
     .map((item) => {
@@ -238,9 +236,7 @@ const getCompanyProfileDataForForm = async (companyId, profileFields = []) => {
   };
 };
 
-const resolveNextProjectStep = ({ currentStatus, userInput }) => {
-  const lowerInput = userInput?.toLowerCase().trim() || "";
-
+const resolveNextProjectStep = ({ currentStatus }) => {
   let nextStatus = currentStatus;
   let transitionReason = null;
 
@@ -250,61 +246,10 @@ const resolveNextProjectStep = ({ currentStatus, userInput }) => {
       transitionReason = "INITIAL_ANALYSIS_GENERATED";
       break;
 
-    case "REVIEWING": {
-      const isApproved = [
-        "خوب",
-        "تایید",
-        "تأیید",
-        "بله",
-        "ادامه",
-        "ok",
-        "yes",
-        "approve",
-        "approved",
-        "تایید میکنم",
-        "تایید می‌کنم",
-        "اوکی",
-      ].some((k) => lowerInput.includes(k));
-
-      const isRejected = [
-        "رد",
-        "نه",
-        "کافی نبود",
-        "اشتباه",
-        "خوب نیست",
-        "no",
-        "reject",
-        "rejected",
-        "wrong",
-        "نمی‌خوام",
-        "نمیخوام",
-      ].some((k) => lowerInput.includes(k));
-
-      if (isApproved) {
-        nextStatus = "FINAL_ANALYSIS";
-        transitionReason = "INITIAL_ANALYSIS_APPROVED";
-      } else if (isRejected) {
-        nextStatus = "CHAT_MODE";
-        transitionReason = "INITIAL_ANALYSIS_REJECTED";
-      } else {
-        nextStatus = "REVIEWING";
-        transitionReason = "WAITING_FOR_REVIEW_DECISION";
-      }
-
+    case "REVIEWING":
+      nextStatus = "FINAL_ANALYSIS";
+      transitionReason = "INITIAL_ANALYSIS_APPROVED";
       break;
-    }
-
-    case "CHAT_MODE": {
-      if (lowerInput) {
-        nextStatus = "FINAL_ANALYSIS";
-        transitionReason = "USER_CORRECTION_SUBMITTED";
-      } else {
-        nextStatus = "CHAT_MODE";
-        transitionReason = "WAITING_FOR_USER_CORRECTION";
-      }
-
-      break;
-    }
 
     case "FINAL_ANALYSIS":
       nextStatus = "FINAL_ANALYSIS";
@@ -409,8 +354,21 @@ const getPublishedPromptContentsForMultiAnalysisForm = async (
   }, {});
 };
 
+///
+const buildRecipeSteps = (promptSegments, startStep = 1) => {
+  if (!Array.isArray(promptSegments) || !promptSegments.length) return [];
+
+  const steps = promptSegments.reduce((result, segment, index) => {
+    result[`step${startStep + index}`] = segment?.content || "";
+    return result;
+  }, {});
+
+  return [steps];
+};
+
 const buildInitialAnalysisPrompt = ({
-  formPrompts,
+  promptSegments,
+  title,
   companyProfileData,
   readableFormResponses,
   selectedGoals,
@@ -418,18 +376,15 @@ const buildInitialAnalysisPrompt = ({
   temperature,
 }) => {
   const promptObject = {
-    Recipes: formPrompts,
-
+    Recipes: buildRecipeSteps(promptSegments, 1),
+    "Analysis title": title,
     temperature: temperature ?? 0.7,
-
     "company information": companyProfileData?.companyProfile || {},
-
     "Additional company information":
-      companyProfileData?.companyAdminData || {},
-
+      companyProfileData?.companyAdminData?.text || "",
     "Selected goals": Array.isArray(selectedGoals) ? selectedGoals : [],
+    "User Clarification": "",
     domain: domain || "",
-
     "Form responses": readableFormResponses || {},
   };
 
@@ -437,7 +392,8 @@ const buildInitialAnalysisPrompt = ({
 };
 
 const buildInitialMultiAnalysisPrompt = ({
-  formPrompts,
+  promptSegments,
+  title,
   selectedGoals,
   companyProfileData,
   sourceProjectSummaries,
@@ -445,47 +401,74 @@ const buildInitialMultiAnalysisPrompt = ({
   temperature,
 }) => {
   const promptObject = {
-    Recipes: formPrompts,
-
+    Recipes: buildRecipeSteps(promptSegments, 1),
+    "Analysis title": title,
     temperature: temperature ?? 0.7,
-
     "company information": companyProfileData?.companyProfile || {},
-
     "Additional company information":
-      companyProfileData?.companyAdminData || {},
-
+      companyProfileData?.companyAdminData?.text || "",
     "Selected goals": Array.isArray(selectedGoals) ? selectedGoals : [],
+    "User Clarification": "",
     domain: domain || "",
-
-    Summaries: Array.isArray(sourceProjectSummaries)
-      ? sourceProjectSummaries
-      : [],
+    Summaries: sourceProjectSummaries || {},
   };
 
   return JSON.stringify(promptObject, null, 2);
 };
 
-const buildFinalAnalysisPrompt = ({ initialAnalysis }) => {
+const buildFinalAnalysisPrompt = ({
+  promptSegments,
+  initialAnalysis,
+  title,
+  temperature,
+}) => {
+  console.log("heelo");
   const promptObject = {
-    "User Accecpt": true || "",
-    "Problem and Assumptions": initialAnalysis,
+    "Analysis title": title,
+    Recipes: buildRecipeSteps(promptSegments, 2),
+    initialAnalysis: initialAnalysis || "",
+    temperature,
   };
 
   return JSON.stringify(promptObject, null, 2);
 };
 
 const buildFinalAnalysisWithCorrectionPrompt = ({
+  promptSegments,
+  title,
+  mode,
   userCorrection,
-  initialAnalysis,
+  temperature,
+  companyProfileData,
+  selectedGoals,
+  domain,
+  readableFormResponses,
+  sourceProjectSummaries,
 }) => {
   const promptObject = {
+    Recipes: buildRecipeSteps(promptSegments, 1),
+    "Analysis title": title || "",
     "User Clarification": userCorrection || "",
-    "Problem and Assumptions": initialAnalysis,
+    temperature: temperature ?? 0.7,
+    "company information": companyProfileData?.companyProfile || {},
+    "Additional company information":
+      companyProfileData?.companyAdminData?.text || "",
+    "Selected goals": Array.isArray(selectedGoals) ? selectedGoals : [],
+    domain: domain || "",
   };
+
+  if (mode === "MULTI") {
+    promptObject.Summaries = sourceProjectSummaries || {};
+  }
+
+  if (mode === "SINGLE") {
+    promptObject["Form responses"] = readableFormResponses || {};
+  }
 
   return JSON.stringify(promptObject, null, 2);
 };
 
+////
 const buildReadableFormResponses = async ({ formId, formResponses }) => {
   if (!formId || !formResponses || Object.keys(formResponses).length === 0) {
     return {};
@@ -548,51 +531,80 @@ const parseFinalAnalysisResponse = (aiResponse) => {
     const jsonText = extractJsonText(aiResponse);
     const parsed = JSON.parse(jsonText);
 
+    const finalAnalysis = toText(
+      parsed.finalAnalysis ??
+        parsed.final_analysis ??
+        parsed.analysis ??
+        parsed.final ??
+        aiResponse ??
+        "",
+    );
+
+    const riskAnalysis = toText(
+      parsed.riskAnalysis ??
+        parsed.risk_analysis ??
+        parsed.risk ??
+        parsed.risks ??
+        finalAnalysis,
+    );
+
+    const summary = toText(
+      parsed.summary ??
+        parsed.summaryAnalysis ??
+        parsed.summary_analysis ??
+        parsed.executiveSummary ??
+        parsed.executive_summary ??
+        finalAnalysis,
+    );
+
     return {
-      riskAnalysis: toText(
-        parsed.riskAnalysis ??
-          parsed.risk_analysis ??
-          parsed.risk ??
-          parsed.risks ??
-          "",
-      ),
-      finalAnalysis: toText(
-        parsed.finalAnalysis ??
-          parsed.final_analysis ??
-          parsed.analysis ??
-          parsed.final ??
-          "",
-      ),
-      summary: toText(
-        parsed.summary ??
-          parsed.summaryAnalysis ??
-          parsed.summary_analysis ??
-          parsed.executiveSummary ??
-          parsed.executive_summary ??
-          "",
-      ),
+      riskAnalysis: riskAnalysis || finalAnalysis,
+      finalAnalysis,
+      summary: summary || finalAnalysis,
     };
   } catch (error) {
+    const fallback = toText(aiResponse);
+
     return {
-      riskAnalysis: "",
-      finalAnalysis: toText(aiResponse),
-      summary: "",
+      riskAnalysis: fallback,
+      finalAnalysis: fallback,
+      summary: fallback,
     };
   }
 };
 
-const buildSelectedSourceProjectSummaries = (selectedSourceProjects) => {
-  return (selectedSourceProjects || [])
+const buildSelectedSourceProjectSummaries = (selectedSourceProjects = []) => {
+  return selectedSourceProjects
     .map((item) => {
-      const title = item?.form?.title;
-      const summary = item?.sourceProject?.summaryAnalysis;
+      const title = item?.form?.title?.trim();
+      const summary = item?.sourceProject?.summaryAnalysis?.trim();
 
-      if (!title || !summary?.trim()) return null;
+      if (!title || !summary) return null;
 
-      return `${title}:\n${summary.trim()}`;
+      return {
+        title,
+        summary,
+      };
     })
-    .filter(Boolean)
-    .join("\n\n");
+    .filter(Boolean);
+};
+
+const getOrderedPromptSegments = (promptVersion) => {
+  if (!promptVersion?.values?.length) return [];
+
+  return [...promptVersion.values]
+    .sort((a, b) => {
+      const aOrder = a.segmentDefinition?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = b.segmentDefinition?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+      return aOrder - bOrder;
+    })
+    .map((item) => ({
+      content: item.content,
+    }));
+};
+
+const pickPromptSegments = (segments, indexes) => {
+  return indexes.map((index) => segments[index]).filter(Boolean);
 };
 
 module.exports = {
@@ -612,4 +624,76 @@ module.exports = {
   parseFinalAnalysisResponse,
   buildInitialMultiAnalysisPrompt,
   buildSelectedSourceProjectSummaries,
+  getOrderedPromptSegments,
+  pickPromptSegments,
 };
+
+// const parseFinalAnalysisResponse = (aiResponse) => {
+//   const toText = (value) => {
+//     if (value === null || value === undefined) return "";
+
+//     if (typeof value === "string") return value.trim();
+
+//     return JSON.stringify(value, null, 2);
+//   };
+
+//   const extractJsonText = (text) => {
+//     if (!text || typeof text !== "string") return "";
+
+//     let cleaned = text
+//       .replace(/```json/gi, "")
+//       .replace(/```/g, "")
+//       .trim();
+
+//     const firstBraceIndex = cleaned.indexOf("{");
+//     const lastBraceIndex = cleaned.lastIndexOf("}");
+
+//     if (
+//       firstBraceIndex !== -1 &&
+//       lastBraceIndex !== -1 &&
+//       lastBraceIndex > firstBraceIndex
+//     ) {
+//       cleaned = cleaned.slice(firstBraceIndex, lastBraceIndex + 1);
+//     }
+
+//     return cleaned;
+//   };
+
+//   try {
+//     const jsonText = extractJsonText(aiResponse);
+//     const parsed = JSON.parse(jsonText);
+
+//     return {
+//       riskAnalysis: toText(
+//         parsed.riskAnalysis ??
+//           parsed.risk_analysis ??
+//           parsed.risk ??
+//           parsed.risks ??
+//           "",
+//       ),
+//       finalAnalysis: toText(
+//         parsed.finalAnalysis ??
+//           parsed.final_analysis ??
+//           parsed.analysis ??
+//           parsed.final ??
+//           "",
+//       ),
+//       summary: toText(
+//         parsed.summary ??
+//           parsed.summaryAnalysis ??
+//           parsed.summary_analysis ??
+//           parsed.executiveSummary ??
+//           parsed.executive_summary ??
+//           "",
+//       ),
+//     };
+//   } catch (error) {
+//     return {
+//       riskAnalysis: "",
+//       finalAnalysis: toText(aiResponse),
+//       summary: "",
+//     };
+//   }
+// };
+
+//promptSegments: firstPromptSegment

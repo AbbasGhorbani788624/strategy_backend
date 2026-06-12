@@ -36,8 +36,9 @@ exports.deleteCompanyUser = async (req, res, next) => {
 exports.usersColleague = async (req, res, next) => {
   try {
     const userId = req.user.id;
+    const { id } = req.params;
 
-    const colleague = await getColleaguesService(userId);
+    const colleague = await getColleaguesService(userId, id);
 
     return successResponse(res, 200, colleague);
   } catch (err) {

@@ -19,7 +19,7 @@
     "@adminjs/upload": "^4.0.2",
     "@prisma/client": "^6.19.2",
     "adminjs": "^7.8.17",
-    "axios": "^1.16.0",
+    "axios": "^1.17.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",

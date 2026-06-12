@@ -172,9 +172,11 @@ model Project {
   averageRating Float   @default(0)
   ratingCount   Int     @default(0)
   hasRating     Boolean @default(false)
+  riskPercentage Float?
 
   chatModeStartedAt DateTime?
   chatModeEndedAt   DateTime?
+  keyStrategicInsights  String? @db.Text
 
   selectedSourceProjects MultiAnalysisProjectSource[] @relation("MultiProjectSources")
   usedInMultiProjects    MultiAnalysisProjectSource[] @relation("SourceProjectUsedInMulti")

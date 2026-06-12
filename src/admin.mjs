@@ -49,7 +49,7 @@ const prisma = new PrismaClient();
 
 const app = express();
 
-const PORT = Number(process.env.ADMIN_PORT || 4000);
+const PORT = Number(process.env.ADMIN_PORT || 3000);
 const ADMIN_ROOT_PATH = process.env.ADMIN_ROOT_PATH || "/admin";
 
 const ADMIN_COOKIE_SECRET =
@@ -1450,6 +1450,17 @@ const admin = new AdminJS({
         initialAnalysis: { type: "textarea" },
         riskAnalysis: { type: "textarea" },
         finalAnalysis: { type: "textarea" },
+
+        averageRating: {
+          isVisible: { list: true, filter: false, show: true, edit: false },
+        },
+        ratingCount: {
+          isVisible: { list: true, filter: false, show: true, edit: false },
+        },
+        hasRating: {
+          isVisible: { list: true, filter: false, show: true, edit: false },
+        },
+
         createdAt: {
           isVisible: { list: true, filter: true, show: true, edit: false },
         },
@@ -1530,9 +1541,6 @@ const admin = new AdminJS({
         "initialAnalysis",
         "riskAnalysis",
         "finalAnalysis",
-        "averageRating",
-        "ratingCount",
-        "hasRating",
         "chatModeStartedAt",
         "chatModeEndedAt",
       ],
@@ -1546,10 +1554,12 @@ const admin = new AdminJS({
         id: { isVisible: false },
         projectId: {
           label: "انتخاب پروژه",
+          reference: "Project",
           isRequired: true,
           isVisible: { list: true, filter: true, show: true, edit: true },
         },
         raterId: {
+          reference: "User",
           isVisible: { list: false, filter: false, show: true, edit: false },
         },
         score: {
@@ -1570,8 +1580,7 @@ const admin = new AdminJS({
       actions: {
         new: {
           handler: async (request, response, context) => {
-            const { resource, h, currentAdmin, _admin } = context;
-            const prisma = _admin.options.databases[0].connector.prismaClient;
+            const { resource, h, currentAdmin } = context;
 
             if (request.method === "get") {
               return {
@@ -1582,23 +1591,26 @@ const admin = new AdminJS({
 
             const payload = request.payload ?? {};
             const { projectId, score, comment } = payload;
-            const numericScore = parseInt(score);
+            const numericScore = Number.parseInt(score, 10);
 
-            // اعتبارسنجی دستی رییس
             const errors = {};
-            if (!projectId)
+            if (!projectId) {
               errors.projectId = { message: "انتخاب پروژه الزامی است." };
-            if (!score || numericScore < 1 || numericScore > 5) {
+            }
+            if (
+              !Number.isInteger(numericScore) ||
+              numericScore < 1 ||
+              numericScore > 5
+            ) {
               errors.score = { message: "امتیاز باید عددی بین ۱ تا ۵ باشد." };
             }
 
-            if (Object.keys(errors).length > 0)
+            if (Object.keys(errors).length > 0) {
               throw new ValidationError(errors);
+            }
 
             try {
-              // استفاده از تراکنش برای تضمین ثبت امتیاز و آپدیت پروژه
               const createdHistory = await prisma.$transaction(async (tx) => {
-                // ۱. ثبت در تاریخچه (با استفاده از raterId ادمین فعلی)
                 const history = await tx.projectRatingHistory.upsert({
                   where: {
                     projectId_raterId: {
@@ -1606,7 +1618,10 @@ const admin = new AdminJS({
                       raterId: currentAdmin.id,
                     },
                   },
-                  update: { score: numericScore, comment: comment || null },
+                  update: {
+                    score: numericScore,
+                    comment: comment || null,
+                  },
                   create: {
                     projectId: String(projectId),
                     raterId: currentAdmin.id,
@@ -1615,20 +1630,18 @@ const admin = new AdminJS({
                   },
                 });
 
-                // ۲. محاسبه آمار جدید پروژه
                 const stats = await tx.projectRatingHistory.aggregate({
                   where: { projectId: String(projectId) },
                   _avg: { score: true },
                   _count: { score: true },
                 });
 
-                // ۳. آپدیت مدل پروژه
                 await tx.project.update({
                   where: { id: String(projectId) },
                   data: {
                     averageRating: stats._avg.score || 0,
                     ratingCount: stats._count.score || 0,
-                    hasRating: true,
+                    hasRating: (stats._count.score || 0) > 0,
                   },
                 });
 
@@ -1659,8 +1672,7 @@ const admin = new AdminJS({
 
         edit: {
           handler: async (request, response, context) => {
-            const { record, resource, h, currentAdmin, _admin } = context;
-            const prisma = _admin.options.databases[0].connector.prismaClient;
+            const { record, resource, h, currentAdmin } = context;
 
             if (!record) throw new Error("رکورد پیدا نشد.");
 
@@ -1672,11 +1684,20 @@ const admin = new AdminJS({
             }
 
             const payload = request.payload ?? {};
-            const numericScore = parseInt(payload.score);
+            const numericScore = Number.parseInt(payload.score, 10);
+
+            if (
+              !Number.isInteger(numericScore) ||
+              numericScore < 1 ||
+              numericScore > 5
+            ) {
+              throw new ValidationError({
+                score: { message: "امتیاز باید عددی بین ۱ تا ۵ باشد." },
+              });
+            }
 
             try {
               await prisma.$transaction(async (tx) => {
-                // ۱. آپدیت رکورد فعلی
                 await tx.projectRatingHistory.update({
                   where: { id: record.id() },
                   data: {
@@ -1685,7 +1706,6 @@ const admin = new AdminJS({
                   },
                 });
 
-                // ۲. محاسبه مجدد آمار پروژه مربوطه
                 const pId = record.param("projectId");
                 const stats = await tx.projectRatingHistory.aggregate({
                   where: { projectId: pId },
@@ -1698,6 +1718,7 @@ const admin = new AdminJS({
                   data: {
                     averageRating: stats._avg.score || 0,
                     ratingCount: stats._count.score || 0,
+                    hasRating: (stats._count.score || 0) > 0,
                   },
                 });
               });
@@ -4905,12 +4926,6 @@ const start = async () => {
     );
   });
 };
-
-start().catch(async (error) => {
-  console.error("AdminJS startup error:", error);
-  await prisma.$disconnect();
-  process.exit(1);
-});
 
 start().catch(async (error) => {
   console.error("AdminJS startup error:", error);

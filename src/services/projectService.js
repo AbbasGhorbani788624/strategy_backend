@@ -402,91 +402,112 @@ const grantProjectAccessService = async (
   colleagueIds,
   currentUserId,
 ) => {
+  if (!projectId) {
+    createBadRequestError("شناسه پروژه الزامی است.", 400);
+  }
+
+  if (!Array.isArray(colleagueIds)) {
+    createBadRequestError("لیست همکاران نامعتبر است.", 400);
+  }
+
+  const normalizedColleagueIds = [...new Set(colleagueIds.filter(Boolean))];
+
   const project = await prisma.project.findUnique({
-    where: { id: projectId },
+    where: {
+      id: projectId,
+    },
     select: {
       id: true,
       creatorId: true,
       companyId: true,
-      accesses: { select: { userId: true } },
+      accesses: {
+        select: {
+          userId: true,
+        },
+      },
     },
   });
 
   if (!project) {
-    createBadRequestError("پروژه یافت نشد", 404);
+    createBadRequestError("پروژه یافت نشد.", 404);
   }
 
-  const currentUser = await prisma.user.findUnique({
-    where: { id: currentUserId },
-    select: { role: true, companyId: true },
-  });
-
-  const isCreator = project.creatorId === currentUserId;
-  const isCompanyAdmin =
-    currentUser?.role === "COMPANY" &&
-    currentUser.companyId === project.companyId;
-
-  if (!isCreator && !isCompanyAdmin) {
+  if (project.creatorId !== currentUserId) {
     createBadRequestError(
-      "شما مجوز مدیریت دسترسی‌های این پروژه را ندارید",
-      401,
+      "فقط مالک پروژه می‌تواند دسترسی‌ها را مدیریت کند.",
+      403,
     );
   }
 
-  const existingAccessUserIds = new Set(
-    project.accesses.map((acc) => acc.userId),
-  );
-
-  const newAccessIds = colleagueIds.filter(
-    (id) => !existingAccessUserIds.has(id),
-  );
-
-  if (newAccessIds.length === 0) {
-    createBadRequestError(
-      "همکاران مورد نظر قبلاً دسترسی داشته‌اند یا لیست خالی است.",
-      400,
-    );
+  if (!project.companyId) {
+    createBadRequestError("این پروژه به هیچ شرکتی متصل نیست.", 400);
   }
 
-  const validUsers = await prisma.user.findMany({
+  const validColleagues = await prisma.user.findMany({
     where: {
-      id: { in: newAccessIds },
+      id: {
+        in: normalizedColleagueIds,
+      },
       companyId: project.companyId,
     },
-    select: { id: true },
+    select: {
+      id: true,
+    },
   });
 
-  const validIdSet = new Set(validUsers.map((u) => u.id));
-  const invalidIds = newAccessIds.filter((id) => !validIdSet.has(id));
+  const validColleagueIds = validColleagues.map((user) => user.id);
 
-  if (invalidIds.length > 0) {
+  if (validColleagueIds.length !== normalizedColleagueIds.length) {
     createBadRequestError(
-      "یک یا چند ID نامعتبر هستند یا متعلق به این شرکت نیستند",
+      "بعضی از کاربران انتخاب‌شده عضو شرکت این پروژه نیستند.",
       400,
     );
   }
 
-  await prisma.projectAccess.createMany({
-    data: validUsers.map((userId) => ({
-      projectId: projectId,
-      userId: userId.id,
-    })),
-  });
-
-  const notificationsToCreate = validUsers.map((user) => ({
-    userId: user.id,
-    type: "PROJECT_ACCESS_GRANTED",
-    title: "دسترسی به پروژه جدید",
-    message: `شما به پروژه "${project.title}" دسترسی پیدا کردید.`,
-    referenceId: projectId,
-    referenceType: "PROJECT",
-  }));
-
-  if (notificationsToCreate.length > 0) {
-    await prisma.notification.createMany({
-      data: notificationsToCreate,
-    });
+  if (validColleagueIds.includes(project.creatorId)) {
+    createBadRequestError("مالک پروژه نیازی به ثبت در لیست دسترسی ندارد.", 400);
   }
+
+  const currentAccessIds = project.accesses.map((access) => access.userId);
+
+  const idsToAdd = validColleagueIds.filter(
+    (id) => !currentAccessIds.includes(id),
+  );
+
+  const idsToRemove = currentAccessIds.filter(
+    (id) => !validColleagueIds.includes(id),
+  );
+
+  await prisma.$transaction([
+    ...(idsToAdd.length
+      ? [
+          prisma.projectAccess.createMany({
+            data: idsToAdd.map((colleagueId) => ({
+              projectId,
+              userId: colleagueId,
+            })),
+            skipDuplicates: true,
+          }),
+        ]
+      : []),
+    ...(idsToRemove.length
+      ? [
+          prisma.projectAccess.deleteMany({
+            where: {
+              projectId,
+              userId: {
+                in: idsToRemove,
+              },
+            },
+          }),
+        ]
+      : []),
+  ]);
+
+  return {
+    message: "دسترسی‌های پروژه با موفقیت بروزرسانی شد.",
+    accessUserIds: validColleagueIds,
+  };
 };
 
 const createStepAnalysisProjectService = async (

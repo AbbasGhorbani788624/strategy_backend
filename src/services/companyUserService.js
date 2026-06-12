@@ -80,7 +80,11 @@ const deleteCompanyUserService = async (userId, creator) => {
   await deleteUser(userId);
 };
 
-const getColleaguesService = async (userId) => {
+const getColleaguesService = async (userId, projectId) => {
+  if (!projectId) {
+    createBadRequestError("شناسه پروژه الزامی است.", 400);
+  }
+
   const userWithCompany = await prisma.user.findUnique({
     where: {
       id: userId,
@@ -88,7 +92,6 @@ const getColleaguesService = async (userId) => {
     select: {
       id: true,
       username: true,
-
       company: {
         select: {
           id: true,
@@ -112,19 +115,50 @@ const getColleaguesService = async (userId) => {
   });
 
   if (!userWithCompany) {
-    createBadRequestError("کاربر مورد نظر یافت نشد.", 404);
+    throw createBadRequestError("کاربر مورد نظر یافت نشد.", 404);
   }
 
   if (!userWithCompany.company) {
-    createBadRequestError("این کاربر به هیچ شرکتی متصل نیست.", 400);
+    throw createBadRequestError("این کاربر به هیچ شرکتی متصل نیست.", 400);
   }
+
+  const project = await prisma.project.findUnique({
+    where: {
+      id: projectId,
+    },
+    select: {
+      id: true,
+      companyId: true,
+      creatorId: true,
+      accesses: {
+        select: {
+          userId: true,
+        },
+      },
+    },
+  });
+
+  if (!project) {
+    throw createBadRequestError("پروژه یافت نشد.", 404);
+  }
+
+  if (project.companyId !== userWithCompany.company.id) {
+    throw createBadRequestError("این پروژه متعلق به شرکت شما نیست.", 403);
+  }
+
+  const accessUserIds = new Set(
+    project.accesses.map((access) => access.userId),
+  );
 
   return {
     company: {
       id: userWithCompany.company.id,
       name: userWithCompany.company.name,
     },
-    colleagues: userWithCompany.company.members,
+    colleagues: userWithCompany.company.members.map((member) => ({
+      ...member,
+      hasAccess: accessUserIds.has(member.id),
+    })),
   };
 };
 
