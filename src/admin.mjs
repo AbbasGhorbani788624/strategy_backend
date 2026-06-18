@@ -62,6 +62,10 @@ const companyProfileNavigation = {
   name: "پروفایل شرکت",
   icon: "Building",
 };
+const followUpStatusValues = [
+  { value: "PENDING", label: "در انتظار" },
+  { value: "ANSWERED", label: "پاسخ داده شده" },
+];
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -785,6 +789,7 @@ const admin = new AdminJS({
         },
 
         username: {
+          isTitle: true,
           isRequired: true,
           isVisible: {
             list: true,
@@ -1446,6 +1451,9 @@ const admin = new AdminJS({
         icon: "Folder",
       },
       properties: {
+        username: {
+          isTitle: true,
+        },
         formResponses: { type: "mixed" },
         initialAnalysis: { type: "textarea" },
         riskAnalysis: { type: "textarea" },
@@ -3383,6 +3391,186 @@ const admin = new AdminJS({
             }
 
             return response;
+          },
+        },
+      },
+    }),
+    prismaResource("FollowUpRequest", {
+      navigation: {
+        name: "درخواست‌های پیگیری",
+        icon: "MessageSquare",
+      },
+
+      properties: {
+        id: {
+          isVisible: { list: true, filter: true, show: true, edit: false },
+        },
+
+        title: {
+          isTitle: true,
+          isVisible: { list: true, filter: true, show: true, edit: false },
+        },
+
+        status: {
+          availableValues: [
+            { value: "PENDING", label: "در انتظار" },
+            { value: "ANSWERED", label: "پاسخ داده شده" },
+          ],
+          isVisible: { list: true, filter: true, show: true, edit: false }, // ادمین دستی تغییر نده
+          position: 2,
+        },
+
+        projectId: {
+          reference: "Project",
+          isVisible: {
+            list: false,
+            filter: true,
+            show: true,
+            edit: false,
+          },
+        },
+
+        project: {
+          isVisible: {
+            list: true,
+            show: true,
+            filter: false,
+            edit: false,
+          },
+        },
+
+        user: {
+          isVisible: {
+            list: true,
+            show: true,
+            filter: false,
+            edit: false,
+          },
+        },
+
+        userId: {
+          reference: "User",
+          isVisible: { list: true, filter: true, show: true, edit: false },
+        },
+
+        formId: {
+          reference: "FollowUpForm",
+          isVisible: { list: true, filter: true, show: true, edit: false },
+        },
+
+        responses: {
+          type: "mixed",
+          isVisible: { list: false, filter: false, show: true, edit: false },
+        },
+
+        adminAnswer: {
+          type: "textarea",
+          isVisible: { list: false, filter: false, show: true, edit: true },
+          props: {
+            rows: 10,
+            placeholder: "پاسخ خود را به کاربر بنویسید...",
+          },
+        },
+
+        answeredAt: {
+          isVisible: { list: true, filter: true, show: true, edit: false },
+        },
+
+        answeredById: {
+          reference: "User",
+          isVisible: { list: true, filter: true, show: true, edit: false },
+        },
+
+        createdAt: {
+          isVisible: { list: true, filter: true, show: true, edit: false },
+        },
+        user: {
+          isVisible: {
+            list: true,
+            show: true,
+            filter: false,
+            edit: false,
+          },
+        },
+      },
+
+      listProperties: ["id", "title", "status", "project", "user", "createdAt"],
+
+      filterProperties: ["status", "projectId", "userId", "title", "createdAt"],
+
+      showProperties: [
+        "id",
+        "title",
+        "status",
+        "projectId",
+        "project", // نمایش کامل پروژه
+        "userId",
+        "formId",
+        "responses",
+        "adminAnswer",
+        "answeredAt",
+        "answeredById",
+        "createdAt",
+      ],
+
+      editProperties: ["adminAnswer"], // فقط پاسخ
+
+      actions: {
+        edit: {
+          handler: async (request, response, context) => {
+            const { record, resource, h, currentAdmin } = context;
+
+            if (!record) throw new Error("Record not found");
+
+            if (request.method === "get") {
+              return {
+                record: record.toJSON(currentAdmin),
+                resource: resource.decorate().toJSON(currentAdmin),
+              };
+            }
+
+            const payload = { ...(request.payload || {}) };
+            const adminAnswer = String(payload.adminAnswer || "").trim();
+            const recordId = String(record.param("id"));
+
+            if (!adminAnswer) {
+              throw new ValidationError({
+                adminAnswer: { message: "لطفاً پاسخ خود را وارد کنید." },
+              });
+            }
+
+            try {
+              const updated = await prisma.followUpRequest.update({
+                where: { id: recordId },
+                data: {
+                  adminAnswer,
+                  status: "ANSWERED",
+                  answeredAt: new Date(),
+                  answeredById: currentAdmin.id,
+                },
+              });
+
+              const refreshed = await resource.findOne(updated.id);
+
+              return {
+                record: refreshed?.toJSON(currentAdmin),
+                notice: {
+                  message:
+                    "✅ پاسخ با موفقیت ثبت شد و وضعیت به 'پاسخ داده شده' تغییر کرد.",
+                  type: "success",
+                },
+                redirectUrl: h.recordActionUrl({
+                  resourceId: resource.id(),
+                  recordId: updated.id,
+                  actionName: "show",
+                }),
+              };
+            } catch (error) {
+              console.error("FOLLOWUP_ANSWER_ERROR:", error);
+              throw new ValidationError({
+                adminAnswer: { message: "خطا در ثبت پاسخ. دوباره تلاش کنید." },
+              });
+            }
           },
         },
       },

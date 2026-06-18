@@ -19,64 +19,52 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
   const skip = (parsedPage - 1) * parsedLimit;
   const take = parsedLimit;
 
-  const accessWhere = await buildProjectAccessWhere({
-    userId,
-    userRole,
-    companyId,
-    targetUserId,
-  });
+  let whereClause = {};
 
-  const filters = [];
+  if (userRole === "COMPANY") {
+    if (!companyId) {
+      createBadRequestError("CompanyId is required for COMPANY role");
+    }
 
-  if (scoreFilter === "high") {
-    filters.push({
-      averageRating: {
-        gte: 4,
-      },
+    whereClause = {
+      companyId,
+    };
+  } else {
+    const accessWhere = await buildProjectAccessWhere({
+      userId,
+      userRole,
+      companyId,
+      targetUserId,
     });
-  }
 
-  if (scoreFilter === "medium") {
-    filters.push({
-      averageRating: {
-        gte: 2,
-        lt: 4,
-      },
-    });
-  }
+    const filters = [];
 
-  if (scoreFilter === "low") {
-    filters.push({
-      averageRating: {
-        lt: 2,
-      },
-    });
-  }
+    if (Object.keys(accessWhere).length > 0) {
+      filters.push(accessWhere);
+    }
 
-  if (Object.keys(accessWhere).length > 0) {
-    filters.push(accessWhere);
-  }
+    if (scoreFilter === "high") {
+      filters.push({ averageRating: { gte: 4 } });
+    } else if (scoreFilter === "medium") {
+      filters.push({ averageRating: { gte: 2, lt: 4 } });
+    } else if (scoreFilter === "low") {
+      filters.push({ averageRating: { lt: 2 } });
+    }
 
-  if (search) {
-    filters.push({
-      title: {
-        contains: search,
-      },
-    });
-  }
+    if (search) {
+      filters.push({
+        title: { contains: search },
+      });
+    }
 
-  if (formId) {
-    filters.push({
-      OR: [{ formId }, { multiAnalysisFormId: formId }],
-    });
-  }
+    if (formId) {
+      filters.push({
+        OR: [{ formId }, { multiAnalysisFormId: formId }],
+      });
+    }
 
-  const whereClause =
-    filters.length > 0
-      ? {
-          AND: filters,
-        }
-      : {};
+    whereClause = filters.length > 0 ? { AND: filters } : {};
+  }
 
   const allowedSortFields = ["createdAt", "averageRating"];
   const allowedSortOrders = ["asc", "desc"];
@@ -120,28 +108,16 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
       hasRating: true,
 
       creator: {
-        select: {
-          id: true,
-          username: true,
-        },
+        select: { id: true, username: true },
       },
       company: {
-        select: {
-          id: true,
-          name: true,
-        },
+        select: { id: true, name: true },
       },
       ratings: {
-        orderBy: {
-          createdAt: "desc",
-        },
+        orderBy: { createdAt: "desc" },
         include: {
           rater: {
-            select: {
-              id: true,
-              username: true,
-              role: true,
-            },
+            select: { id: true, username: true, role: true },
           },
         },
       },
@@ -322,6 +298,7 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     averageRating: project.averageRating,
     ratingCount: project.ratingCount,
     superAdminRating,
+    riskPercentage: project.riskPercentage,
 
     // اگر خواستی لیست همه امتیازها هم برگردد این را باز کن
     // ratings: {

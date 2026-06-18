@@ -62,9 +62,8 @@ exports.updateCompany = async (req, res, next) => {
 
 exports.getCompanyMemebers = async (req, res, next) => {
   try {
-    const { id } = req.params;
     const companyId = req.user.companyId;
-    const conpamies = await getCompanyMembersService(id, companyId, req.query);
+    const conpamies = await getCompanyMembersService(companyId, req.query);
     return successResponse(res, 200, conpamies);
   } catch (err) {
     next(err);
@@ -120,8 +119,8 @@ exports.postCompanyBasicInfo = async (req, res) => {
 exports.getCompanyProfileController = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-
-    const result = await getCompanyProfile(companyId);
+    const userId = req.user.id;
+    const result = await getCompanyProfile(companyId, userId);
 
     if (!result) {
       return res.status(404).json({

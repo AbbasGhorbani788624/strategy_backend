@@ -4,6 +4,7 @@ const {
   refreshService,
   logoutService,
   changePasseordService,
+  changeCredentialsService,
 } = require("../services/authService");
 const setAuthCookies = require("../utils/cookie");
 const { successResponse, errorResponse } = require("../utils/responses");
@@ -33,6 +34,21 @@ exports.getMe = async function (req, res, next) {
   }
 };
 
+exports.changeCredentials = async (req, res, next) => {
+  try {
+    const result = await changeCredentialsService({
+      currentUserId: req.user.id,
+      userId: req.body.userId,
+      oldPassword: req.body.oldPassword,
+      newPassword: req.body.newPassword,
+      username: req.body.username,
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
 exports.refresh = async function (req, res) {
   try {
     const refreshToken = req.cookies.refresh_token;
@@ -62,6 +78,7 @@ exports.logout = async function (req, res) {
     message: "با موفقیت خارج شدید",
   });
 };
+
 exports.changePassword = async function (req, res, next) {
   try {
     const { oldPassword, newPassword } = req.body;

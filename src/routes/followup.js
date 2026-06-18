@@ -6,16 +6,16 @@ const {
   createFollowUpForm,
   getActiveFollowUpForm,
   createProjectFollowUpRequest,
+  getMyFollowUpsController,
 } = require("../controllers/followupsController");
+
+router.get("/", auth, getMyFollowUpsController);
 
 //گرفتن فرم فعال پیگیری
 router.get("/forms/active", auth, getActiveFollowUpForm);
 
 //ارسال درخواست پیگیری برای پروژه
 router.post("/:id/follow-ups", auth, createProjectFollowUpRequest);
-
-//لیست پیگیری‌های خود کاربر
-router.get("/follow-ups", auth);
 
 //جزئیات یک پیگیری برای کاربر
 router.get("/follow-ups/:id", auth);

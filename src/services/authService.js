@@ -3,6 +3,7 @@ const {
   signRefreshToken,
   verifyToken,
   comparePassword,
+  hashPassword,
 } = require("../utils/auth");
 
 const {
@@ -66,7 +67,7 @@ const getMeService = async (userId) => {
 
   let companyProgress = null;
 
-  if (user.role === "COMPANY" && user.companyId) {
+  if (user.companyId) {
     const companyProfileData = await getCompanyProfileForProgress(
       user.companyId,
     );
@@ -141,10 +142,117 @@ const logoutService = async (refreshToken) => {
   await revokeRefreshToken(refreshToken);
 };
 
+const changeCredentialsService = async ({
+  currentUserId,
+  userId,
+  oldPassword,
+  newPassword,
+  username,
+}) => {
+  const currentUser = await prisma.user.findUnique({
+    where: { id: currentUserId },
+    select: {
+      id: true,
+      role: true,
+      companyId: true,
+    },
+  });
+
+  if (!currentUser) {
+    createBadRequestError("کاربر جاری یافت نشد", 404);
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      username: true,
+      password: true,
+      companyId: true,
+    },
+  });
+
+  if (!user) {
+    createBadRequestError("کاربر یافت نشد", 404);
+  }
+
+  // USER فقط خودش
+  if (currentUser.role === "USER" && currentUser.id !== user.id) {
+    createBadRequestError("شما اجازه تغییر اطلاعات این کاربر را ندارید", 403);
+  }
+
+  // COMPANY فقط اعضای شرکت خودش
+  if (currentUser.role === "COMPANY") {
+    if (!currentUser.companyId || currentUser.companyId !== user.companyId) {
+      createBadRequestError(
+        "شما فقط می‌توانید اعضای شرکت خود را ویرایش کنید",
+        403,
+      );
+    }
+  }
+
+  // حداقل یکی از فیلدها باید تغییر کند
+  if (!username && !newPassword) {
+    createBadRequestError("حداقل یک فیلد برای بروزرسانی ارسال کنید", 400);
+  }
+
+  // اگر چیزی تغییر می‌کند، رمز قبلی لازم است
+  if (username || newPassword) {
+    if (!oldPassword) {
+      createBadRequestError("رمز عبور فعلی الزامی است", 400);
+    }
+
+    const isPasswordValid = await comparePassword(oldPassword, user.password);
+
+    if (!isPasswordValid) {
+      createBadRequestError("رمز عبور فعلی اشتباه است", 400);
+    }
+  }
+
+  // چک تکراری بودن username
+  if (username && username !== user.username) {
+    const usernameExists = await prisma.user.findFirst({
+      where: {
+        username,
+        NOT: {
+          id: user.id,
+        },
+      },
+    });
+
+    if (usernameExists) {
+      createBadRequestError("این نام کاربری قبلاً استفاده شده است", 400);
+    }
+  }
+
+  const data = {};
+
+  if (username) {
+    data.username = username;
+  }
+
+  if (newPassword) {
+    data.password = await hashPassword(newPassword);
+  }
+
+  await prisma.user.update({
+    where: {
+      id: user.id,
+    },
+    data,
+  });
+
+  return {
+    success: true,
+    message: "اطلاعات حساب با موفقیت بروزرسانی شد",
+  };
+};
+
 module.exports = {
   loginService,
   getMeService,
   refreshService,
   logoutService,
   changePasseordService,
+  changeCredentialsService,
 };

@@ -461,6 +461,8 @@ model FollowUpRequest {
   form       FollowUpForm? @relation(fields: [formId], references: [id], onDelete: Cascade)
   answeredBy User?         @relation("AdminAnsweredFollowUps", fields: [answeredById], references: [id], onDelete: Cascade)
 
+  extraDescription String? @db.Text
+  
   @@index([projectId])
   @@index([userId])
   @@index([formId])

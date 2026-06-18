@@ -80,7 +80,7 @@ const resolveProfileRoute = ({ role, userProgress, companyProgress }) => {
     };
   }
 
-  if (role === "COMPANY" && companyProgress && !companyProgress.completed) {
+  if (companyProgress && !companyProgress.completed) {
     const step = companyProgress.nextStep;
 
     if (step <= 7) {

@@ -354,7 +354,6 @@ const getPublishedPromptContentsForMultiAnalysisForm = async (
   }, {});
 };
 
-///
 const buildRecipeSteps = (promptSegments, startStep = 1) => {
   if (!Array.isArray(promptSegments) || !promptSegments.length) return [];
 
@@ -404,9 +403,6 @@ const buildInitialMultiAnalysisPrompt = ({
     Recipes: buildRecipeSteps(promptSegments, 1),
     "Analysis title": title,
     temperature: temperature ?? 0.7,
-    "company information": companyProfileData?.companyProfile || {},
-    "Additional company information":
-      companyProfileData?.companyAdminData?.text || "",
     "Selected goals": Array.isArray(selectedGoals) ? selectedGoals : [],
     "User Clarification": "",
     domain: domain || "",
@@ -422,7 +418,6 @@ const buildFinalAnalysisPrompt = ({
   title,
   temperature,
 }) => {
-  console.log("heelo");
   const promptObject = {
     "Analysis title": title,
     Recipes: buildRecipeSteps(promptSegments, 2),
@@ -468,7 +463,6 @@ const buildFinalAnalysisWithCorrectionPrompt = ({
   return JSON.stringify(promptObject, null, 2);
 };
 
-////
 const buildReadableFormResponses = async ({ formId, formResponses }) => {
   if (!formId || !formResponses || Object.keys(formResponses).length === 0) {
     return {};
@@ -607,6 +601,66 @@ const pickPromptSegments = (segments, indexes) => {
   return indexes.map((index) => segments[index]).filter(Boolean);
 };
 
+const safeStringify = (value) => {
+  if (value == null) return null;
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+const extractAnalysisData = (aiResponse) => {
+  const result = {
+    finalAnalysis: null,
+    riskAnalysis: null,
+    riskPercentage: null,
+    summaryAnalysis: null,
+    keyStrategicInsights: null,
+  };
+
+  if (!aiResponse?.final_output) {
+    return result;
+  }
+
+  try {
+    const cleanJson = aiResponse.final_output
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```$/i, "")
+      .trim();
+
+    const parsed = JSON.parse(cleanJson);
+
+    result.finalAnalysis = safeStringify(parsed?.final_analysis);
+
+    result.riskAnalysis = safeStringify(parsed?.risk_analysis);
+
+    result.riskPercentage = parsed?.risk_percentage
+      ? parseFloat(String(parsed.risk_percentage).replace("%", "").trim())
+      : null;
+
+    result.summaryAnalysis = safeStringify(parsed?.executive_summary);
+
+    result.keyStrategicInsights = safeStringify(parsed?.key_strategic_insights);
+
+    return result;
+  } catch (error) {
+    return {
+      finalAnalysis: safeStringify(aiResponse.final_output),
+      riskAnalysis: null,
+      riskPercentage: null,
+      summaryAnalysis: null,
+      keyStrategicInsights: null,
+    };
+  }
+};
+
 module.exports = {
   createBadRequestError,
   buildProjectAccessWhere,
@@ -626,6 +680,8 @@ module.exports = {
   buildSelectedSourceProjectSummaries,
   getOrderedPromptSegments,
   pickPromptSegments,
+  extractAnalysisData,
+  safeStringify,
 };
 
 // const parseFinalAnalysisResponse = (aiResponse) => {

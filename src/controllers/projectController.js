@@ -7,6 +7,7 @@ const {
   getProjectTabsService,
   createStepAnalysisProjectService,
   getSelectableProjectsForMultiAnalysisService,
+  getMyProjects,
 } = require("../services/projectService");
 const { createBadRequestError } = require("../utils");
 const { successResponse } = require("../utils/responses");
@@ -49,6 +50,24 @@ exports.getAllProjects = async (req, res, next) => {
   } catch (err) {
     console.error(err);
     next(err);
+  }
+};
+
+exports.getMyProjectsController = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+
+    const result = await getMyProjects(userId, req.query);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        projects: result.projects,
+        pagination: result.pagination,
+      },
+    });
+  } catch (error) {
+    next(error);
   }
 };
 

@@ -1,6 +1,5 @@
 
 
-firstPromptSegment
 const handleConversationStepService = async (
   projectId,
   userId,
@@ -339,3 +338,120 @@ const handleConversationStepService = async (
       };
   }
 };
+
+
+
+
+// {
+//   "Recipes": [
+//     {
+//       "step1": "test1"
+//     }
+//   ],
+//   "Analysis title": "تحلیل جامع",
+//   "temperature": 0.5,
+//   "Selected goals": [
+//     "تدوین یا بازنگری استراتژی",
+//     "شناسایی فرصت‌ها",
+//     "کمک به تصمیم‌گیری مدیریتی"
+//   ],
+//   "User Clarification": "",
+//   "domain": "",
+//   "Summaries": [
+//      {
+//     "title": "تحلیل  pestel",
+//     "summary": "تحلیل بازار و رقبا انجام شده است.",
+//   },
+//    {
+//     "title": "تحلیل داخلی",
+//     "summary": "تحلیل بازار و رقبا انجام شده است.",
+//   },
+//   ]
+// }
+
+
+
+userId: {
+  reference: "User",
+}
+
+و بعد در لیست:
+
+listProperties: [
+  ...
+  "userId",
+]
+
+userId فقط یک foreign key field هست. یعنی مقدار ذخیره شده در دیتابیس:
+
+cma7k3f4j0000abcd1234
+
+AdminJS سعی می‌کنه از روی reference یک label پیدا کنه، ولی بسته به adapter همیشه موفق نمیشه و گاهی ستون خالی می‌مونه.
+
+وقتی اینو اضافه کردی:
+
+user: {
+  isVisible: {
+    list: true,
+    show: true,
+  },
+},
+
+در واقع به AdminJS گفتی:
+
+خود relation user را نمایش بده، نه فیلد userId را.
+
+یعنی این:
+
+user User @relation(...)
+
+به جای این:
+
+userId String
+
+حالا AdminJS رابطه را لود می‌کند و چون در Resource کاربر:
+
+username: {
+  isTitle: true,
+}
+
+تعریف کردی، می‌فهمد که باید username را نمایش بدهد.
+
+خلاصه:
+
+❌ این:
+
+"userId"
+
+نمایش FK است.
+
+✅ این:
+
+"user"
+
+نمایش Relation است.
+
+برای پروژه هم بهتره همین کار را بکنی:
+
+project: {
+  isVisible: {
+    list: true,
+    show: true,
+  },
+},
+
+و در لیست:
+
+listProperties: [
+  "id",
+  "title",
+  "status",
+  "project",
+  "user",
+  "createdAt",
+]
+
+به جای:
+
+"projectId",
+"userId"

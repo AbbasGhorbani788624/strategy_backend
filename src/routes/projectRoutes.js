@@ -12,6 +12,7 @@ const {
   getAllProjectsAccess,
   createStepAnalysisProject,
   getSelectableProjectsForMultiAnalysisController,
+  getMyProjectsController,
 } = require("../controllers/projectController");
 const {
   rateCommentSchema,
@@ -33,6 +34,9 @@ router.post(
 
 //گرفتن همه پروژه ها
 router.get("/", auth, getAllProjects);
+
+//گرفتن پروژه ها  خود شخص
+router.get("/myproject", auth, getMyProjectsController);
 
 //گرفتن تب های پروژه تکی
 router.get("/tabs", auth, getProjectsTabs);

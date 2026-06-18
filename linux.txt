@@ -1,0 +1,50 @@
+کار با فایل و پوشه
+1-ls
+2-la -a
+3-pwd
+4-cd folderName
+5-cd ..
+6-mkdir test
+7-rm -r folder
+8.rm file.txt
+9-mv file.txt /path/to/destination/ , mv folder /path/to/destination/ ,mv oldname.txt newname.txt ,mv oldFolder newFolder
+10-cp test.txt /home/user/Desktop/ ,cp -r folder /path/to/destination/
+11-cat file.txt
+12-nano file.txt
+13-find / -name "file.txt"
+14-find . -name "file.txt"
+15-cat  text.txt |grep abbas
+16-zip archive.zip file.txt ,zip -r archive.zip folder/
+17-unzip archive.zip
+18-scp -P 48937 file.txt  abbasgh@185.237.85.53:/home ,rsync -avz ./backend abbasgh@185.237.85.53:/var/www/backend
+
+
+linux  در محیط سرور
+
+1-ssh root@server-ip
+2-apt update && apt upgrade -y
+3-sudo useradd اسم
+4-sudo usermode -aG sudo  اسم کاربر
+sudo systemctl start ssh
+systemctl enable ssh
+5-ssh myuser@server-ip
+6-apt install ufw -y
+7-ufw allow 22
+8-nano /etc/ssh/sshd_config
+# تغییر: Port 2222
+9-systemctl restart ssh
+10ufw allow 2222
+11-ssh -p 2222 myuser@server-ip
+12-ufw enable
+13-nano /etc/ssh/sshd_config
+# تغییر: PermitRootLogin no
+14-systemctl restart ssh
+
+
+کار با  افراد و گروه ها
+
+
+شبکه
+
+
+swap

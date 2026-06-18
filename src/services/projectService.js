@@ -103,6 +103,57 @@ const getAllProjectsService = async (userId, userRole, companyId, query) => {
   return projects;
 };
 
+const getMyProjects = async (userId, query = {}) => {
+  const { page = 1, limit = 10, search } = query;
+
+  const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
+  const parsedLimit = Math.max(parseInt(limit, 10) || 10, 1);
+
+  const skip = (parsedPage - 1) * parsedLimit;
+
+  const whereClause = {
+    creatorId: userId,
+    ...(search
+      ? {
+          OR: [
+            {
+              title: {
+                contains: search,
+              },
+            },
+          ],
+        }
+      : {}),
+  };
+
+  const [projects, totalItems] = await Promise.all([
+    prisma.project.findMany({
+      where: whereClause,
+      skip,
+      take: parsedLimit,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+      },
+    }),
+
+    prisma.project.count({
+      where: whereClause,
+    }),
+  ]);
+
+  return {
+    projects,
+    pagination: {
+      totalItems,
+      currentPage: parsedPage,
+      totalPages: Math.ceil(totalItems / parsedLimit),
+      limit: parsedLimit,
+    },
+  };
+};
+
 const getProjectTabsService = async (
   userId,
   userRole,
@@ -673,4 +724,5 @@ module.exports = {
   getProjectTabsService,
   createStepAnalysisProjectService,
   getSelectableProjectsForMultiAnalysisService,
+  getMyProjects,
 };

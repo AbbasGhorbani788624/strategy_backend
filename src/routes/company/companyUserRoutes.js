@@ -41,7 +41,7 @@ const upload = multerStorage();
 
 //دریافت کاربران شرکت ها
 router.get(
-  "/:id/members",
+  "/members",
   auth,
   roleGuard(["SUPER_ADMIN", "COMPANY"]),
   getCompanyMemebers,
@@ -76,7 +76,6 @@ router.put(
 //گرفتن لیست همکاران
 router.get("/colleague/:id", auth, usersColleague);
 
-///
 router.post(
   "/company-basic-info",
   auth,
@@ -84,7 +83,6 @@ router.post(
   postCompanyBasicInfo,
 );
 
-//////
 router.post(
   "/company-managers",
   auth,
@@ -174,11 +172,6 @@ router.post(
   putCompanyIncomeStatements,
 );
 
-router.get(
-  "/company-profile",
-  auth,
-  roleGuard(["SUPER_ADMIN", "COMPANY"]),
-  getCompanyProfileController,
-);
+router.get("/company-profile", auth, getCompanyProfileController);
 
 module.exports = router;

@@ -134,6 +134,7 @@ const changePassword = async (userId, oldPassword, newPassword) => {
 };
 
 const deleteUser = async (userId) => {
+  await revokeAllRefreshTokensByUserId(userId);
   await prisma.user.delete({
     where: { id: userId },
   });

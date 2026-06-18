@@ -168,73 +168,84 @@ const updateCompanyService = async (
   };
 };
 
-const getCompanyMembersService = async (id, companyId, query) => {
-  const company = await findCompanyById(id);
+const getCompanyMembersService = async (companyId, query) => {
+  const company = await findCompanyById(companyId);
+
   if (!company) {
     throw new Error("شرکتی با این ایدی وجود ندارد");
   }
-  if (companyId !== company.id) {
-    throw new Error("شما فقط میتوانید اعضای شرکت خود را ببینید", 401);
-  }
 
-  const { page = 1, limit = 10, search } = query;
-  const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-  const take = parseInt(limit, 10);
+  const { search } = query;
 
   const whereCondition = search
     ? {
-        OR: [
-          {
-            fullname: {
-              contains: search,
-            },
-          },
-          {
-            username: {
-              contains: search,
-            },
-          },
-        ],
+        OR: [{ username: { contains: search } }],
       }
     : {};
 
-  const [members, total] = await Promise.all([
-    prisma.company.findUnique({
-      where: { id: id },
-      select: {
-        members: {
-          where: whereCondition,
-          skip: skip,
-          take: take,
-          orderBy: {
-            createdAt: "desc",
+  const members = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: {
+      members: {
+        where: whereCondition,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          username: true,
+          role: true,
+          createdAt: true,
+          profile: true,
+
+          // تعداد کل پروژه‌ها
+          _count: {
+            select: {
+              createdProjects: true,
+              followUpRequests: true,
+              projectAccesses: true,
+            },
           },
-          select: {
-            id: true,
-            username: true,
-            role: true,
-            createdAt: true,
+
+          // میانگین نمرات از طریق پروژه‌ها
+          createdProjects: {
+            select: {
+              averageRating: true,
+              hasRating: true,
+            },
           },
         },
       },
-    }),
-    prisma.user.count({
-      where: {
-        companyId: id,
-        ...whereCondition,
-      },
-    }),
-  ]);
-
-  return {
-    data: members?.members || [],
-    pagination: {
-      total: total,
-      page: parseInt(page, 10),
-      limit: parseInt(limit, 10),
-      totalPages: Math.ceil(total / parseInt(limit, 10)),
     },
-  };
+  });
+
+  // محاسبه میانگین کل نمرات
+  const result = members?.members?.map((member) => {
+    const ratedProjects = member.createdProjects.filter((p) => p.hasRating);
+    const avgRating =
+      ratedProjects.length > 0
+        ? ratedProjects.reduce((sum, p) => sum + p.averageRating, 0) /
+          ratedProjects.length
+        : 0;
+
+    const basicInfo = member.profile?.basicInfoRecords?.[0];
+    const fullName =
+      basicInfo?.firstName && basicInfo?.lastName
+        ? `${basicInfo.firstName} ${basicInfo.lastName}`
+        : null;
+
+    return {
+      id: member.id,
+      username: member.username,
+      role: member.role,
+      createdAt: member.createdAt,
+      totalProjects: member._count.createdProjects,
+      totalFollowUpRequests: member._count.followUpRequests,
+      totalProjectAccesses: member._count.projectAccesses,
+      averageRating: Math.round(avgRating * 10) / 10,
+      fullName,
+    };
+  });
+
+  return result || [];
 };
 
 const upsertCompanyBasicInfo = async (data) => {
@@ -278,9 +289,9 @@ const upsertCompanyBasicInfo = async (data) => {
   return companyBasicInfo;
 };
 
-const getCompanyProfile = async (companyId) => {
-  const userInfo = await prisma.user.findFirst({
-    where: { companyId },
+const getCompanyProfile = async (companyId, userId) => {
+  const userInfo = await prisma.user.findUnique({
+    where: { id: userId },
     select: {
       id: true,
       username: true,

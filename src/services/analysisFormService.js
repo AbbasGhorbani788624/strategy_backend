@@ -18,47 +18,45 @@ const {
   buildSelectedSourceProjectSummaries,
   getOrderedPromptSegments,
   pickPromptSegments,
+  extractAnalysisData,
+  safeStringify,
 } = require("../utils");
 const prisma = require("../prismaClient");
 const runAI = require("../ai");
 const axios = require("axios");
 
-const sendPromptToAnalyze = async (prompt) => {
+const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {
   try {
     const payload = typeof prompt === "string" ? JSON.parse(prompt) : prompt;
 
-    console.log("analyze request payload =>", JSON.stringify(payload, null, 2));
+    const endpoint = mode === "MULTI" ? "full_analyze" : "analyze";
+    const url = `http://185.237.85.53:8080/${endpoint}`;
 
-    const response = await axios.post(
-      "http://185.237.85.53:8080/analyze",
-      payload,
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      },
-    );
+    // console.log("analyze request payload =>", JSON.stringify(payload, null, 2));
 
-    console.log("analyze status =>", response.status);
-    console.log("analyze data =>", response.data);
+    const response = await axios.post(url, payload, {
+      headers: { "Content-Type": "application/json" },
+    });
+
+    // console.log("analyze status =>", response.status);
+    // console.log("analyze data =>", response.data);
 
     return response.data;
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      console.error("status =>", error.response?.status);
-      console.error("statusText =>", error.response?.statusText);
-      console.error(
-        "response data =>",
-        JSON.stringify(error.response?.data, null, 2),
-      );
-      console.error(
-        "detail =>",
-        JSON.stringify(error.response?.data?.detail, null, 2),
-      );
+      // console.error("status =>", error.response?.status);
+      // console.error("statusText =>", error.response?.statusText);
+      // console.error(
+      //   "response data =>",
+      //   JSON.stringify(error.response?.data, null, 2),
+      // );
+      // console.error(
+      //   "detail =>",
+      //   JSON.stringify(error.response?.data?.detail, null, 2),
+      // );
     } else {
       console.error("unknown error =>", error);
     }
-
     throw error;
   }
 };
@@ -313,14 +311,48 @@ const handleConversationStepService = async (
     );
   }
 
-  const generateAndPersistFinalAnalysis = async (prompt, transitionReason) => {
-    const aiResponse = await sendPromptToAnalyze(prompt);
+  const generateAndPersistFinalAnalysis = async (
+    prompt,
+    transitionReason,
+    mode,
+  ) => {
+    const aiResponse = await sendPromptToAnalyze(prompt, mode);
+
     console.log("final analyze result =>", aiResponse);
+
+    const {
+      finalAnalysis,
+      riskAnalysis,
+      riskPercentage,
+      summaryAnalysis,
+      keyStrategicInsights,
+    } = extractAnalysisData(aiResponse);
+
+    const updatedProject = await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        status: "FINAL_ANALYSIS",
+
+        finalAnalysis,
+        riskAnalysis,
+        riskPercentage,
+        summaryAnalysis,
+        keyStrategicInsights,
+
+        chatModeEndedAt: new Date(),
+      },
+    });
 
     return {
       success: true,
       aiResponse,
       transitionReason,
+
+      analysis: {
+        finalAnalysis: updatedProject.finalAnalysis,
+        riskAnalysis: updatedProject.riskAnalysis,
+        riskPercentage: updatedProject.riskPercentage,
+      },
     };
   };
 
@@ -346,23 +378,23 @@ const handleConversationStepService = async (
             temperature,
           });
 
-      const aiResponse = await sendPromptToAnalyze(prompt);
-      console.log("initial analyze result =>", aiResponse);
+      const aiResponse = await sendPromptToAnalyze(prompt, project.mode);
+
+      const initialAnalysis = safeStringify(
+        aiResponse?.final_output ?? aiResponse,
+      );
 
       await prisma.project.update({
         where: { id: projectId },
         data: {
           status: "REVIEWING",
-          initialAnalysis:
-            typeof aiResponse === "string"
-              ? aiResponse
-              : JSON.stringify(aiResponse),
+          initialAnalysis,
         },
       });
 
       return {
         success: true,
-        aiResponse,
+        aiResponse: initialAnalysis,
         newStatus: "REVIEWING",
         transitionReason: "INITIAL_ANALYSIS_GENERATED",
       };
@@ -395,6 +427,7 @@ const handleConversationStepService = async (
         return generateAndPersistFinalAnalysis(
           prompt,
           "FINAL_ANALYSIS_AFTER_USER_CORRECTION",
+          project.mode,
         );
       }
 
@@ -412,14 +445,8 @@ const handleConversationStepService = async (
       const result = await generateAndPersistFinalAnalysis(
         prompt,
         "FINAL_ANALYSIS_APPROVED",
+        project.mode,
       );
-
-      await prisma.project.update({
-        where: { id: projectId },
-        data: {
-          status: "FINAL_ANALYSIS",
-        },
-      });
 
       return {
         ...result,
@@ -458,6 +485,7 @@ const handleConversationStepService = async (
       return generateAndPersistFinalAnalysis(
         prompt,
         "FINAL_ANALYSIS_GENERATED_AFTER_CORRECTION",
+        project.mode,
       );
     }
 

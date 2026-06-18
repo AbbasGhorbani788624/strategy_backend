@@ -1,5 +1,7 @@
 const {
   getActiveFollowUpFormService,
+  createProjectFollowUpRequestService,
+  getMyFollowUps,
 } = require("../services/followupsService");
 const { successResponse } = require("../utils/responses");
 
@@ -28,5 +30,23 @@ exports.createProjectFollowUpRequest = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+exports.getMyFollowUpsController = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    const result = await getMyFollowUps(userId, req.query);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        followUps: result.followUps,
+        pagination: result.pagination,
+      },
+    });
+  } catch (err) {
+    next(err);
   }
 };
