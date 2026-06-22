@@ -35,8 +35,6 @@ enum ProjectStatus {
 }
 
 enum NotificationType {
-  ADMIN_FEEDBACK
-  PROJECT_RATED
   PROJECT_ACCESS_GRANTED
   FOLLOW_UP_ANSWERED
 }
@@ -89,6 +87,7 @@ model User {
   companyId   String?
   profile     Json?
   progress    Json?
+  projectComments ProjectComment[]
 
   profileCompleted Boolean          @default(false)
   createdAt        DateTime         @default(now())
@@ -143,22 +142,17 @@ model Project {
   formId              String?
   multiAnalysisFormId String?
   summaryAnalysis     String? @db.Text
-
   promptVersionId String?
-
+  comments ProjectComment[]
   chatMessages ChatMessage[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
-
   creator User     @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
   form              AnalysisForm?      @relation(fields: [formId], references: [id], onDelete: Cascade)
   multiAnalysisForm MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
   promptVersion     PromptVersion?     @relation(fields: [promptVersionId], references: [id], onDelete: Cascade)
-
   domain String? @db.Text 
-
   initialAnalysis String? @db.Text
   riskAnalysis    String? @db.Text
   finalAnalysis   String? @db.Text
@@ -188,12 +182,29 @@ model Project {
   @@index([promptVersionId])
 }
 
+model ProjectComment {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+
+  projectId String
+  userId    String
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
 model ProjectRatingHistory {
   id        String   @id @default(uuid())
   projectId String
   raterId   String
   score     Int
-  comment   String?
   createdAt DateTime @default(now())
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   rater     User     @relation(fields: [raterId], references: [id])
@@ -218,12 +229,26 @@ model ChatMessage {
   @@index([createdAt])
 }
 
+model AnalysisCategory {
+  id          String @id @default(uuid())
+  title       String
+  description String?
+
+  forms AnalysisForm[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model AnalysisForm {
   id       String  @id @default(uuid())
   title    String
   info     String?
   order    Int?
   isActive Boolean @default(true)
+
+  categoryId String?
+  category   AnalysisCategory? @relation(fields: [categoryId], references: [id])
 
   questions FormQuestion[]
   goals     FormGoal[]
@@ -235,13 +260,15 @@ model AnalysisForm {
   requiredInMultiAnalysis MultiAnalysisRequiredForm[]
   multiProjectSources     MultiAnalysisProjectSource[]
   profileFields           AnalysisFormProfileField[]
-  temperature             Float                        @default(0.7)
+
+  temperature Float @default(0.7)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([isActive])
   @@index([order])
+  @@index([categoryId])
 }
 
 model FormGoal {
@@ -561,6 +588,7 @@ model Company {
   organizationUnits   OrganizationUnit[]
   licenseCertificates CompanyLicenseCertificate[]
   memberships         CompanyMembership[]
+  insight CompanyInsight?
 
   productServices CompanyProductService[]
   markets         CompanyMarket[]
@@ -898,4 +926,34 @@ model MultiAnalysisFormProfileField {
   createdAt DateTime @default(now())
 
   @@unique([multiAnalysisFormId, profileFieldKey])
+}
+
+model CompanyInsight {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String   @unique
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  insightText String @db.LongText
+
+  suggestedAnalyses Json
+
+  generatedAt DateTime @default(now())
+
+  @@index([companyId])
+}
+
+model IndustryInsight {
+  id            String   @id @default(uuid())
+  createdAt     DateTime @default(now())
+  industryName  String? 
+  title         String?
+  insightText   String   
+  source        String? 
+  fetchedAt     DateTime @default(now())
+
+  @@index([industryName, fetchedAt])
+  @@index([fetchedAt])
 }

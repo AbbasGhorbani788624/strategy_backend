@@ -8,6 +8,9 @@ const {
   createStepAnalysisProjectService,
   getSelectableProjectsForMultiAnalysisService,
   getMyProjects,
+  getTopRatedProjectsByUser,
+  getAccessibleProjectsService,
+  getMostCommentedProjectsService,
 } = require("../services/projectService");
 const { createBadRequestError } = require("../utils");
 const { successResponse } = require("../utils/responses");
@@ -106,21 +109,16 @@ exports.getAllProjectsAccess = async (req, res, next) => {
 exports.getProject = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
-    const userRole = req.user.role;
-    const companyId = req.user.companyId;
 
-    const project = await getProjectService(id, userId, userRole, companyId);
+    const project = await getProjectService(
+      id,
+      req.user.id,
+      req.user.role,
+      req.user.companyId,
+    );
 
-    if (!project) {
-      return res.status(401).json({
-        success: false,
-        message: "شما به این پروژه دسترسی ندارید",
-      });
-    }
     return successResponse(res, 200, project);
   } catch (err) {
-    console.error(err);
     next(err);
   }
 };
@@ -184,6 +182,52 @@ exports.getSelectableProjectsForMultiAnalysisController = async (
     );
 
     return successResponse(res, 200, result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getTopRatedProjectsHandler = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const limit = 10;
+
+    const projects = await getTopRatedProjectsByUser(userId, limit);
+
+    res.status(200).json({
+      success: true,
+      data: projects,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getAccessibleProjectsController = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    const projects = await getAccessibleProjectsService(userId);
+
+    res.status(200).json({
+      success: true,
+      data: projects,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getMostCommentedProjectsController = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    const projects = await getMostCommentedProjectsService(userId);
+
+    res.status(200).json({
+      success: true,
+      data: projects,
+    });
   } catch (error) {
     next(error);
   }

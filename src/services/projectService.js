@@ -432,10 +432,23 @@ const getSelectableProjectsForMultiAnalysisService = async (
 
 const getProjectService = async (projectId, userId, userRole, companyId) => {
   const isProjectExist = await isProjectExists(projectId);
+
   if (!isProjectExist) {
-    createBadRequestError("پروژه وجود ندارد");
+    createBadRequestError("پروژه وجود ندارد", 404);
   }
+
   const project = await getProject(projectId, userId, userRole, companyId);
+
+  if (!project) {
+    createBadRequestError("شما به این پروژه دسترسی ندارید", 403);
+  }
+
+  const creatorId = project.creator.id;
+
+  project.isOwner = Boolean(
+    creatorId && creatorId.toString() === userId.toString(),
+  );
+
   return project;
 };
 
@@ -469,11 +482,18 @@ const grantProjectAccessService = async (
     },
     select: {
       id: true,
+      title: true,
       creatorId: true,
       companyId: true,
       accesses: {
         select: {
           userId: true,
+        },
+      },
+      creator: {
+        select: {
+          id: true,
+          username: true,
         },
       },
     },
@@ -529,6 +549,8 @@ const grantProjectAccessService = async (
     (id) => !validColleagueIds.includes(id),
   );
 
+  const grantedByName = project.creator?.username || "مدیر پروژه";
+
   await prisma.$transaction([
     ...(idsToAdd.length
       ? [
@@ -550,6 +572,21 @@ const grantProjectAccessService = async (
                 in: idsToRemove,
               },
             },
+          }),
+        ]
+      : []),
+    ...(idsToAdd.length
+      ? [
+          prisma.notification.createMany({
+            data: idsToAdd.map((colleagueId) => ({
+              userId: colleagueId,
+              type: "PROJECT_ACCESS_GRANTED",
+              title: "دسترسی به پروژه جدید",
+              message: `${grantedByName} به شما در پروژه «${project.title}» دسترسی داد.`,
+              referenceId: projectId,
+              referenceType: "PROJECT",
+              isRead: false,
+            })),
           }),
         ]
       : []),
@@ -715,6 +752,125 @@ const createStepAnalysisProjectService = async (
   };
 };
 
+const getTopRatedProjectsByUser = async (userId, limit = 10) => {
+  const topProjects = await prisma.project.findMany({
+    where: {
+      creatorId: userId,
+      hasRating: true,
+      ratingCount: { gt: 0 },
+    },
+    orderBy: [{ averageRating: "desc" }, { ratingCount: "desc" }],
+    take: limit,
+    select: {
+      id: true,
+      title: true,
+      averageRating: true,
+      createdAt: true,
+    },
+  });
+
+  return topProjects;
+};
+
+const getAccessibleProjectsService = async (userId) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      role: true,
+      companyId: true,
+    },
+  });
+
+  if (!user) {
+    createBadRequestError("کاربر یافت نشد", 404);
+  }
+
+  if (user.role === "COMPANY" && user.companyId) {
+    return prisma.project.findMany({
+      where: {
+        creator: {
+          is: {
+            companyId: user.companyId,
+            role: {
+              not: "COMPANY",
+            },
+          },
+        },
+      },
+      take: 10,
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        title: true,
+        creator: {
+          select: {
+            username: true,
+          },
+        },
+      },
+    });
+  }
+
+  const accesses = await prisma.projectAccess.findMany({
+    where: {
+      userId,
+    },
+    take: 10,
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      project: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          createdAt: true,
+          averageRating: true,
+          creator: {
+            select: {
+              id: true,
+              username: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return accesses.map((item) => item.project);
+};
+
+const getMostCommentedProjectsService = async (userId) => {
+  const projects = await prisma.project.findMany({
+    where: {
+      creatorId: userId,
+    },
+    take: 10,
+    orderBy: {
+      comments: {
+        _count: "desc",
+      },
+    },
+    select: {
+      id: true,
+      title: true,
+      averageRating: true,
+      createdAt: true,
+      _count: {
+        select: {
+          comments: true,
+        },
+      },
+    },
+  });
+
+  return projects;
+};
+
 module.exports = {
   getAllProjectsService,
   getProjectService,
@@ -725,4 +881,7 @@ module.exports = {
   createStepAnalysisProjectService,
   getSelectableProjectsForMultiAnalysisService,
   getMyProjects,
+  getTopRatedProjectsByUser,
+  getAccessibleProjectsService,
+  getMostCommentedProjectsService,
 };

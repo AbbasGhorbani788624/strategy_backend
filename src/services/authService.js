@@ -33,7 +33,7 @@ const loginService = async (username, password) => {
 
   const isValid = await comparePassword(password, user.password);
   if (!isValid) {
-    createBadRequestError("نام کاربری یا رمز عبور صحیح نیست", 401);
+    createBadRequestError("نام کاربری یا رمز عبور صحیح نیست", 403);
   }
 
   const payload = { userId: user.id, role: user.role };

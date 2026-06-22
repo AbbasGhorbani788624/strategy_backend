@@ -1,0 +1,110 @@
+
+explain sql vs nosql
+
+TINYINT 1
+SMALLINT 2 30
+MEDIUMINT3
+INT 4
+BIGINT 8
+
+FLOAT قد ,  وزن , دما
+DOUBLE مختصات جغرافیایی,  داده مهندسی
+DECIMAL price DECIMAL(10,2) مالی
+
+
+username VARCHAR(255)
+country_code CHAR(2)
+
+ 
+TINYTEXT 255 کاراکتر
+TEXT 65 KB
+MEDIUMTEXT 16 MB مقاله
+LONGTEXT  4 GB
+
+
+birth_date DATE
+start_time TIME
+created_at DATETIME
+
+TIMESTAMP
+
+BOOLEAN
+
+
+ENUM
+role ENUM('USER','ADMIN','COMPANY') DEFAULT 'USER'
+
+settings JSON
+
+DROP TABLE users;
+1-DESCRIBE users;
+2-alter table  modify change  ALTER TABLE users ADD PRIMARY KEY (id) ADD UNIQUE (username);
+3-insert add one add multi
+where
+4-select *-count- select custom-IS NOT NULL-AND-or-by desc-by asc-min-max-avg-sum -distinct
+6-updated :UPDATE users SET username="test123" WHERE id=7
+7-delete from
+8-truncate :  TRUNCATE TABLE users
+9-OFFSET LIMIT
+page(n,k) = SELECT * FROM users LIMIT k OFFSET ((n-1) * k),شماره صفحه
+10-search
+
+
+SELECT *
+FROM users
+WHERE fullName LIKE '%ali%'
+ORDER BY id DESC
+LIMIT 10 OFFSET 0;
+
+SELECT *
+FROM users
+WHERE 
+username LIKE '%abbas%'
+OR fullName LIKE '%abbas%'
+LIMIT 10 OFFSET 0;
+
+
+
+
+
+
+
+
+
+
+CREATE TABLE users (
+id int AUTO_INCREMENT NOT Null  PRIMARY KEY,
+username varchar(255) Not Null UNIQUE,
+password VARCHAR(255) NOT NULL,
+fullName varchar(255) Not Null,
+role ENUM ("ADMIN","USER") Not Null DEFAULT "USER",
+age TINYINT UNSIGNED ,
+address text ,
+created_at timestamp DEFAULT CURRENT_TIMESTAMP,
+updated_at timestamp DEFAULT CURRENT_TIMESTAMP
+)
+
+
+
+
+
+
+
+
+{
+  "insight": "تحلیل کامل و مفصل هوش مصنوعی درباره وضعیت شرکت...\n\n• نقاط قوت:\n• نقاط ضعف:\n• فرصت‌ها:\n• تهدیدها:\n\nتحلیل مالی:\n...\n\nپیشنهادات استراتژیک:\n...",
+  
+  "recommendedAnalyses": [
+    {
+      
+    },
+    {
+     
+    },
+    {
+     
+    }
+  ],
+
+  
+}

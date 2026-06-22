@@ -13,6 +13,9 @@ const {
   createStepAnalysisProject,
   getSelectableProjectsForMultiAnalysisController,
   getMyProjectsController,
+  getTopRatedProjectsHandler,
+  getAccessibleProjectsController,
+  getMostCommentedProjectsController,
 } = require("../controllers/projectController");
 const {
   rateCommentSchema,
@@ -20,6 +23,15 @@ const {
 const {
   projectAccessSchema,
 } = require("../validations/projectAccessValidation");
+
+//گرفتن 10 پروژه با بیشترین امتیاز
+router.get("/top-rated", auth, getTopRatedProjectsHandler);
+
+//گرفتن 10 پروژه جدید که دسترسی دادن بهش
+router.get("/accessible-projects", auth, getAccessibleProjectsController);
+
+//گرفتن 10 پروژه با بیشترین کامنت
+router.get("/most-commented", auth, getMostCommentedProjectsController);
 
 //ساخت پروژه تکی
 router.post("/", auth, roleGuard(["COMPANY", "MEMBER"]), createProject);

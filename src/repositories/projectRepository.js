@@ -196,6 +196,23 @@ const getProject = async (projectId, userId, userRole, companyId) => {
           goal: { select: { id: true, title: true } },
         },
       },
+      followUpRequests: {
+        where: {
+          adminAnswer: {
+            not: null,
+          },
+        },
+        orderBy: {
+          answeredAt: "desc",
+        },
+        select: {
+          id: true,
+          title: true,
+          adminAnswer: true,
+          answeredAt: true,
+          status: true,
+        },
+      },
     },
   });
 
@@ -287,8 +304,16 @@ const getProject = async (projectId, userId, userRole, companyId) => {
 
     goals: selectedGoals,
 
+    adminAnswers: project.followUpRequests.map((item) => ({
+      id: item.id,
+      title: item.title,
+      answer: item.adminAnswer,
+      answeredAt: item.answeredAt,
+      status: item.status,
+    })),
+
     items: project.items,
-    domain: project.domain,
+    // domain: project.domain,
     chatMessages: chatUiMessages,
     initialAnalysis: project.initialAnalysis,
     riskAnalysis: project.riskAnalysis,
@@ -347,11 +372,9 @@ const giveRateAndProject = async (userId, projectId, body) => {
         projectId: projectId,
         raterId: userId,
         score: validScore,
-        comment: comment || null,
       },
       update: {
         score: validScore,
-        comment: comment !== undefined ? comment : null,
       },
     });
 

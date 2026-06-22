@@ -1575,15 +1575,10 @@ const admin = new AdminJS({
           isRequired: true,
           isVisible: { list: true, filter: true, show: true, edit: true },
         },
-        comment: {
-          label: "توضیحات ادمین",
-          type: "textarea",
-          isVisible: { list: true, filter: false, show: true, edit: true },
-        },
       },
 
-      listProperties: ["projectId", "score", "comment", "createdAt"],
-      editProperties: ["projectId", "score", "comment"],
+      listProperties: ["projectId", "score", "createdAt"],
+      editProperties: ["projectId", "score"],
 
       actions: {
         new: {
@@ -1598,7 +1593,7 @@ const admin = new AdminJS({
             }
 
             const payload = request.payload ?? {};
-            const { projectId, score, comment } = payload;
+            const { projectId, score } = payload;
             const numericScore = Number.parseInt(score, 10);
 
             const errors = {};
@@ -1628,13 +1623,11 @@ const admin = new AdminJS({
                   },
                   update: {
                     score: numericScore,
-                    comment: comment || null,
                   },
                   create: {
                     projectId: String(projectId),
                     raterId: currentAdmin.id,
                     score: numericScore,
-                    comment: comment || null,
                   },
                 });
 
@@ -1710,7 +1703,6 @@ const admin = new AdminJS({
                   where: { id: record.id() },
                   data: {
                     score: numericScore,
-                    comment: payload.comment || null,
                   },
                 });
 
@@ -1754,6 +1746,53 @@ const admin = new AdminJS({
         },
       },
     }),
+    prismaResource("AnalysisCategory", {
+      navigation: {
+        name: "دسته‌بندی تحلیل‌ها",
+        icon: "FolderTree",
+      },
+
+      properties: {
+        title: {
+          isTitle: true,
+        },
+
+        slug: {},
+
+        createdAt: {
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: false,
+          },
+        },
+
+        updatedAt: {
+          isVisible: {
+            list: false,
+            filter: true,
+            show: true,
+            edit: false,
+          },
+        },
+      },
+
+      listProperties: ["id", "title", "slug", "createdAt"],
+
+      filterProperties: ["title", "slug", "createdAt"],
+
+      showProperties: [
+        "id",
+        "title",
+        "slug",
+        "description",
+        "createdAt",
+        "updatedAt",
+      ],
+
+      editProperties: ["title", "slug", "description"],
+    }),
     prismaResource("AnalysisForm", {
       navigation: {
         name: "فرم‌های تحلیل",
@@ -1763,6 +1802,9 @@ const admin = new AdminJS({
       properties: {
         title: {
           isTitle: true,
+        },
+        categoryId: {
+          reference: "AnalysisCategory",
         },
         temperature: {
           type: "number",
@@ -1788,6 +1830,7 @@ const admin = new AdminJS({
       listProperties: [
         "id",
         "title",
+        "categoryId",
         "isActive",
         "order",
         "temperature",
@@ -1796,6 +1839,7 @@ const admin = new AdminJS({
 
       filterProperties: [
         "title",
+        "categoryId",
         "isActive",
         "order",
         "temperature",
@@ -1805,6 +1849,7 @@ const admin = new AdminJS({
       showProperties: [
         "id",
         "title",
+        "categoryId",
         "info",
         "order",
         "isActive",
@@ -1813,7 +1858,14 @@ const admin = new AdminJS({
         "updatedAt",
       ],
 
-      editProperties: ["title", "info", "order", "isActive", "temperature"],
+      editProperties: [
+        "title",
+        "categoryId",
+        "info",
+        "order",
+        "isActive",
+        "temperature",
+      ],
     }),
     prismaResource("FormQuestion", {
       navigation: {
@@ -3416,7 +3468,7 @@ const admin = new AdminJS({
             { value: "PENDING", label: "در انتظار" },
             { value: "ANSWERED", label: "پاسخ داده شده" },
           ],
-          isVisible: { list: true, filter: true, show: true, edit: false }, // ادمین دستی تغییر نده
+          isVisible: { list: true, filter: true, show: true, edit: false },
           position: 2,
         },
 
@@ -3503,7 +3555,7 @@ const admin = new AdminJS({
         "title",
         "status",
         "projectId",
-        "project", // نمایش کامل پروژه
+        "project",
         "userId",
         "formId",
         "responses",
@@ -3519,7 +3571,6 @@ const admin = new AdminJS({
         edit: {
           handler: async (request, response, context) => {
             const { record, resource, h, currentAdmin } = context;
-
             if (!record) throw new Error("Record not found");
 
             if (request.method === "get") {
@@ -3540,6 +3591,7 @@ const admin = new AdminJS({
             }
 
             try {
+              // 1. به‌روزرسانی درخواست پیگیری
               const updated = await prisma.followUpRequest.update({
                 where: { id: recordId },
                 data: {
@@ -3547,6 +3599,21 @@ const admin = new AdminJS({
                   status: "ANSWERED",
                   answeredAt: new Date(),
                   answeredById: currentAdmin.id,
+                },
+                include: {
+                  user: true,
+                  project: true,
+                },
+              });
+
+              await prisma.notification.create({
+                data: {
+                  userId: updated.userId,
+                  type: "FOLLOW_UP_ANSWERED",
+                  title: "پاسخ به درخواست پیگیری",
+                  message: `ادمین به درخواست پیگیری شما با عنوان «${updated.title}» پاسخ داده است.`,
+                  referenceId: updated.id,
+                  referenceType: "FollowUpRequest",
                 },
               });
 

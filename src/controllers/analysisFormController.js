@@ -2,6 +2,7 @@ const {
   getAnalysisModesService,
   submitFormAnswersService,
   handleConversationStepService,
+  getCompanyAnalysisStatisticsService,
 } = require("../services/analysisFormService");
 const { successResponse } = require("../utils/responses");
 
@@ -49,6 +50,22 @@ exports.getAnalysisModes = async (req, res, next) => {
 
 exports.singleFormGoals = async (req, res, next) => {
   try {
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getCompanyAnalysisStatistics = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    const result = await getCompanyAnalysisStatisticsService(userId);
+
+    res.status(200).json({
+      success: true,
+
+      data: result,
+    });
   } catch (error) {
     next(error);
   }

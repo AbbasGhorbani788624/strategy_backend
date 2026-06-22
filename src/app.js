@@ -12,6 +12,10 @@ const analysisRouter = require("./routes/analysisForm");
 const projectRouter = require("./routes/projectRoutes");
 const configRoutes = require("./routes/configRoutes");
 const followupRoutes = require("./routes/followup");
+const notificationRoutes = require("./routes/notificationRoutes");
+const commentRoutes = require("./routes/comment");
+const insightRoutes = require("./routes/insightRoutes");
+const IndustryInsightRoutes = require("./routes/IndustryInsightRoutes");
 
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000,
@@ -61,6 +65,10 @@ app.use("/api/profile", profileRouter);
 app.use("/api/project", projectRouter);
 app.use("/api/config", configRoutes);
 app.use("/api/follow-up", followupRoutes);
+app.use("/api/notification", notificationRoutes);
+app.use("/api/comment", commentRoutes);
+app.use("/api/insight", insightRoutes);
+app.use("/api/industryinsight", IndustryInsightRoutes);
 
 app.use((req, res) => {
   console.log("This path is not found:", req.path);

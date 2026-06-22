@@ -523,8 +523,105 @@ const getAnalysisModesService = async (userId, companyId) => {
   };
 };
 
+const getCompanyAnalysisStatisticsService = async (userId) => {
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      companyId: true,
+    },
+  });
+
+  if (!user?.companyId) {
+    createBadRequestError("کاربر عضو سازمان نیست", 404);
+  }
+
+  const companyId = user.companyId;
+
+  const [
+    singleAnalysisCount,
+    multiAnalysisCount,
+    singleAnalysis,
+    multiAnalysis,
+  ] = await Promise.all([
+    prisma.analysisForm.count(),
+
+    prisma.multiAnalysisForm.count(),
+
+    prisma.analysisForm.findMany({
+      select: {
+        id: true,
+        title: true,
+
+        _count: {
+          select: {
+            projects: {
+              where: {
+                companyId,
+              },
+            },
+          },
+        },
+      },
+
+      orderBy: {
+        createdAt: "desc",
+      },
+    }),
+
+    prisma.multiAnalysisForm.findMany({
+      select: {
+        id: true,
+        title: true,
+
+        _count: {
+          select: {
+            projects: {
+              where: {
+                companyId,
+              },
+            },
+          },
+        },
+      },
+
+      orderBy: {
+        createdAt: "desc",
+      },
+    }),
+  ]);
+
+  return {
+    summary: {
+      singleAnalysisCount,
+
+      multiAnalysisCount,
+    },
+
+    usage: {
+      singleAnalysis: singleAnalysis.map((item) => ({
+        id: item.id,
+
+        title: item.title,
+
+        usageCount: item._count.projects,
+      })),
+
+      multiAnalysis: multiAnalysis.map((item) => ({
+        id: item.id,
+
+        title: item.title,
+
+        usageCount: item._count.projects,
+      })),
+    },
+  };
+};
+
 module.exports = {
   getAnalysisModesService,
   submitFormAnswersService,
   handleConversationStepService,
+  getCompanyAnalysisStatisticsService,
 };
