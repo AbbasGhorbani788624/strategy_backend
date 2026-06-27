@@ -56,18 +56,21 @@ CREATE TABLE `Project` (
     `formResponses` JSON NULL,
     `formId` VARCHAR(191) NULL,
     `multiAnalysisFormId` VARCHAR(191) NULL,
-    `summaryAnalysis` VARCHAR(191) NULL,
+    `summaryAnalysis` TEXT NULL,
     `promptVersionId` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
+    `domain` TEXT NULL,
     `initialAnalysis` TEXT NULL,
     `riskAnalysis` TEXT NULL,
     `finalAnalysis` TEXT NULL,
     `averageRating` DOUBLE NOT NULL DEFAULT 0,
     `ratingCount` INTEGER NOT NULL DEFAULT 0,
     `hasRating` BOOLEAN NOT NULL DEFAULT false,
+    `riskPercentage` DOUBLE NULL,
     `chatModeStartedAt` DATETIME(3) NULL,
     `chatModeEndedAt` DATETIME(3) NULL,
+    `keyStrategicInsights` TEXT NULL,
 
     INDEX `Project_status_idx`(`status`),
     INDEX `Project_companyId_idx`(`companyId`),
@@ -78,12 +81,39 @@ CREATE TABLE `Project` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `ProjectBookmark` (
+    `id` VARCHAR(191) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `projectId` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `ProjectBookmark_userId_idx`(`userId`),
+    INDEX `ProjectBookmark_projectId_idx`(`projectId`),
+    UNIQUE INDEX `ProjectBookmark_userId_projectId_key`(`userId`, `projectId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `ProjectComment` (
+    `id` VARCHAR(191) NOT NULL,
+    `content` TEXT NOT NULL,
+    `projectId` VARCHAR(191) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `ProjectComment_projectId_idx`(`projectId`),
+    INDEX `ProjectComment_userId_idx`(`userId`),
+    INDEX `ProjectComment_createdAt_idx`(`createdAt`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `ProjectRatingHistory` (
     `id` VARCHAR(191) NOT NULL,
     `projectId` VARCHAR(191) NOT NULL,
     `raterId` VARCHAR(191) NOT NULL,
     `score` INTEGER NOT NULL,
-    `comment` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `ProjectRatingHistory_projectId_idx`(`projectId`),
@@ -108,18 +138,90 @@ CREATE TABLE `ChatMessage` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `AnalysisCategory` (
+    `id` VARCHAR(191) NOT NULL,
+    `title` VARCHAR(191) NOT NULL,
+    `description` VARCHAR(191) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `AnalysisForm` (
     `id` VARCHAR(191) NOT NULL,
     `title` VARCHAR(191) NOT NULL,
     `info` VARCHAR(191) NULL,
     `order` INTEGER NULL,
     `isActive` BOOLEAN NOT NULL DEFAULT true,
+    `categoryId` VARCHAR(191) NULL,
     `temperature` DOUBLE NOT NULL DEFAULT 0.7,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
     INDEX `AnalysisForm_isActive_idx`(`isActive`),
     INDEX `AnalysisForm_order_idx`(`order`),
+    INDEX `AnalysisForm_categoryId_idx`(`categoryId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `FormQuestionCategory` (
+    `id` VARCHAR(191) NOT NULL,
+    `title` VARCHAR(191) NOT NULL,
+    `order` INTEGER NOT NULL DEFAULT 0,
+    `formId` VARCHAR(191) NOT NULL,
+    `parentId` VARCHAR(191) NULL,
+    `isActive` BOOLEAN NOT NULL DEFAULT true,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `FormQuestionCategory_formId_idx`(`formId`),
+    INDEX `FormQuestionCategory_parentId_idx`(`parentId`),
+    INDEX `FormQuestionCategory_order_idx`(`order`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `FormQuestion` (
+    `id` VARCHAR(191) NOT NULL,
+    `formId` VARCHAR(191) NOT NULL,
+    `categoryId` VARCHAR(191) NOT NULL,
+    `label` VARCHAR(191) NOT NULL,
+    `type` ENUM('CHECKBOX', 'RADIO', 'NUMBER') NOT NULL,
+    `required` BOOLEAN NOT NULL DEFAULT true,
+    `order` INTEGER NOT NULL,
+    `isScored` BOOLEAN NOT NULL DEFAULT false,
+    `weight` INTEGER NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `FormQuestionOption` (
+    `id` VARCHAR(191) NOT NULL,
+    `questionId` VARCHAR(191) NOT NULL,
+    `label` VARCHAR(191) NOT NULL,
+    `value` VARCHAR(191) NOT NULL,
+    `score` INTEGER NULL,
+    `order` INTEGER NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `FormQuestionOption_questionId_idx`(`questionId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `FeaturedAnalysis` (
+    `id` VARCHAR(191) NOT NULL,
+    `analysisFormId` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    UNIQUE INDEX `FeaturedAnalysis_analysisFormId_key`(`analysisFormId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -149,20 +251,6 @@ CREATE TABLE `ProjectGoal` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `FormQuestion` (
-    `id` VARCHAR(191) NOT NULL,
-    `formId` VARCHAR(191) NOT NULL,
-    `label` VARCHAR(191) NOT NULL,
-    `type` ENUM('CHECKBOX', 'RADIO', 'NUMBER') NOT NULL,
-    `options` JSON NULL,
-    `required` BOOLEAN NOT NULL DEFAULT true,
-    `order` INTEGER NOT NULL,
-
-    INDEX `FormQuestion_formId_order_idx`(`formId`, `order`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
 CREATE TABLE `RefreshToken` (
     `id` VARCHAR(191) NOT NULL,
     `tokenHash` VARCHAR(191) NOT NULL,
@@ -180,7 +268,7 @@ CREATE TABLE `RefreshToken` (
 CREATE TABLE `Notification` (
     `id` VARCHAR(191) NOT NULL,
     `userId` VARCHAR(191) NOT NULL,
-    `type` ENUM('ADMIN_FEEDBACK', 'PROJECT_RATED', 'PROJECT_ACCESS_GRANTED', 'FOLLOW_UP_ANSWERED') NOT NULL,
+    `type` ENUM('PROJECT_ACCESS_GRANTED', 'FOLLOW_UP_ANSWERED') NOT NULL,
     `title` VARCHAR(191) NOT NULL,
     `message` VARCHAR(191) NOT NULL,
     `isRead` BOOLEAN NOT NULL DEFAULT false,
@@ -321,6 +409,7 @@ CREATE TABLE `FollowUpRequest` (
     `answeredById` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
+    `extraDescription` TEXT NULL,
 
     INDEX `FollowUpRequest_projectId_idx`(`projectId`),
     INDEX `FollowUpRequest_userId_idx`(`userId`),
@@ -384,7 +473,7 @@ CREATE TABLE `PromptVersionSegmentValue` (
     `id` VARCHAR(191) NOT NULL,
     `promptVersionId` VARCHAR(191) NOT NULL,
     `segmentDefinitionId` VARCHAR(191) NOT NULL,
-    `content` VARCHAR(191) NOT NULL,
+    `content` TEXT NOT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -689,6 +778,36 @@ CREATE TABLE `MultiAnalysisFormProfileField` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `CompanyInsight` (
+    `id` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    `companyId` VARCHAR(191) NOT NULL,
+    `insightText` LONGTEXT NOT NULL,
+    `suggestedAnalyses` JSON NOT NULL,
+    `generatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    UNIQUE INDEX `CompanyInsight_companyId_key`(`companyId`),
+    INDEX `CompanyInsight_companyId_idx`(`companyId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `IndustryInsight` (
+    `id` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `industryName` VARCHAR(191) NULL,
+    `title` VARCHAR(191) NULL,
+    `insightText` VARCHAR(191) NOT NULL,
+    `source` VARCHAR(191) NULL,
+    `fetchedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `IndustryInsight_industryName_fetchedAt_idx`(`industryName`, `fetchedAt`),
+    INDEX `IndustryInsight_fetchedAt_idx`(`fetchedAt`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
 ALTER TABLE `User` ADD CONSTRAINT `User_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -717,6 +836,18 @@ ALTER TABLE `Project` ADD CONSTRAINT `Project_multiAnalysisFormId_fkey` FOREIGN 
 ALTER TABLE `Project` ADD CONSTRAINT `Project_promptVersionId_fkey` FOREIGN KEY (`promptVersionId`) REFERENCES `PromptVersion`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `ProjectBookmark` ADD CONSTRAINT `ProjectBookmark_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ProjectBookmark` ADD CONSTRAINT `ProjectBookmark_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ProjectComment` ADD CONSTRAINT `ProjectComment_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ProjectComment` ADD CONSTRAINT `ProjectComment_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE `ProjectRatingHistory` ADD CONSTRAINT `ProjectRatingHistory_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -729,6 +860,27 @@ ALTER TABLE `ChatMessage` ADD CONSTRAINT `ChatMessage_projectId_fkey` FOREIGN KE
 ALTER TABLE `ChatMessage` ADD CONSTRAINT `ChatMessage_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `AnalysisForm` ADD CONSTRAINT `AnalysisForm_categoryId_fkey` FOREIGN KEY (`categoryId`) REFERENCES `AnalysisCategory`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FormQuestionCategory` ADD CONSTRAINT `FormQuestionCategory_formId_fkey` FOREIGN KEY (`formId`) REFERENCES `AnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FormQuestionCategory` ADD CONSTRAINT `FormQuestionCategory_parentId_fkey` FOREIGN KEY (`parentId`) REFERENCES `FormQuestionCategory`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FormQuestion` ADD CONSTRAINT `FormQuestion_formId_fkey` FOREIGN KEY (`formId`) REFERENCES `AnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FormQuestion` ADD CONSTRAINT `FormQuestion_categoryId_fkey` FOREIGN KEY (`categoryId`) REFERENCES `FormQuestionCategory`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FormQuestionOption` ADD CONSTRAINT `FormQuestionOption_questionId_fkey` FOREIGN KEY (`questionId`) REFERENCES `FormQuestion`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FeaturedAnalysis` ADD CONSTRAINT `FeaturedAnalysis_analysisFormId_fkey` FOREIGN KEY (`analysisFormId`) REFERENCES `AnalysisForm`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE `FormGoal` ADD CONSTRAINT `FormGoal_formId_fkey` FOREIGN KEY (`formId`) REFERENCES `AnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -736,9 +888,6 @@ ALTER TABLE `ProjectGoal` ADD CONSTRAINT `ProjectGoal_projectId_fkey` FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE `ProjectGoal` ADD CONSTRAINT `ProjectGoal_goalId_fkey` FOREIGN KEY (`goalId`) REFERENCES `FormGoal`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `FormQuestion` ADD CONSTRAINT `FormQuestion_formId_fkey` FOREIGN KEY (`formId`) REFERENCES `AnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `RefreshToken` ADD CONSTRAINT `RefreshToken_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -871,3 +1020,6 @@ ALTER TABLE `AnalysisFormProfileField` ADD CONSTRAINT `AnalysisFormProfileField_
 
 -- AddForeignKey
 ALTER TABLE `MultiAnalysisFormProfileField` ADD CONSTRAINT `MultiAnalysisFormProfileField_multiAnalysisFormId_fkey` FOREIGN KEY (`multiAnalysisFormId`) REFERENCES `MultiAnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `CompanyInsight` ADD CONSTRAINT `CompanyInsight_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

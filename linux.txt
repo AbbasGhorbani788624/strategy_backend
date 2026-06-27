@@ -51,4 +51,3 @@ swap
 
 
 
-http://localhost:5173/project/003179fa-760b-48ec-8ec2-490b7c17aa9d

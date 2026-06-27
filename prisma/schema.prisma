@@ -78,22 +78,22 @@ enum CompanyDataModel {
 }
 
 model User {
-  id          String  @id @default(uuid())
-  username    String  @unique
-  password    String
-  email       String? @unique
-  phoneNumber String? @unique
-  role        Role
-  companyId   String?
-  profile     Json?
-  progress    Json?
+  id              String           @id @default(uuid())
+  username        String           @unique
+  password        String
+  email           String?          @unique
+  phoneNumber     String?          @unique
+  role            Role
+  companyId       String?
+  profile         Json?
+  progress        Json?
   projectComments ProjectComment[]
 
   profileCompleted Boolean          @default(false)
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
   uploadedFiles    FileAttachment[]
-  
+
   company             Company?               @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: Cascade)
   createdProjects     Project[]
   ratingHistory       ProjectRatingHistory[]
@@ -104,6 +104,7 @@ model User {
   projectAccesses     ProjectAccess[]
   followUpRequests    FollowUpRequest[]      @relation("UserFollowUpRequests")
   answeredFollowUps   FollowUpRequest[]      @relation("AdminAnsweredFollowUps")
+  bookmarkedProjects  ProjectBookmark[]
 
   @@index([role])
   @@index([companyId])
@@ -141,21 +142,21 @@ model Project {
   formResponses       Json?
   formId              String?
   multiAnalysisFormId String?
-  summaryAnalysis     String? @db.Text
-  promptVersionId String?
-  comments ProjectComment[]
-  chatMessages ChatMessage[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  creator User     @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  form              AnalysisForm?      @relation(fields: [formId], references: [id], onDelete: Cascade)
-  multiAnalysisForm MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
-  promptVersion     PromptVersion?     @relation(fields: [promptVersionId], references: [id], onDelete: Cascade)
-  domain String? @db.Text 
-  initialAnalysis String? @db.Text
-  riskAnalysis    String? @db.Text
-  finalAnalysis   String? @db.Text
+  summaryAnalysis     String?            @db.Text
+  promptVersionId     String?
+  comments            ProjectComment[]
+  chatMessages        ChatMessage[]
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  creator             User               @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  company             Company?           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  form                AnalysisForm?      @relation(fields: [formId], references: [id], onDelete: Cascade)
+  multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
+  promptVersion       PromptVersion?     @relation(fields: [promptVersionId], references: [id], onDelete: Cascade)
+  domain              String?            @db.Text
+  initialAnalysis     String?            @db.Text
+  riskAnalysis        String?            @db.Text
+  finalAnalysis       String?            @db.Text
 
   ratings          ProjectRatingHistory[]
   accesses         ProjectAccess[]
@@ -163,17 +164,18 @@ model Project {
   multiGoals       ProjectMultiGoal[]
   followUpRequests FollowUpRequest[]
 
-  averageRating Float   @default(0)
-  ratingCount   Int     @default(0)
-  hasRating     Boolean @default(false)
+  averageRating  Float   @default(0)
+  ratingCount    Int     @default(0)
+  hasRating      Boolean @default(false)
   riskPercentage Float?
 
-  chatModeStartedAt DateTime?
-  chatModeEndedAt   DateTime?
-  keyStrategicInsights  String? @db.Text
+  chatModeStartedAt    DateTime?
+  chatModeEndedAt      DateTime?
+  keyStrategicInsights String?   @db.Text
 
   selectedSourceProjects MultiAnalysisProjectSource[] @relation("MultiProjectSources")
   usedInMultiProjects    MultiAnalysisProjectSource[] @relation("SourceProjectUsedInMulti")
+  bookmarks              ProjectBookmark[]
 
   @@index([status])
   @@index([companyId])
@@ -182,9 +184,25 @@ model Project {
   @@index([promptVersionId])
 }
 
+model ProjectBookmark {
+  id String @id @default(uuid())
+
+  userId    String
+  projectId String
+
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([userId])
+  @@index([projectId])
+}
+
 model ProjectComment {
-  id        String   @id @default(uuid())
-  content   String   @db.Text
+  id      String @id @default(uuid())
+  content String @db.Text
 
   projectId String
   userId    String
@@ -230,45 +248,113 @@ model ChatMessage {
 }
 
 model AnalysisCategory {
-  id          String @id @default(uuid())
+  id          String         @id @default(uuid())
   title       String
   description String?
-
-  forms AnalysisForm[]
+  forms       AnalysisForm[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model AnalysisForm {
-  id       String  @id @default(uuid())
-  title    String
-  info     String?
-  order    Int?
-  isActive Boolean @default(true)
-
-  categoryId String?
-  category   AnalysisCategory? @relation(fields: [categoryId], references: [id])
-
-  questions FormQuestion[]
-  goals     FormGoal[]
-
-  promptDefinition PromptDefinition?
-
-  projects Project[]
-
+  id                      String                       @id @default(uuid())
+  title                   String
+  info                    String?
+  order                   Int?
+  isActive                Boolean                      @default(true)
+  categoryId              String?
+  category                AnalysisCategory?            @relation(fields: [categoryId], references: [id])
+  questions               FormQuestion[]
+  categories              FormQuestionCategory[]
+  goals                   FormGoal[]
+  promptDefinition        PromptDefinition?
+  projects                Project[]
   requiredInMultiAnalysis MultiAnalysisRequiredForm[]
   multiProjectSources     MultiAnalysisProjectSource[]
   profileFields           AnalysisFormProfileField[]
-
-  temperature Float @default(0.7)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  temperature             Float                        @default(0.7)
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+  featuredAnalysis        FeaturedAnalysis?
+  categoryGroups FormCategoryGroup[]
 
   @@index([isActive])
   @@index([order])
   @@index([categoryId])
+}
+
+model FormQuestionCategory {
+  id        String                 @id @default(uuid())
+  title     String
+  order     Int                    @default(0)
+  formId    String
+  form      AnalysisForm           @relation(fields: [formId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    FormQuestionCategory?  @relation("QuestionCategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  FormQuestionCategory[] @relation("QuestionCategoryTree")
+  questions FormQuestion[]
+  isActive  Boolean                @default(true)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  groups FormCategoryGroupItem[]
+
+  @@index([formId])
+  @@index([parentId])
+  @@index([order])
+}
+
+model FormQuestion {
+  id String @id @default(uuid())
+
+  formId String
+  form   AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  categoryId String
+  category   FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  label String
+
+  type QuestionType
+
+  required Boolean @default(true)
+
+  order Int
+
+  isScored Boolean @default(false)
+
+  weight Int?
+
+  options FormQuestionOption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FormQuestionOption {
+  id String @id @default(uuid())
+
+  questionId String
+  question   FormQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  label String
+  value String
+
+  score Int?
+
+  order Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([questionId])
+}
+
+model FeaturedAnalysis {
+  id             String       @id @default(uuid())
+  analysisFormId String       @unique
+  analysisForm   AnalysisForm @relation(fields: [analysisFormId], references: [id])
+  createdAt      DateTime     @default(now())
 }
 
 model FormGoal {
@@ -295,20 +381,6 @@ model ProjectGoal {
   @@unique([projectId, goalId])
   @@index([projectId])
   @@index([goalId])
-}
-
-model FormQuestion {
-  id       String       @id @default(uuid())
-  formId   String
-  label    String
-  type     QuestionType
-  options  Json?
-  required Boolean      @default(true)
-  order    Int
-
-  form AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-
-  @@index([formId, order])
 }
 
 model RefreshToken {
@@ -489,7 +561,7 @@ model FollowUpRequest {
   answeredBy User?         @relation("AdminAnsweredFollowUps", fields: [answeredById], references: [id], onDelete: Cascade)
 
   extraDescription String? @db.Text
-  
+
   @@index([projectId])
   @@index([userId])
   @@index([formId])
@@ -588,7 +660,7 @@ model Company {
   organizationUnits   OrganizationUnit[]
   licenseCertificates CompanyLicenseCertificate[]
   memberships         CompanyMembership[]
-  insight CompanyInsight?
+  insight             CompanyInsight?
 
   productServices CompanyProductService[]
   markets         CompanyMarket[]
@@ -933,8 +1005,8 @@ model CompanyInsight {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  companyId String   @unique
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   insightText String @db.LongText
 
@@ -946,14 +1018,42 @@ model CompanyInsight {
 }
 
 model IndustryInsight {
-  id            String   @id @default(uuid())
-  createdAt     DateTime @default(now())
-  industryName  String? 
-  title         String?
-  insightText   String   
-  source        String? 
-  fetchedAt     DateTime @default(now())
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  industryName String?
+  title        String?
+  insightText  String
+  source       String?
+  fetchedAt    DateTime @default(now())
 
   @@index([industryName, fetchedAt])
   @@index([fetchedAt])
+}
+
+model FormCategoryGroup {
+  id String @id @default(uuid())
+
+  formId String
+  form AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  title String
+
+  order Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories FormCategoryGroupItem[]
+}
+
+model FormCategoryGroupItem {
+  id String @id @default(uuid())
+
+  groupId String
+  group FormCategoryGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  categoryId String
+  category FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, categoryId])
 }

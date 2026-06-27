@@ -16,6 +16,9 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const commentRoutes = require("./routes/comment");
 const insightRoutes = require("./routes/insightRoutes");
 const IndustryInsightRoutes = require("./routes/IndustryInsightRoutes");
+const featuredanalysisRoutes = require("./routes/featuredanalysisRoutes");
+const analysiscategories = require("./routes/analysisCategoriesRoutes");
+const bookmarkRoutes = require("./routes/bookmarkRoutes");
 
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000,
@@ -69,6 +72,9 @@ app.use("/api/notification", notificationRoutes);
 app.use("/api/comment", commentRoutes);
 app.use("/api/insight", insightRoutes);
 app.use("/api/industryinsight", IndustryInsightRoutes);
+app.use("/api/featuredanalysis", featuredanalysisRoutes);
+app.use("/api/analysis-categories", analysiscategories);
+app.use("/api/bookmark", bookmarkRoutes);
 
 app.use((req, res) => {
   console.log("This path is not found:", req.path);

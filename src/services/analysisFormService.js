@@ -22,7 +22,6 @@ const {
   safeStringify,
 } = require("../utils");
 const prisma = require("../prismaClient");
-const runAI = require("../ai");
 const axios = require("axios");
 
 const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {

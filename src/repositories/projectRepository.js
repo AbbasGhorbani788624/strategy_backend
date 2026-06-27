@@ -44,22 +44,44 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     }
 
     if (scoreFilter === "high") {
-      filters.push({ averageRating: { gte: 4 } });
+      filters.push({
+        averageRating: {
+          gte: 4,
+        },
+      });
     } else if (scoreFilter === "medium") {
-      filters.push({ averageRating: { gte: 2, lt: 4 } });
+      filters.push({
+        averageRating: {
+          gte: 2,
+          lt: 4,
+        },
+      });
     } else if (scoreFilter === "low") {
-      filters.push({ averageRating: { lt: 2 } });
+      filters.push({
+        averageRating: {
+          lt: 2,
+        },
+      });
     }
 
     if (search) {
       filters.push({
-        title: { contains: search },
+        title: {
+          contains: search,
+        },
       });
     }
 
     if (formId) {
       filters.push({
-        OR: [{ formId }, { multiAnalysisFormId: formId }],
+        OR: [
+          {
+            formId,
+          },
+          {
+            multiAnalysisFormId: formId,
+          },
+        ],
       });
     }
 
@@ -70,6 +92,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
   const allowedSortOrders = ["asc", "desc"];
 
   const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : "createdAt";
+
   const safeSortOrder = allowedSortOrders.includes(sortOrder)
     ? sortOrder
     : "desc";
@@ -77,15 +100,30 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
   let orderBy = [{ createdAt: "desc" }, { id: "desc" }];
 
   if (safeSortBy === "createdAt") {
-    orderBy = [{ createdAt: safeSortOrder }, { id: "desc" }];
+    orderBy = [
+      {
+        createdAt: safeSortOrder,
+      },
+      {
+        id: "desc",
+      },
+    ];
   }
 
   if (safeSortBy === "averageRating") {
     orderBy = [
-      { hasRating: "desc" },
-      { averageRating: safeSortOrder },
-      { createdAt: "desc" },
-      { id: "desc" },
+      {
+        hasRating: "desc",
+      },
+      {
+        averageRating: safeSortOrder,
+      },
+      {
+        createdAt: "desc",
+      },
+      {
+        id: "desc",
+      },
     ];
   }
 
@@ -108,28 +146,56 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
       hasRating: true,
 
       creator: {
-        select: { id: true, username: true },
+        select: {
+          id: true,
+          username: true,
+        },
       },
+
       company: {
-        select: { id: true, name: true },
+        select: {
+          id: true,
+          name: true,
+        },
       },
+
       ratings: {
-        orderBy: { createdAt: "desc" },
+        orderBy: {
+          createdAt: "desc",
+        },
         include: {
           rater: {
-            select: { id: true, username: true, role: true },
+            select: {
+              id: true,
+              username: true,
+              role: true,
+            },
           },
+        },
+      },
+
+      bookmarks: {
+        where: {
+          userId,
+        },
+        select: {
+          id: true,
         },
       },
     },
   });
+
+  const formattedProjects = projects.map(({ bookmarks, ...project }) => ({
+    ...project,
+    isBookmarked: bookmarks.length > 0,
+  }));
 
   const totalItems = await prisma.project.count({
     where: whereClause,
   });
 
   return {
-    projects,
+    projects: formattedProjects,
     pagination: {
       totalItems,
       currentPage: parsedPage,

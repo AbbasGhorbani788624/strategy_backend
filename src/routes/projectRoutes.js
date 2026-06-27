@@ -50,7 +50,7 @@ router.get("/", auth, getAllProjects);
 //گرفتن پروژه ها  خود شخص
 router.get("/myproject", auth, getMyProjectsController);
 
-//گرفتن تب های پروژه تکی
+//گرفتن تب های پروژه
 router.get("/tabs", auth, getProjectsTabs);
 
 //گرفتن پروژه ها برای تحلیل چند مرحله ای
