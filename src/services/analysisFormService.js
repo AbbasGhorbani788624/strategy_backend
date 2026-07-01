@@ -12,7 +12,6 @@ const {
   buildInitialAnalysisPrompt,
   buildFinalAnalysisPrompt,
   buildFinalAnalysisWithCorrectionPrompt,
-  buildReadableFormResponses,
   parseFinalAnalysisResponse,
   buildInitialMultiAnalysisPrompt,
   buildSelectedSourceProjectSummaries,
@@ -23,6 +22,37 @@ const {
 } = require("../utils");
 const prisma = require("../prismaClient");
 const axios = require("axios");
+const {
+  buildFormattedResponses,
+  flattenQuestions,
+} = require("../utils/buildFormattedResponses");
+
+function createCategoryInclude(depth = 4) {
+  return {
+    questions: {
+      orderBy: {
+        order: "asc",
+      },
+      include: {
+        options: {
+          orderBy: {
+            order: "asc",
+          },
+        },
+      },
+    },
+
+    children:
+      depth > 0
+        ? {
+            orderBy: {
+              order: "asc",
+            },
+            include: createCategoryInclude(depth - 1),
+          }
+        : undefined,
+  };
+}
 
 const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {
   try {
@@ -89,12 +119,43 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
   }
 
   const form = await prisma.analysisForm.findUnique({
-    where: { id: project.formId },
+    where: {
+      id: project.formId,
+    },
+
     include: {
-      questions: {
+      categoryGroups: {
         orderBy: {
           order: "asc",
         },
+
+        include: {
+          categories: {
+            orderBy: {
+              category: {
+                order: "asc",
+              },
+            },
+
+            include: {
+              category: {
+                include: createCategoryInclude(),
+              },
+            },
+          },
+        },
+      },
+
+      categories: {
+        where: {
+          parentId: null,
+        },
+
+        orderBy: {
+          order: "asc",
+        },
+
+        include: createCategoryInclude(),
       },
     },
   });
@@ -103,22 +164,21 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
     createBadRequestError("فرم مربوط به این پروژه یافت نشد");
   }
 
-  const questions = form.questions || [];
-  const questionIds = questions.map((q) => q.id);
+  const { questions, questionMap, questionIdSet } = flattenQuestions(
+    form.categories,
+  );
   const answerKeys = Object.keys(answers || {});
 
-  const invalidAnswerKeys = answerKeys.filter(
-    (key) => !questionIds.includes(key),
-  );
+  const invalidAnswerKeys = answerKeys.filter((key) => !questionIdSet.has(key));
 
   if (invalidAnswerKeys.length > 0) {
     createBadRequestError("برخی پاسخ‌های ارسالی معتبر نیستند");
   }
 
-  const requiredQuestions = questions.filter((q) => q.required);
+  const unansweredRequiredQuestions = questions.filter((question) => {
+    if (!question.required) return false;
 
-  const unansweredRequiredQuestions = requiredQuestions.filter((q) => {
-    const value = answers[q.id];
+    const value = answers[question.id];
 
     return (
       value === undefined ||
@@ -132,10 +192,19 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
     createBadRequestError("پاسخ به همه سوالات اجباری الزامی است");
   }
 
+  if (unansweredRequiredQuestions.length > 0) {
+    createBadRequestError("پاسخ به همه سوالات اجباری الزامی است");
+  }
+
+  const formattedResponses = buildFormattedResponses(form, answers);
+  console.dir(formattedResponses, {
+    depth: null,
+  });
+
   const updatedProject = await prisma.project.update({
     where: { id: projectId },
     data: {
-      formResponses: answers,
+      formResponses: formattedResponses,
       status: "ANALYSIS_PENDING",
     },
     include: {
@@ -288,10 +357,7 @@ const handleConversationStepService = async (
   let sourceProjectSummaries = null;
 
   if (isSingle) {
-    readableFormResponses = await buildReadableFormResponses({
-      formId: project.formId,
-      formResponses: project.formResponses,
-    });
+    readableFormResponses = project.formResponses;
 
     companyProfileData = await getCompanyProfileDataForForm(
       project.companyId,
@@ -316,8 +382,6 @@ const handleConversationStepService = async (
     mode,
   ) => {
     const aiResponse = await sendPromptToAnalyze(prompt, mode);
-
-    console.log("final analyze result =>", aiResponse);
 
     const {
       finalAnalysis,
@@ -511,7 +575,7 @@ const handleConversationStepService = async (
 };
 
 const getAnalysisModesService = async (userId, companyId) => {
-  const singleForms = await getSingleForms();
+  const singleForms = await getSingleForms(companyId);
   const multiForm = await getAvailableMultiAnalysisFormsService({
     userId,
     companyId,

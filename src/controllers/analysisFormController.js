@@ -40,7 +40,8 @@ exports.getAnalysisModes = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const result = await getAnalysisModesService({ userId, companyId });
+    console.log("companyId =>", companyId);
+    const result = await getAnalysisModesService(userId, companyId);
     return successResponse(res, 200, result);
   } catch (err) {
     console.error(err);

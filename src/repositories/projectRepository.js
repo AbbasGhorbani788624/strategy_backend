@@ -316,36 +316,7 @@ const getProject = async (projectId, userId, userRole, companyId) => {
       }
     : null;
 
-  let formQuestionAnswers = [];
-  if (project.formId && project.formResponses) {
-    const form = await prisma.analysisForm.findUnique({
-      where: { id: project.formId },
-      include: {
-        questions: {
-          orderBy: { order: "asc" },
-          select: {
-            id: true,
-            label: true,
-            type: true,
-            options: true,
-            order: true,
-          },
-        },
-      },
-    });
-
-    if (form) {
-      const responses = project.formResponses || {};
-      formQuestionAnswers = form.questions.map((question) => ({
-        questionId: question.id,
-        questionText: question.label,
-        questionType: question.type,
-        options: question.options,
-        order: question.order,
-        answer: responses[question.id] ?? null,
-      }));
-    }
-  }
+  const formResponses = project.formResponses ?? null;
 
   const selectedGoals = project.goals.map((projectGoal) => ({
     id: projectGoal.goal.id,
@@ -365,9 +336,8 @@ const getProject = async (projectId, userId, userRole, companyId) => {
 
     form: {
       id: project.formId,
-      responses: formQuestionAnswers,
+      ...(formResponses || {}),
     },
-
     goals: selectedGoals,
 
     adminAnswers: project.followUpRequests.map((item) => ({
@@ -390,11 +360,6 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     ratingCount: project.ratingCount,
     superAdminRating,
     riskPercentage: project.riskPercentage,
-
-    // اگر خواستی لیست همه امتیازها هم برگردد این را باز کن
-    // ratings: {
-    //   list: ratingsList,
-    // },
   };
 };
 

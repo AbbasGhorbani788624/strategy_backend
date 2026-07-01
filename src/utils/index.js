@@ -95,11 +95,13 @@ const deletePhysicalFiles = async (files = []) => {
 
       if (!filePath) return;
 
+      const absolutePath = path.resolve(process.cwd(), filePath);
+
       try {
-        await fs.unlink(filePath);
+        await fs.unlink(absolutePath);
       } catch (error) {
         if (error.code !== "ENOENT") {
-          console.error("Failed to delete file:", filePath, error);
+          console.error("Failed to delete file:", absolutePath, error);
         }
       }
     }),
@@ -463,33 +465,6 @@ const buildFinalAnalysisWithCorrectionPrompt = ({
   return JSON.stringify(promptObject, null, 2);
 };
 
-const buildReadableFormResponses = async ({ formId, formResponses }) => {
-  if (!formId || !formResponses || Object.keys(formResponses).length === 0) {
-    return {};
-  }
-
-  const formQuestions = await prisma.formQuestion.findMany({
-    where: {
-      formId,
-    },
-    select: {
-      id: true,
-      label: true,
-    },
-  });
-
-  const idToLabelMap = {};
-
-  formQuestions.forEach((question) => {
-    idToLabelMap[question.id] = question.label;
-  });
-
-  return Object.keys(formResponses).reduce((acc, key) => {
-    acc[idToLabelMap[key] || key] = formResponses[key];
-    return acc;
-  }, {});
-};
-
 const parseFinalAnalysisResponse = (aiResponse) => {
   const toText = (value) => {
     if (value === null || value === undefined) return "";
@@ -674,7 +649,7 @@ module.exports = {
   buildInitialAnalysisPrompt,
   buildFinalAnalysisPrompt,
   buildFinalAnalysisWithCorrectionPrompt,
-  buildReadableFormResponses,
+
   parseFinalAnalysisResponse,
   buildInitialMultiAnalysisPrompt,
   buildSelectedSourceProjectSummaries,
@@ -683,73 +658,3 @@ module.exports = {
   extractAnalysisData,
   safeStringify,
 };
-
-// const parseFinalAnalysisResponse = (aiResponse) => {
-//   const toText = (value) => {
-//     if (value === null || value === undefined) return "";
-
-//     if (typeof value === "string") return value.trim();
-
-//     return JSON.stringify(value, null, 2);
-//   };
-
-//   const extractJsonText = (text) => {
-//     if (!text || typeof text !== "string") return "";
-
-//     let cleaned = text
-//       .replace(/```json/gi, "")
-//       .replace(/```/g, "")
-//       .trim();
-
-//     const firstBraceIndex = cleaned.indexOf("{");
-//     const lastBraceIndex = cleaned.lastIndexOf("}");
-
-//     if (
-//       firstBraceIndex !== -1 &&
-//       lastBraceIndex !== -1 &&
-//       lastBraceIndex > firstBraceIndex
-//     ) {
-//       cleaned = cleaned.slice(firstBraceIndex, lastBraceIndex + 1);
-//     }
-
-//     return cleaned;
-//   };
-
-//   try {
-//     const jsonText = extractJsonText(aiResponse);
-//     const parsed = JSON.parse(jsonText);
-
-//     return {
-//       riskAnalysis: toText(
-//         parsed.riskAnalysis ??
-//           parsed.risk_analysis ??
-//           parsed.risk ??
-//           parsed.risks ??
-//           "",
-//       ),
-//       finalAnalysis: toText(
-//         parsed.finalAnalysis ??
-//           parsed.final_analysis ??
-//           parsed.analysis ??
-//           parsed.final ??
-//           "",
-//       ),
-//       summary: toText(
-//         parsed.summary ??
-//           parsed.summaryAnalysis ??
-//           parsed.summary_analysis ??
-//           parsed.executiveSummary ??
-//           parsed.executive_summary ??
-//           "",
-//       ),
-//     };
-//   } catch (error) {
-//     return {
-//       riskAnalysis: "",
-//       finalAnalysis: toText(aiResponse),
-//       summary: "",
-//     };
-//   }
-// };
-
-//promptSegments: firstPromptSegment

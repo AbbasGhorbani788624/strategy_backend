@@ -1,5 +1,62 @@
 const prisma = require("../prismaClient");
 
+const PROFILE_RELATIONS = {
+  COMPANY_BASIC_INFO: "basicInfo",
+  COMPANY_MANAGER: "managers",
+  REVENUE_CENTER: "revenueCenters",
+  COMPANY_SHAREHOLDER: "shareholders",
+  ORGANIZATION_UNIT: "organizationUnits",
+  COMPANY_LICENSE_CERTIFICATE: "licenseCertificates",
+  COMPANY_MEMBERSHIP: "memberships",
+  COMPANY_PRODUCT_SERVICE: "productServices",
+  COMPANY_MARKET: "markets",
+  KEY_CUSTOMER: "keyCustomers",
+  COMPANY_BALANCE_SHEET: "balanceSheets",
+  COMPANY_INCOME_STATEMENT: "incomeStatements",
+  COMPANY_RESOURCE_CAPABILITY: "resourceCapabilities",
+};
+const MODEL_TITLES = {
+  COMPANY_BASIC_INFO: "اطلاعات پایه شرکت",
+  COMPANY_MANAGER: "مدیران شرکت",
+  REVENUE_CENTER: "مراکز درآمد",
+  COMPANY_SHAREHOLDER: "سهامداران",
+  ORGANIZATION_UNIT: "چارت سازمانی",
+  COMPANY_LICENSE_CERTIFICATE: "مجوزها و گواهینامه‌ها",
+  COMPANY_MEMBERSHIP: "عضویت‌ها",
+  COMPANY_PRODUCT_SERVICE: "محصولات و خدمات",
+  COMPANY_MARKET: "بازارها",
+  KEY_CUSTOMER: "مشتریان کلیدی",
+  COMPANY_BALANCE_SHEET: "ترازنامه",
+  COMPANY_INCOME_STATEMENT: "صورت سود و زیان",
+  COMPANY_RESOURCE_CAPABILITY: "منابع و قابلیت‌ها",
+};
+
+const isProfileFieldCompleted = (company, profileFieldKey) => {
+  const [entity, field] = profileFieldKey.split(".");
+
+  const relation = PROFILE_RELATIONS[entity];
+
+  if (!relation) return false;
+
+  const value = company?.[relation];
+
+  if (!value) return false;
+
+  // One To One
+  if (!Array.isArray(value)) {
+    return (
+      value[field] !== null && value[field] !== undefined && value[field] !== ""
+    );
+  }
+
+  // One To Many
+  return value.some((item) => {
+    const fieldValue = item[field];
+
+    return fieldValue !== null && fieldValue !== undefined && fieldValue !== "";
+  });
+};
+
 const deleteFormRepo = async (id) => {
   return prisma.$transaction(async (tx) => {
     const form = await tx.analysisForm.findUnique({
@@ -87,59 +144,131 @@ const deleteFormRepo = async (id) => {
 
 const getFormById = async (id) => {
   return prisma.analysisForm.findUnique({
-    where: { id },
+    where: {
+      id,
+    },
+
     include: {
-      questions: {
+      categories: {
+        where: {
+          isActive: true,
+        },
+
         orderBy: {
           order: "asc",
         },
       },
-    },
-  });
-};
 
-const getExistingFormsByIds = async (formIds) => {
-  if (!formIds || formIds.length === 0) return [];
+      questions: {
+        orderBy: {
+          order: "asc",
+        },
 
-  const forms = await prisma.analysisForm.findMany({
-    where: { id: { in: formIds } },
-    select: { id: true },
-  });
-
-  return forms;
-};
-
-const getSingleForms = async () => {
-  const forms = await prisma.analysisForm.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      title: true,
-      order: true,
-      isActive: true,
-      goals: {
-        select: {
-          id: true,
-          formId: true,
-          title: true,
+        include: {
+          options: {
+            orderBy: {
+              order: "asc",
+            },
+          },
         },
       },
-      _count: {
-        select: {
-          questions: true,
+
+      categoryGroups: {
+        orderBy: {
+          order: "asc",
+        },
+
+        include: {
+          categories: true,
         },
       },
     },
   });
+};
 
-  return forms.map((form) => ({
-    id: form.id,
-    title: form.title,
-    order: form.order,
-    isActive: form.isActive,
-    goals: form.goals,
-    hasForm: form._count.questions > 0,
-  }));
+const getSingleForms = async (companyId) => {
+  const [forms, company] = await Promise.all([
+    prisma.analysisForm.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        profileFields: true,
+
+        goals: {
+          select: {
+            id: true,
+            formId: true,
+            title: true,
+          },
+        },
+
+        categories: {
+          select: {
+            id: true,
+            _count: {
+              select: {
+                questions: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+
+    prisma.company.findUnique({
+      where: {
+        id: companyId,
+      },
+
+      include: {
+        basicInfo: true,
+        managers: true,
+        revenueCenters: true,
+        shareholders: true,
+        organizationUnits: true,
+        licenseCertificates: true,
+        memberships: true,
+        productServices: true,
+        markets: true,
+        keyCustomers: true,
+        balanceSheets: true,
+        incomeStatements: true,
+        resourceCapabilities: true,
+      },
+    }),
+  ]);
+
+  const missingModels = new Set();
+
+  return forms.map((form) => {
+    for (const field of form.profileFields) {
+      const completed = isProfileFieldCompleted(company, field.profileFieldKey);
+
+      if (completed) continue;
+
+      const [model] = field.profileFieldKey.split(".");
+
+      missingModels.add({
+        key: model,
+        title: MODEL_TITLES[model],
+      });
+    }
+
+    return {
+      id: form.id,
+      title: form.title,
+      order: form.order,
+      isActive: form.isActive,
+      goals: form.goals,
+      hasForm: form.categories.some(
+        (category) => category._count.questions > 0,
+      ),
+
+      disabled: missingModels.size > 0,
+      missingModels: [...missingModels],
+    };
+  });
 };
 
 const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
@@ -207,7 +336,6 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
 module.exports = {
   deleteFormRepo,
   getFormById,
-  getExistingFormsByIds,
   getSingleForms,
   getAvailableMultiAnalysisFormsService,
 };

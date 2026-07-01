@@ -817,10 +817,10 @@ const fileAttachmentResource = {
 
         after: async (response) => {
           const recordId = response.record?.params?.id;
-          const uploadKey = response.record?.params?.uploadKey;
+          const filePath = response.record?.params?.filePath;
 
-          if (recordId && uploadKey) {
-            const filePath = `/uploads/${uploadKey}`;
+          if (recordId && filePath) {
+            const filePath = filePath;
 
             await prisma.fileAttachment.update({
               where: {
@@ -858,10 +858,10 @@ const fileAttachmentResource = {
 
         after: async (response) => {
           const recordId = response.record?.params?.id;
-          const uploadKey = response.record?.params?.uploadKey;
+          const filePath = response.record?.params?.filePath;
 
-          if (recordId && uploadKey) {
-            const filePath = `/uploads/${uploadKey}`;
+          if (recordId && filePath) {
+            const filePath = filePath;
 
             await prisma.fileAttachment.update({
               where: {
@@ -4080,7 +4080,6 @@ const admin = new AdminJS({
         },
       },
     }),
-
     prismaResource("FormCategoryGroup", {
       properties: {
         id: {
@@ -4881,6 +4880,7 @@ const admin = new AdminJS({
         },
       },
     }),
+
     prismaResource("FeaturedAnalysis", {
       navigation: {
         name: "تحلیل های منتخب",
@@ -8375,89 +8375,6 @@ const admin = new AdminJS({
         },
       },
     }),
-    prismaResource("MultiAnalysisFormProfileField", {
-      navigation: {
-        name: "تنظیمات تحلیل",
-        icon: "Settings",
-      },
-
-      properties: {
-        id: {
-          isTitle: true,
-        },
-
-        multiAnalysisForm: {
-          isVisible: {
-            list: true,
-            filter: true,
-            show: true,
-            edit: true,
-          },
-        },
-
-        profileFieldKey: {
-          availableValues: COMPANY_PROFILE_FIELD_OPTIONS,
-        },
-
-        isArray: {
-          isVisible: {
-            list: true,
-            filter: true,
-            show: true,
-            edit: true,
-          },
-        },
-
-        createdAt: {
-          isVisible: {
-            list: true,
-            filter: true,
-            show: true,
-            edit: false,
-          },
-        },
-      },
-
-      listProperties: [
-        "id",
-        "multiAnalysisForm",
-        "profileFieldKey",
-        "isArray",
-        "createdAt",
-      ],
-
-      filterProperties: [
-        "multiAnalysisForm",
-        "profileFieldKey",
-        "isArray",
-        "createdAt",
-      ],
-
-      showProperties: [
-        "id",
-        "multiAnalysisForm",
-        "profileFieldKey",
-        "isArray",
-        "createdAt",
-      ],
-
-      editProperties: ["multiAnalysisForm", "profileFieldKey", "isArray"],
-      actions: {
-        new: {
-          before: async (request) => {
-            validateAdminProfileFieldPayload(request);
-            return request;
-          },
-        },
-
-        edit: {
-          before: async (request) => {
-            validateAdminProfileFieldPayload(request);
-            return request;
-          },
-        },
-      },
-    }),
   ],
 });
 
@@ -8550,3 +8467,87 @@ process.on("SIGTERM", async () => {
   await prisma.$disconnect();
   process.exit(0);
 });
+
+// prismaResource("MultiAnalysisFormProfileField", {
+//   navigation: {
+//     name: "تنظیمات تحلیل",
+//     icon: "Settings",
+//   },
+
+//   properties: {
+//     id: {
+//       isTitle: true,
+//     },
+
+//     multiAnalysisForm: {
+//       isVisible: {
+//         list: true,
+//         filter: true,
+//         show: true,
+//         edit: true,
+//       },
+//     },
+
+//     profileFieldKey: {
+//       availableValues: COMPANY_PROFILE_FIELD_OPTIONS,
+//     },
+
+//     isArray: {
+//       isVisible: {
+//         list: true,
+//         filter: true,
+//         show: true,
+//         edit: true,
+//       },
+//     },
+
+//     createdAt: {
+//       isVisible: {
+//         list: true,
+//         filter: true,
+//         show: true,
+//         edit: false,
+//       },
+//     },
+//   },
+
+//   listProperties: [
+//     "id",
+//     "multiAnalysisForm",
+//     "profileFieldKey",
+//     "isArray",
+//     "createdAt",
+//   ],
+
+//   filterProperties: [
+//     "multiAnalysisForm",
+//     "profileFieldKey",
+//     "isArray",
+//     "createdAt",
+//   ],
+
+//   showProperties: [
+//     "id",
+//     "multiAnalysisForm",
+//     "profileFieldKey",
+//     "isArray",
+//     "createdAt",
+//   ],
+
+//   editProperties: ["multiAnalysisForm", "profileFieldKey", "isArray"],
+//   actions: {
+//     new: {
+//       before: async (request) => {
+//         validateAdminProfileFieldPayload(request);
+//         return request;
+//       },
+//     },
+
+//     edit: {
+//       before: async (request) => {
+//         validateAdminProfileFieldPayload(request);
+//         return request;
+//       },
+//     },
+//   },
+// }),
