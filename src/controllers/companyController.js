@@ -16,10 +16,6 @@ const {
 const prisma = require("../prismaClient");
 const fs = require("fs");
 const path = require("path");
-const {
-  calculateCompanyProgress,
-  calculateUserProgress,
-} = require("../utils/profileUtils");
 
 exports.updateCompany = async (req, res, next) => {
   try {
@@ -74,6 +70,7 @@ exports.postCompanyBasicInfo = async (req, res) => {
       operationalPersonnelCount,
       phoneNumber,
       website,
+      region,
     } = req.body;
 
     const companyId = req.user.companyId;
@@ -93,6 +90,7 @@ exports.postCompanyBasicInfo = async (req, res) => {
       operationalPersonnelCount,
       phoneNumber,
       website,
+      region,
     });
 
     return successResponse(res, 201, result);

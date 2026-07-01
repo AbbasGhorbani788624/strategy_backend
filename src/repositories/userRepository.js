@@ -12,12 +12,13 @@ const findById = async (id, props = []) => {
     username: true,
     role: true,
     profileCompleted: true,
+    companyId: true,
+
     company: {
       select: {
         name: true,
       },
     },
-    companyId: true,
   };
 
   const propSelect = props.reduce((acc, field) => {
@@ -27,7 +28,10 @@ const findById = async (id, props = []) => {
 
   return prisma.user.findUnique({
     where: { id },
-    select: { ...defaultSelect, ...propSelect },
+    select: {
+      ...defaultSelect,
+      ...propSelect,
+    },
   });
 };
 

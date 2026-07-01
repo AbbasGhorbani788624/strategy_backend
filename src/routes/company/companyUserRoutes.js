@@ -83,7 +83,6 @@ router.post(
   upload.any(),
   create,
 );
-
 router.patch(
   "/:section/:id",
   auth,
@@ -91,7 +90,11 @@ router.patch(
   upload.any(),
   update,
 );
-
-router.delete("/:section/:id", auth, remove);
+router.delete(
+  "/:section/:id",
+  auth,
+  roleGuard(["SUPER_ADMIN", "COMPANY"]),
+  remove,
+);
 
 module.exports = router;

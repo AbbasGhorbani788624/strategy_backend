@@ -11,4 +11,9 @@ module.exports = {
   balanceSheets: "companyBalanceSheet",
   incomeStatements: "companyIncomeStatement",
   resourceCapabilities: "companyResourceCapability",
+
+  userInfo: "userInfo",
+  educations: "userEducation",
+  trainingCourses: "userTrainingCourse",
+  competencies: "userCompetency",
 };

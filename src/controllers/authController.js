@@ -49,6 +49,7 @@ exports.changeCredentials = async (req, res, next) => {
     next(error);
   }
 };
+
 exports.refresh = async function (req, res) {
   try {
     const refreshToken = req.cookies.refresh_token;

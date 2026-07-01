@@ -1,114 +1,109 @@
 const { createBadRequestError } = require("../utils");
+const sectionModels = require("./companySectionModels");
 const prisma = require("../prismaClient");
-const {
-  calculateUserProgress,
-  calculateCompanyProgress,
-} = require("../utils/profileUtils");
 
-const getTargetArrayAndParent = (profileObj, dataPath) => {
-  if (!profileObj) profileObj = {};
-  const keys = dataPath.split(".");
-  let targetObj = profileObj;
+function getModel(client, section) {
+  const modelName = sectionModels[section];
 
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
-    if (!targetObj[key] || typeof targetObj[key] !== "object") {
-      targetObj[key] = {};
-    }
-    targetObj = targetObj[key];
+  if (!modelName) {
+    createBadRequestError(`Invalid section: ${section}`, 400);
   }
 
-  const finalKey = keys[keys.length - 1];
-  if (!Array.isArray(targetObj[finalKey])) {
-    targetObj[finalKey] = [];
-  }
+  return client[modelName];
+}
 
-  return {
-    parentObj: targetObj,
-    finalKey: finalKey,
-    recordsArray: targetObj[finalKey],
-  };
-};
+exports.upsertUserInfo = async (data) => {
+  return await prisma.userInfo.upsert({
+    where: {
+      userId: data.userId,
+    },
 
-const updateProfileService = async (
-  currentUser,
-  targetUserId,
-  dataPath,
-  newData,
-) => {
-  const user = await prisma.user.findUnique({
-    where: { id: targetUserId },
-    select: { profile: true, role: true, companyId: true },
-  });
-  if (!user) throw new Error("کاربر پیدا نشد");
+    update: {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      nationalCode: data.nationalCode,
+      jobTitle: data.jobTitle,
+      birthDate: data.birthDate,
+      lastJobTitle: data.lastJobTitle,
 
-  const isSelf = currentUser.id === targetUserId;
-  if (currentUser.role === "MEMBER") {
-    if (!isSelf)
-      throw new Error("شما فقط می‌توانید پروفایل خودتان را ویرایش کنید");
-  } else if (currentUser.role === "COMPANY") {
-    if (!isSelf && user.companyId !== currentUser.companyId) {
-      throw new Error(
-        "شما فقط می‌توانید پروفایل اعضای شرکت خود را ویرایش کنید",
-      );
-    }
-  }
+      organizationalLevel: data.organizationalLevel,
+      isboardMember: data.isboardMember,
+      isshareholder: data.isshareholder,
+      isstrategyTeamMember: data.isstrategyTeamMember,
+    },
 
-  let currentProfile = JSON.parse(JSON.stringify(user.profile || {}));
-  const { parentObj, finalKey, recordsArray } = getTargetArrayAndParent(
-    currentProfile,
-    dataPath,
-  );
+    create: {
+      userId: data.userId,
 
-  let recordsToProcess = [];
-  if (Array.isArray(newData)) recordsToProcess = newData;
-  else if (newData && typeof newData === "object") recordsToProcess = [newData];
-  else throw new Error("داده‌های ورودی نامعتبر است");
+      firstName: data.firstName,
+      lastName: data.lastName,
+      nationalCode: data.nationalCode,
+      jobTitle: data.jobTitle,
+      birthDate: data.birthDate,
+      lastJobTitle: data.lastJobTitle,
 
-  // ensure id
-  const processedNewRecords = recordsToProcess.map((recordData) => {
-    let processedRecord = { ...recordData };
-    if (typeof processedRecord === "string")
-      processedRecord = JSON.parse(processedRecord);
-
-    if (!processedRecord.id || processedRecord.id.trim() === "") {
-      processedRecord.id = require("uuid").v4();
-    }
-    return processedRecord;
-  });
-
-  const updatedRecordsArray = [...recordsArray];
-
-  processedNewRecords.forEach((newRec) => {
-    const existingIndex = updatedRecordsArray.findIndex(
-      (rec) => rec.id === newRec.id,
-    );
-    if (existingIndex !== -1) updatedRecordsArray[existingIndex] = newRec;
-    else updatedRecordsArray.push(newRec);
-  });
-
-  parentObj[finalKey] = updatedRecordsArray;
-
-  const userProgress = calculateUserProgress(currentProfile);
-
-  if (user.role === "COMPANY" && user.companyId) {
-    const company = await prisma.company.findUnique({
-      where: { id: user.companyId },
-    });
-  }
-
-  await prisma.user.update({
-    where: { id: targetUserId },
-    data: {
-      profile: currentProfile,
-      profileCompleted: userProgress.completed,
-      progress: {
-        user: userProgress,
-      },
+      organizationalLevel: data.organizationalLevel,
+      isboardMember: data.isboardMember,
+      isshareholder: data.isshareholder,
+      isstrategyTeamMember: data.isstrategyTeamMember,
     },
   });
 };
 
-module.exports = {
-  updateProfileService,
+exports.create = async (userId, section, data) => {
+  return await prisma.$transaction(async (tx) => {
+    const model = getModel(tx, section);
+
+    return await model.create({
+      data: {
+        ...data,
+        userId,
+      },
+    });
+  });
+};
+
+exports.update = async (section, id, data) => {
+  return await prisma.$transaction(async (tx) => {
+    const model = getModel(tx, section);
+
+    const current = await model.findUnique({
+      where: {
+        id,
+      },
+    });
+
+    if (!current) {
+      createBadRequestError("رکورد موردنظر یافت نشد.", 404);
+    }
+
+    return await model.update({
+      where: {
+        id,
+      },
+      data,
+    });
+  });
+};
+
+exports.remove = async (section, id) => {
+  return await prisma.$transaction(async (tx) => {
+    const model = getModel(tx, section);
+
+    const current = await model.findUnique({
+      where: {
+        id,
+      },
+    });
+
+    if (!current) {
+      createBadRequestError("رکورد موردنظر یافت نشد.", 404);
+    }
+
+    await model.delete({
+      where: {
+        id,
+      },
+    });
+  });
 };

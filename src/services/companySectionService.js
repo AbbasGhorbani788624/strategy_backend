@@ -7,7 +7,7 @@ function getModel(client, section) {
   const modelName = sectionModels[section];
 
   if (!modelName) {
-    throw new Error(`Invalid section: ${section}`);
+    createBadRequestError(`Invalid section: ${section}`, 400);
   }
 
   return client[modelName];
@@ -80,7 +80,7 @@ exports.update = async (section, id, data, files, uploadedById) => {
     });
 
     if (!current) {
-      throw new Error("رکورد موردنظر یافت نشد.");
+      createBadRequestError("رکورد موردنظر یافت نشد.", 404);
     }
 
     const extraData = {};

@@ -86,3 +86,5 @@ updated_at timestamp DEFAULT CURRENT_TIMESTAMP
 
 
 
+getCompanyMembersService
+getCompanyProfile

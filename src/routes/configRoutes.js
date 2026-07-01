@@ -35,6 +35,7 @@ const {
   accessLevelOptions,
   rarityOptions,
   imitabilityOptions,
+  ACTIVITY_SCOPE,
 } = require("../configs/profileConfig");
 
 const router = express.Router();
@@ -59,6 +60,7 @@ router.get("/", auth, (req, res, next) => {
       ORG_STRUCTURE_LEVELS: ORG_STRUCTURE_LEVELS,
       ORG_UNIT_TYPES: ORG_UNIT_TYPES,
       PARENT_UNITS: PARENT_UNITS,
+      ACTIVITY_SCOPE,
       revenueCenters,
       types,
       marketPositions,

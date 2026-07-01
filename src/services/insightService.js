@@ -29,8 +29,9 @@ const callAIInsightAPI = async (company) => {
   } catch (error) {
     console.error("AI API Error:", error.response?.data || error.message);
 
-    throw new Error(
+    createBadRequestError(
       error.response?.data?.message || "خطا در دریافت تحلیل هوش مصنوعی",
+      500,
     );
   }
 };

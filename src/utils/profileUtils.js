@@ -14,15 +14,15 @@ const isSectionCompleted = (records) => {
   return false;
 };
 
-const calculateUserProgress = (profileData) => {
-  const steps = [0, 0, 0, 0];
+const calculateUserProgress = (user) => {
+  const steps = [
+    user.userInfo ? 1 : 0,
+    user.educations?.length ? 1 : 0,
+    user.trainingCourses?.length ? 1 : 0,
+    user.competencies?.length ? 1 : 0,
+  ];
 
-  if (isSectionCompleted(profileData?.basicInfoRecords)) steps[0] = 1;
-  if (isSectionCompleted(profileData?.academicRecords)) steps[1] = 1;
-  if (isSectionCompleted(profileData?.educationalRecords)) steps[2] = 1;
-  if (isSectionCompleted(profileData?.capabilitiesRecords)) steps[3] = 1;
-
-  const firstIncompleteIndex = steps.findIndex((s) => s === 0);
+  const firstIncompleteIndex = steps.findIndex((step) => step === 0);
 
   return {
     steps,

@@ -1,7 +1,7 @@
 const SHAREHOLDER_TYPES = [
-  { value: "BOARD_MEMBER", label: "عضو هیات مدیره" },
-  { value: "SHAREHOLDER", label: "سهامدار" },
-  { value: "STRATEGY_TEAM_MEMBER", label: "عضو تیم استراتژی" },
+  { value: "boardMember", label: "عضو هیات مدیره" },
+  { value: "shareholder", label: "سهامدار" },
+  { value: "strategyTeamMember", label: "عضو تیم استراتژی" },
 ];
 
 const ORGANIZATIONAL_LEVELS = [
@@ -10,6 +10,11 @@ const ORGANIZATIONAL_LEVELS = [
   { value: "EXPERT", label: "کارشناس" },
   { value: "EMPLOYEE", label: "کارمند" },
   { value: "OTHER", label: "سایر" },
+];
+
+const ACTIVITY_SCOPE = [
+  { value: "IRAN", label: " ایران" },
+  { value: "INTERNATIONAL", label: "بین‌المللی" },
 ];
 
 const DEGREE_TYPES = [
@@ -70,7 +75,7 @@ const IMPORTANCE_LEVELS = [
 ////
 
 const COMPANY_TYPES = [
-  { value: "PUBLIC", label: "شرکت بورسی" },
+  { value: "LISTED", label: "شرکت بورسی" },
   { value: "HOLDING", label: "هلدینگ" },
   { value: "SUBSIDIARY", label: "زیرمجموعه هلدینگ" },
 ];
@@ -265,6 +270,7 @@ module.exports = {
   JOB_RELEVANCE,
   IMPORTANCE_LEVELS,
   SKILL_TYPES,
+  ACTIVITY_SCOPE,
 
   COMPANY_TYPES,
   COMPANY_STRUCTURE_TYPES,

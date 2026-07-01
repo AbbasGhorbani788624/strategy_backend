@@ -172,7 +172,7 @@ const getCompanyMembersService = async (companyId, query) => {
   const company = await findCompanyById(companyId);
 
   if (!company) {
-    throw new Error("شرکتی با این ایدی وجود ندارد");
+    createBadRequestError("شرکتی با این ایدی وجود ندارد", 404);
   }
 
   const { search } = query;
@@ -194,7 +194,6 @@ const getCompanyMembersService = async (companyId, query) => {
           username: true,
           role: true,
           createdAt: true,
-          profile: true,
 
           // تعداد کل پروژه‌ها
           _count: {
@@ -267,6 +266,7 @@ const upsertCompanyBasicInfo = async (data) => {
       operationalPersonnelCount: data.operationalPersonnelCount,
       phoneNumber: data.phoneNumber,
       website: data.website,
+      region: data.region,
     },
     create: {
       companyId: data.companyId,
@@ -283,6 +283,7 @@ const upsertCompanyBasicInfo = async (data) => {
       operationalPersonnelCount: data.operationalPersonnelCount,
       phoneNumber: data.phoneNumber,
       website: data.website,
+      region: data.region,
     },
   });
 
@@ -295,8 +296,19 @@ const getCompanyProfile = async (companyId, userId) => {
     select: {
       id: true,
       username: true,
-      profile: true,
       companyId: true,
+      userInfo: true,
+      educations: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      },
+
+      trainingCourses: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      },
+
+      competencies: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      },
     },
   });
 
@@ -386,7 +398,19 @@ const getCompanyProfile = async (companyId, userId) => {
   });
 
   return {
-    userInfo,
+    userInfo: {
+      id: userInfo.id,
+      username: userInfo.username,
+      companyId: userInfo.companyId,
+
+      basicInfoRecords: userInfo.userInfo,
+
+      academicRecords: userInfo.educations,
+
+      educationalRecords: userInfo.trainingCourses,
+
+      capabilitiesRecords: userInfo.competencies,
+    },
     basicInfo,
     managers,
     revenueCenters,

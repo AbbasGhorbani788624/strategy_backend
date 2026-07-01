@@ -32,6 +32,12 @@ const numberFields = {
   organizationUnits: ["employeeCount"],
 
   resourceCapabilities: ["sortOrder"],
+
+  educations: ["graduationYear", "sortOrder"],
+
+  trainingCourses: ["hours", "sortOrder"],
+
+  competencies: ["yearsOfExperience", "sortOrder"],
 };
 
 const decimalFields = {
@@ -54,6 +60,10 @@ const dateFields = {
   balanceSheets: ["fiscalPeriodStart", "fiscalPeriodEnd"],
 
   incomeStatements: ["fiscalPeriodStart", "fiscalPeriodEnd"],
+
+  userInfo: ["birthDate"],
+
+  trainingCourses: ["date"],
 };
 
 function normalizeBoolean(value) {

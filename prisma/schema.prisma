@@ -77,6 +77,11 @@ enum CompanyDataModel {
   COMPANY_RESOURCE_CAPABILITY
 }
 
+enum Region {
+  IRAN
+  INTERNATIONAL
+}
+
 model User {
   id              String           @id @default(uuid())
   username        String           @unique
@@ -85,9 +90,13 @@ model User {
   phoneNumber     String?          @unique
   role            Role
   companyId       String?
-  profile         Json?
   progress        Json?
   projectComments ProjectComment[]
+
+  userInfo          UserInfo?
+  educations        UserEducation[]
+  trainingCourses   UserTrainingCourse[]
+  competencies      UserCompetency[]
 
   profileCompleted Boolean          @default(false)
   createdAt        DateTime         @default(now())
@@ -108,6 +117,90 @@ model User {
 
   @@index([role])
   @@index([companyId])
+}
+
+model UserInfo {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  firstName     String
+  lastName      String
+  nationalCode  String
+  jobTitle      String
+  birthDate     DateTime?
+  lastJobTitle  String
+  organizationalLevel String
+
+  isboardMember       Boolean @default(false)
+  isshareholder       Boolean @default(false)
+  isstrategyTeamMember Boolean @default(false)
+}
+
+model UserEducation {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  degree          String?
+  fieldOfStudy    String?
+  specialization  String?
+  graduationYear  Int?
+  university      String?
+
+  sortOrder Int?
+
+  @@index([userId])
+}
+
+model UserTrainingCourse {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  courseName String
+  level      String?
+  hours      Int?
+  provider   String?
+  date        DateTime?
+
+  sortOrder Int?
+
+  @@index([userId])
+}
+
+model UserCompetency {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  competencyName   String
+
+  type             String?
+  expectedLevel    String?
+  currentLevel     String?
+
+  yearsOfExperience Int?
+
+  jobRelevance String?
+  importance  String?
+
+  sortOrder Int @default(0)
+
+  @@index([userId])
+  @@index([userId, sortOrder])
 }
 
 model ProfileViewAccess {
@@ -685,14 +778,12 @@ model CompanyBasicInfo {
   companyType                 String?
   establishmentYear           String?
   commercialActivityStartYear String?
-  isListed                    Boolean?
-  isHolding                   Boolean?
-  isHoldingSubsidiary         Boolean?
   parentCompanyName           String?
   totalPersonnelCount         Int?
   operationalPersonnelCount   Int?
   phoneNumber                 String?
   website                     String?
+  region Region?
 }
 
 model CompanyManager {

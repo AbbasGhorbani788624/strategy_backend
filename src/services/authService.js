@@ -53,16 +53,21 @@ const loginService = async (username, password) => {
 };
 
 const getMeService = async (userId) => {
-  const user = await findById(userId, ["profile"]);
+  const user = await findById(userId, [
+    "userInfo",
+    "educations",
+    "trainingCourses",
+    "competencies",
+  ]);
 
   if (!user) {
-    createBadRequestError("کاربر پیدا نشد", 404);
+    throw createBadRequestError("کاربر پیدا نشد", 404);
   }
 
   let userProgress = user.progress?.user;
 
   if (!userProgress) {
-    userProgress = calculateUserProgress(user.profile);
+    userProgress = calculateUserProgress(user);
   }
 
   let companyProgress = null;
