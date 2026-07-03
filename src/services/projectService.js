@@ -46,7 +46,9 @@ const createAnalysisProjectService = async (currentUser, payload) => {
 
   const questionCount = await prisma.formQuestion.count({
     where: {
-      formId,
+      category: {
+        analysisFormId: formId,
+      },
     },
   });
 
@@ -622,6 +624,16 @@ const createStepAnalysisProjectService = async (
     createBadRequestError("تحلیل چندمرحله‌ای یافت نشد");
   }
 
+  const questionCount = await prisma.formQuestion.count({
+    where: {
+      category: {
+        multiAnalysisFormId,
+      },
+    },
+  });
+
+  const hasForm = questionCount > 0;
+
   const uniqueGoalIds = [...new Set(goalIds)];
 
   const validGoals = await prisma.multiAnalysisGoal.findMany({
@@ -709,7 +721,7 @@ const createStepAnalysisProjectService = async (
       creatorId: currentUser.id,
       companyId: currentUser.companyId,
       mode: "MULTI",
-      status: "ANALYSIS_PENDING",
+      status: hasForm ? "WAITING_FOR_FORM" : "ANALYSIS_PENDING",
       formId: null,
       formResponses: {},
       multiAnalysisFormId,
@@ -739,12 +751,15 @@ const createStepAnalysisProjectService = async (
     },
   });
 
-  const aiResponse = await handleConversationStepService(
-    project.id,
-    currentUser.id,
-    "",
-  );
+  let aiResponse = null;
 
+  if (!hasForm) {
+    aiResponse = await handleConversationStepService(
+      project.id,
+      currentUser.id,
+      "",
+    );
+  }
   return {
     projectId: project.id,
     multiAnalysisFormId,

@@ -17,19 +17,18 @@ const {
 const router = express.Router();
 
 // امار تحلیل
-
 router.get("/analysis-statistics", auth, getCompanyAnalysisStatistics);
 
 //فرستادن  نوع فرم ها لیست فرم های تکی و مرحله ای
 router.get("/modes", auth, getAnalysisModes);
 
-//گرفتن فرم تکی
+//گرفتن فرم
 router.get("/:formId", auth, getFormForUser);
 
-//پرکردن فرم تکی
+//پرکردن فرم
 router.post("/", auth, validateFormSubmission, submitFormAnswers);
 
-//ارتباط با ai
+//گرفتن تحلیل نهایی و ریسک
 router.post("/:id", auth, handleConversationStep);
 
 module.exports = router;

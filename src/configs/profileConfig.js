@@ -1,9 +1,4 @@
-const SHAREHOLDER_TYPES = [
-  { value: "boardMember", label: "عضو هیات مدیره" },
-  { value: "shareholder", label: "سهامدار" },
-  { value: "strategyTeamMember", label: "عضو تیم استراتژی" },
-];
-
+//profile config
 const ORGANIZATIONAL_LEVELS = [
   { value: "CEO", label: "مدیرعامل" },
   { value: "MIDDLE_MANAGER", label: "مدیر میانی" },
@@ -12,9 +7,10 @@ const ORGANIZATIONAL_LEVELS = [
   { value: "OTHER", label: "سایر" },
 ];
 
-const ACTIVITY_SCOPE = [
-  { value: "IRAN", label: " ایران" },
-  { value: "INTERNATIONAL", label: "بین‌المللی" },
+const SHAREHOLDER_TYPES = [
+  { value: "boardMember", label: "عضو هیات مدیره" },
+  { value: "shareholder", label: "سهامدار" },
+  { value: "strategyTeamMember", label: "عضو تیم استراتژی" },
 ];
 
 const DEGREE_TYPES = [
@@ -34,21 +30,6 @@ const COURSE_LEVELS = [
   { value: "CERTIFIED", label: "مدرک‌دار" },
 ];
 
-const SKILL_TYPES = [
-  { value: "TECHNICAL_SKILL", label: "فنی و تخصصی" },
-  { value: "SOFT_SKILL", label: "مهارت‌های نرم" },
-  { value: "FOREIGN_LANGUAGE", label: "زبان خارجی" },
-  { value: "MANAGERIAL_SKILL", label: "مدیریتی" },
-  { value: "METACOGNITIVE_SKILL", label: "فراشناختی" },
-];
-
-const EXPECTED_LEVELS = [
-  { value: "LOW", label: "پایین" },
-  { value: "MEDIUM", label: "متوسط" },
-  { value: "HIGH", label: "بالا" },
-  { value: "MAXIMUM", label: "حداکثر" },
-];
-
 const CURRENT_LEVELS = [
   { value: "0_NO_KNOWLEDGE", label: "صفر (آشنایی ندارم)" },
   { value: "1_BASIC_AWARENESS", label: "۱ (آشنایی مقدماتی)" },
@@ -58,13 +39,6 @@ const CURRENT_LEVELS = [
   { value: "5_SPECIALIST", label: "۵ (متخصص)" },
 ];
 
-const JOB_RELEVANCE = [
-  { value: "LOW", label: "کم" },
-  { value: "MEDIUM", label: "متوسط" },
-  { value: "HIGH", label: "زیاد" },
-  { value: "CRITICAL", label: "حیاتی" },
-];
-
 const IMPORTANCE_LEVELS = [
   { value: "LOW", label: "کم" },
   { value: "MEDIUM", label: "متوسط" },
@@ -72,7 +46,34 @@ const IMPORTANCE_LEVELS = [
   { value: "CRITICAL", label: "حیاتی" },
 ];
 
-////
+const SKILL_TYPES = [
+  { value: "TECHNICAL_SKILL", label: "فنی و تخصصی" },
+  { value: "SOFT_SKILL", label: "مهارت‌های نرم" },
+  { value: "FOREIGN_LANGUAGE", label: "زبان خارجی" },
+  { value: "MANAGERIAL_SKILL", label: "مدیریتی" },
+  { value: "METACOGNITIVE_SKILL", label: "فراشناختی" },
+];
+
+const JOB_RELEVANCE = [
+  { value: "LOW", label: "کم" },
+  { value: "MEDIUM", label: "متوسط" },
+  { value: "HIGH", label: "زیاد" },
+  { value: "CRITICAL", label: "حیاتی" },
+];
+
+const EXPECTED_LEVELS = [
+  { value: "LOW", label: "پایین" },
+  { value: "MEDIUM", label: "متوسط" },
+  { value: "HIGH", label: "بالا" },
+  { value: "MAXIMUM", label: "حداکثر" },
+];
+
+/////////////
+
+const ACTIVITY_SCOPE = [
+  { value: "IRAN", label: " ایران" },
+  { value: "INTERNATIONAL", label: "بین‌المللی" },
+];
 
 const COMPANY_TYPES = [
   { value: "LISTED", label: "شرکت بورسی" },
@@ -80,21 +81,11 @@ const COMPANY_TYPES = [
   { value: "SUBSIDIARY", label: "زیرمجموعه هلدینگ" },
 ];
 
-// 2. ساختار شرکت (Radio Buttons در بخش اطلاعات پایه)
-// نکته: این مقادیر باید با فیلد structureType در Yup همخوانی داشته باشد
-const COMPANY_STRUCTURE_TYPES = [
-  { value: "PUBLIC", label: "شرکت بورسی" },
-  { value: "HOLDING", label: "هلدینگ" },
-  { value: "SUBSIDIARY", label: "زیرمجموعه هلدینگ" },
-];
-
-// 3. مدیران - نقش در سازمان (Radio Buttons)
 const MANAGER_ROLES = [
   { value: "BOARD_MEMBER", label: "عضو هیأت مدیره" },
   { value: "STRATEGY_TEAM_MEMBER", label: "عضو تیم استراتژی" },
 ];
 
-// 4. سهامداران - نوع سهامدار (Drop Down)
 const SHAREHOLDER_TYPES_COMPANY = [
   { value: "LEGAL", label: "حقوقی" },
   { value: "NATURAL", label: "حقیقی" },
@@ -223,9 +214,6 @@ const shareOfWallet = [
   { value: "minor", label: "ناچیز (کمتر از ۲۰٪)" },
 ];
 
-///////////////////
-
-// 1. دسته‌بندی (مثال: نوع منبع یا دارایی)
 const categoryOptions = [
   { value: "raw_material", label: "مواد اولیه" },
   { value: "technology", label: "فناوری و دانش" },
@@ -234,7 +222,6 @@ const categoryOptions = [
   { value: "infrastructure", label: "زیرساخت و تجهیزات" },
 ];
 
-// 2. سطح برخورداری (دسترسی یا سهم بازار)
 const accessLevelOptions = [
   { value: "exclusive", label: "انحصاری (۱۰۰٪ نیاز توسط ما تأمین می‌شود)" },
   { value: "dominant", label: "غالب (بیش از ۷۰٪)" },
@@ -243,7 +230,6 @@ const accessLevelOptions = [
   { value: "minor", label: "ناچیز (کمتر از ۲۰٪)" },
 ];
 
-// 3. نادر بودن (Rarity)
 const rarityOptions = [
   { value: "common", label: "عمومی (رایج)" },
   { value: "uncommon", label: "غیرمعمول" },
@@ -252,12 +238,17 @@ const rarityOptions = [
   { value: "legendary", label: "افسانه‌ای/منحصربه‌فرد" },
 ];
 
-// 4. غیر قابل تقلید بودن (Imitability)
 const imitabilityOptions = [
   { value: "easily_imitated", label: "به راحتی قابل تقلید" },
   { value: "difficult", label: "دشوار برای تقلید" },
   { value: "costly_to_imitate", label: "با هزینه بسیار بالا برای تقلید" },
   { value: "impossible", label: "غیرقابل تقلید" },
+];
+
+const COMPANY_STRUCTURE_TYPES = [
+  { value: "PUBLIC", label: "شرکت بورسی" },
+  { value: "HOLDING", label: "هلدینگ" },
+  { value: "SUBSIDIARY", label: "زیرمجموعه هلدینگ" },
 ];
 
 module.exports = {

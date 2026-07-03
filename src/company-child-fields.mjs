@@ -128,3 +128,45 @@ export const companyResourceCapabilityFields = {
   inimitabilityLevel: "string",
   sortOrder: "int",
 };
+
+export const userInfoFields = {
+  firstName: "string",
+  lastName: "string",
+  nationalCode: "string",
+  jobTitle: "string",
+  birthDate: "date",
+  lastJobTitle: "string",
+  organizationalLevel: "string",
+  isboardMember: "boolean",
+  isshareholder: "boolean",
+  isstrategyTeamMember: "boolean",
+};
+
+export const userEducationFields = {
+  degree: "string",
+  fieldOfStudy: "string",
+  specialization: "string",
+  graduationYear: "int",
+  university: "string",
+  sortOrder: "int",
+};
+
+export const userTrainingCourseFields = {
+  courseName: "string",
+  level: "string",
+  hours: "int",
+  provider: "string",
+  date: "date",
+  sortOrder: "int",
+};
+
+export const userCompetencyFields = {
+  competencyName: "string",
+  type: "string",
+  expectedLevel: "string",
+  currentLevel: "string",
+  yearsOfExperience: "int",
+  jobRelevance: "string",
+  importance: "string",
+  sortOrder: "int",
+};

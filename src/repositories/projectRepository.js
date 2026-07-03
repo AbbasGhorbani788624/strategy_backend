@@ -336,6 +336,7 @@ const getProject = async (projectId, userId, userRole, companyId) => {
 
     form: {
       id: project.formId,
+      multiAnalysisFormId: project.multiAnalysisFormId,
       ...(formResponses || {}),
     },
     goals: selectedGoals,

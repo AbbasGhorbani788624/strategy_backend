@@ -267,6 +267,8 @@ const upsertCompanyBasicInfo = async (data) => {
       phoneNumber: data.phoneNumber,
       website: data.website,
       region: data.region,
+      vision: data.vision,
+      objectives: data.objectives,
     },
     create: {
       companyId: data.companyId,
@@ -284,6 +286,8 @@ const upsertCompanyBasicInfo = async (data) => {
       phoneNumber: data.phoneNumber,
       website: data.website,
       region: data.region,
+      vision: data?.vision,
+      objectives: data?.objectives,
     },
   });
 

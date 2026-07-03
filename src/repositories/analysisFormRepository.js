@@ -143,84 +143,96 @@ const deleteFormRepo = async (id) => {
 };
 
 const getFormById = async (id) => {
-  return prisma.analysisForm.findUnique({
-    where: {
-      id,
-    },
-
+  let form = await prisma.analysisForm.findUnique({
+    where: { id },
     include: {
       categories: {
-        where: {
-          isActive: true,
-        },
-
-        orderBy: {
-          order: "asc",
-        },
-      },
-
-      questions: {
-        orderBy: {
-          order: "asc",
-        },
-
+        where: { isActive: true },
+        orderBy: { order: "asc" },
         include: {
-          options: {
-            orderBy: {
-              order: "asc",
+          questions: {
+            orderBy: { order: "asc" },
+            include: {
+              options: {
+                orderBy: { order: "asc" },
+              },
             },
           },
         },
       },
-
       categoryGroups: {
-        orderBy: {
-          order: "asc",
-        },
-
+        orderBy: { order: "asc" },
         include: {
           categories: true,
         },
       },
     },
   });
+
+  if (form) {
+    return {
+      ...form,
+      type: "single",
+    };
+  }
+
+  form = await prisma.multiAnalysisForm.findUnique({
+    where: { id },
+    include: {
+      categories: {
+        where: { isActive: true },
+        orderBy: { order: "asc" },
+        include: {
+          questions: {
+            orderBy: { order: "asc" },
+            include: {
+              options: {
+                orderBy: { order: "asc" },
+              },
+            },
+          },
+        },
+      },
+      categoryGroups: {
+        orderBy: { order: "asc" },
+        include: {
+          categories: true,
+        },
+      },
+    },
+  });
+
+  if (form) {
+    return {
+      ...form,
+      type: "multi",
+    };
+  }
+
+  return null;
 };
 
 const getSingleForms = async (companyId) => {
   const [forms, company] = await Promise.all([
     prisma.analysisForm.findMany({
-      orderBy: {
-        createdAt: "desc",
-      },
+      where: { isActive: true },
+      orderBy: { order: "asc" },
       include: {
         profileFields: true,
-
         goals: {
-          select: {
-            id: true,
-            formId: true,
-            title: true,
-          },
+          select: { id: true, title: true },
         },
-
         categories: {
           select: {
             id: true,
-            _count: {
-              select: {
-                questions: true,
-              },
-            },
+            _count: { select: { questions: true } },
           },
         },
       },
     }),
 
     prisma.company.findUnique({
-      where: {
-        id: companyId,
-      },
-
+      where: { id: companyId },
       include: {
         basicInfo: true,
         managers: true,
@@ -239,20 +251,18 @@ const getSingleForms = async (companyId) => {
     }),
   ]);
 
-  const missingModels = new Set();
-
   return forms.map((form) => {
+    const missingModels = new Set();
+
     for (const field of form.profileFields) {
       const completed = isProfileFieldCompleted(company, field.profileFieldKey);
-
-      if (completed) continue;
-
-      const [model] = field.profileFieldKey.split(".");
-
-      missingModels.add({
-        key: model,
-        title: MODEL_TITLES[model],
-      });
+      if (!completed) {
+        const [model] = field.profileFieldKey.split(".");
+        missingModels.add({
+          key: model,
+          title: MODEL_TITLES[model] || model,
+        });
+      }
     }
 
     return {
@@ -261,12 +271,9 @@ const getSingleForms = async (companyId) => {
       order: form.order,
       isActive: form.isActive,
       goals: form.goals,
-      hasForm: form.categories.some(
-        (category) => category._count.questions > 0,
-      ),
-
+      hasForm: form.categories.some((c) => c._count.questions > 0),
       disabled: missingModels.size > 0,
-      missingModels: [...missingModels],
+      missingModels: Array.from(missingModels),
     };
   });
 };
@@ -291,6 +298,17 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
         select: {
           id: true,
           title: true,
+        },
+      },
+      // اضافه شده برای محاسبه hasForm
+      categories: {
+        select: {
+          id: true,
+          _count: {
+            select: {
+              questions: true,
+            },
+          },
         },
       },
     },
@@ -321,6 +339,10 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
       .filter((r) => !completedFormIds.has(r.formId))
       .map((r) => r.form.title);
 
+    const hasForm = multiForm.categories.some(
+      (category) => category._count.questions > 0,
+    );
+
     return {
       id: multiForm.id,
       title: multiForm.title,
@@ -328,6 +350,7 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
       goals: multiForm.goals,
       requiredAnalysisTitles,
       missingAnalysisTitles,
+      hasForm,
       isAvailable: missingAnalysisTitles.length === 0,
     };
   });

@@ -358,7 +358,6 @@ model AnalysisForm {
   isActive                Boolean                      @default(true)
   categoryId              String?
   category                AnalysisCategory?            @relation(fields: [categoryId], references: [id])
-  questions               FormQuestion[]
   categories              FormQuestionCategory[]
   goals                   FormGoal[]
   promptDefinition        PromptDefinition?
@@ -378,33 +377,40 @@ model AnalysisForm {
 }
 
 model FormQuestionCategory {
-  id        String                 @id @default(uuid())
+  id        String @id @default(uuid())
+
   title     String
-  order     Int                    @default(0)
-  formId    String
-  form      AnalysisForm           @relation(fields: [formId], references: [id], onDelete: Cascade)
+  order     Int @default(0)
+
+  analysisFormId      String?
+  analysisForm        AnalysisForm? @relation(fields: [analysisFormId], references: [id], onDelete: Cascade)
+
+  multiAnalysisFormId String?
+  multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
+
   parentId  String?
   parent    FormQuestionCategory?  @relation("QuestionCategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
   children  FormQuestionCategory[] @relation("QuestionCategoryTree")
+
   questions FormQuestion[]
-  isActive  Boolean                @default(true)
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
+
   groups FormCategoryGroupItem[]
 
-  @@index([formId])
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([analysisFormId])
+  @@index([multiAnalysisFormId])
   @@index([parentId])
-  @@index([order])
 }
 
 model FormQuestion {
   id String @id @default(uuid())
 
-  formId String
-  form   AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-
   categoryId String
-  category   FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   label String
 
@@ -441,6 +447,40 @@ model FormQuestionOption {
   updatedAt DateTime @updatedAt
 
   @@index([questionId])
+}
+
+model FormCategoryGroup {
+  id String @id @default(uuid())
+
+  analysisFormId String?
+  analysisForm AnalysisForm? @relation(fields: [analysisFormId], references: [id], onDelete: Cascade)
+
+  multiAnalysisFormId String?
+  multiAnalysisForm MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
+
+  title String
+
+  order Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories FormCategoryGroupItem[]
+
+  @@index([analysisFormId])
+  @@index([multiAnalysisFormId])
+}
+
+model FormCategoryGroupItem {
+  id String @id @default(uuid())
+
+  groupId String
+  group FormCategoryGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  categoryId String
+  category FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, categoryId])
 }
 
 model FeaturedAnalysis {
@@ -565,7 +605,8 @@ model MultiAnalysisForm {
   promptDefinition PromptDefinition?
   profileFields    MultiAnalysisFormProfileField[]
   temperature      Float                           @default(0.7)
-
+  categories FormQuestionCategory[]
+  categoryGroups FormCategoryGroup[]
   @@index([isActive])
   @@index([order])
 }
@@ -783,7 +824,9 @@ model CompanyBasicInfo {
   operationalPersonnelCount   Int?
   phoneNumber                 String?
   website                     String?
-  region Region?
+  vision                      String? @db.Text
+  objectives                  String? @db.Text
+  region                      Region?
 }
 
 model CompanyManager {
@@ -1119,32 +1162,4 @@ model IndustryInsight {
 
   @@index([industryName, fetchedAt])
   @@index([fetchedAt])
-}
-
-model FormCategoryGroup {
-  id String @id @default(uuid())
-
-  formId String
-  form AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-
-  title String
-
-  order Int @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  categories FormCategoryGroupItem[]
-}
-
-model FormCategoryGroupItem {
-  id String @id @default(uuid())
-
-  groupId String
-  group FormCategoryGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-
-  categoryId String
-  category FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-
-  @@unique([groupId, categoryId])
 }

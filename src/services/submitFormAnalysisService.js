@@ -1,21 +1,14 @@
 const { getFormById } = require("../repositories/analysisFormRepository");
 const { createBadRequestError } = require("../utils");
 
-const buildCategoryTree = (categories, questions) => {
+const buildCategoryTree = (categories) => {
   const map = {};
 
   for (const category of categories) {
     map[category.id] = {
       ...category,
       children: [],
-      questions: [],
     };
-  }
-
-  for (const question of questions) {
-    if (map[question.categoryId]) {
-      map[question.categoryId].questions.push(question);
-    }
   }
 
   const roots = [];
@@ -42,7 +35,7 @@ const getFormForUserService = async (formId) => {
     createBadRequestError("فرم یافت نشد", 404);
   }
 
-  const categoryTree = buildCategoryTree(form.categories, form.questions);
+  const categoryTree = buildCategoryTree(form.categories);
 
   const categoryMap = Object.fromEntries(
     form.categories.map((category) => [category.id, category]),
@@ -60,9 +53,9 @@ const getFormForUserService = async (formId) => {
 
   return {
     id: form.id,
+    type: form.type,
     title: form.title,
-    description: form.description,
-
+    description: form.description ?? form.info,
     categories: categoryTree,
 
     categoryGroups,

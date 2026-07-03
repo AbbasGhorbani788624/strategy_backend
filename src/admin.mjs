@@ -32,6 +32,10 @@ import {
   keyCustomerActions,
   organizationUnitActions,
   revenueCenterActions,
+  userCompetencyActions,
+  userEducationActions,
+  userInfoActions,
+  userTrainingCourseActions,
 } from "./child-actions-map.mjs";
 
 import path from "path";
@@ -40,6 +44,44 @@ import { fileURLToPath } from "url";
 import uploadFeature from "@adminjs/upload";
 import { validateProfileFieldKey } from "./profileFieldKey.mjs";
 import { COMPANY_PROFILE_FIELD_OPTIONS } from "./companyProfileFieldKeys.mjs";
+import profileConfig from "./configs/profileConfig.js";
+
+const {
+  SHAREHOLDER_TYPES,
+  ORGANIZATIONAL_LEVELS,
+  DEGREE_TYPES,
+  COURSE_LEVELS,
+  SKILL_TYPES,
+  EXPECTED_LEVELS,
+  CURRENT_LEVELS,
+  JOB_RELEVANCE,
+  IMPORTANCE_LEVELS,
+  COMPANY_TYPES,
+  COMPANY_STRUCTURE_TYPES,
+  MANAGER_ROLES,
+  SHAREHOLDER_TYPES_COMPANY,
+  SHAREHOLDER_BOARD_MEMBERSHIP,
+  ORG_STRUCTURE_LEVELS,
+  ORG_UNIT_TYPES,
+  PARENT_UNITS,
+  revenueCenters,
+  types,
+  marketPositions,
+  revenueShares,
+  marketTypes,
+  marketPenetration,
+  relatedProducts,
+  customerCategories,
+  productImportance,
+  revenueImpact,
+  loyaltyLevels,
+  shareOfWallet,
+  categoryOptions,
+  accessLevelOptions,
+  rarityOptions,
+  imitabilityOptions,
+  ACTIVITY_SCOPE,
+} = profileConfig;
 
 AdminJS.registerAdapter({
   Database,
@@ -63,6 +105,12 @@ const companyProfileNavigation = {
   name: "پروفایل شرکت",
   icon: "Building",
 };
+
+const userProfileNavigation = {
+  name: "پروفایل کاربر",
+  icon: "Building",
+};
+
 const followUpStatusValues = [
   { value: "PENDING", label: "در انتظار" },
   { value: "ANSWERED", label: "پاسخ داده شده" },
@@ -210,6 +258,118 @@ const formatFileSize = (bytes) => {
   return `${size.toFixed(2)} ${units[unit]}`;
 };
 
+export const userInfoResource = prismaResource("UserInfo", {
+  navigation: userProfileNavigation,
+
+  properties: {
+    userId: {
+      reference: "User",
+      isVisible: {
+        list: true,
+        show: true,
+        edit: true,
+        filter: false,
+      },
+    },
+
+    organizationalLevel: {
+      availableValues: ORGANIZATIONAL_LEVELS,
+    },
+  },
+
+  actions: {
+    ...userInfoActions,
+  },
+});
+
+export const userEducationResource = prismaResource("UserEducation", {
+  navigation: userProfileNavigation,
+
+  properties: {
+    userId: {
+      reference: "User",
+      isVisible: {
+        list: true,
+        show: true,
+        edit: true,
+        filter: false,
+      },
+    },
+
+    degree: {
+      availableValues: DEGREE_TYPES,
+    },
+  },
+
+  actions: {
+    ...userEducationActions,
+  },
+});
+
+export const userTrainingCourseResource = prismaResource("UserTrainingCourse", {
+  navigation: userProfileNavigation,
+
+  properties: {
+    userId: {
+      reference: "User",
+      isVisible: {
+        list: true,
+        show: true,
+        edit: true,
+        filter: false,
+      },
+    },
+
+    level: {
+      availableValues: COURSE_LEVELS,
+    },
+  },
+
+  actions: {
+    ...userTrainingCourseActions,
+  },
+});
+
+export const userCompetencyResource = prismaResource("UserCompetency", {
+  navigation: userProfileNavigation,
+
+  properties: {
+    userId: {
+      reference: "User",
+      isVisible: {
+        list: true,
+        show: true,
+        edit: true,
+        filter: false,
+      },
+    },
+
+    type: {
+      availableValues: SKILL_TYPES,
+    },
+
+    expectedLevel: {
+      availableValues: EXPECTED_LEVELS,
+    },
+
+    currentLevel: {
+      availableValues: CURRENT_LEVELS,
+    },
+
+    jobRelevance: {
+      availableValues: JOB_RELEVANCE,
+    },
+
+    importance: {
+      availableValues: IMPORTANCE_LEVELS,
+    },
+  },
+
+  actions: {
+    ...userCompetencyActions,
+  },
+});
+
 export const companyBasicInfoResource = prismaResource("CompanyBasicInfo", {
   navigation: companyProfileNavigation,
 
@@ -222,6 +382,13 @@ export const companyBasicInfoResource = prismaResource("CompanyBasicInfo", {
         show: true,
         edit: true,
       },
+    },
+    companyType: {
+      availableValues: COMPANY_TYPES,
+    },
+
+    region: {
+      availableValues: ACTIVITY_SCOPE,
     },
   },
 
@@ -282,6 +449,13 @@ export const organizationUnitResource = prismaResource("OrganizationUnit", {
         edit: true,
         filter: false,
       },
+    },
+    structureLevel: {
+      availableValues: ORG_STRUCTURE_LEVELS,
+    },
+
+    parentUnitName: {
+      availableValues: PARENT_UNITS,
     },
   },
 
@@ -422,6 +596,9 @@ export const companyShareholderResource = prismaResource("CompanyShareholder", {
         filter: false,
       },
     },
+    shareholderType: {
+      availableValues: SHAREHOLDER_TYPES_COMPANY,
+    },
   },
 
   actions: {
@@ -464,6 +641,21 @@ export const companyProductServiceResource = prismaResource(
           filter: false,
         },
       },
+      revenueCenter: {
+        availableValues: revenueCenters,
+      },
+
+      type: {
+        availableValues: types,
+      },
+
+      revenueSharePercent: {
+        availableValues: revenueShares,
+      },
+
+      marketPosition: {
+        availableValues: marketPositions,
+      },
     },
 
     actions: {
@@ -485,6 +677,17 @@ export const companyMarketResource = prismaResource("CompanyMarket", {
         filter: false,
       },
     },
+    marketType: {
+      availableValues: marketTypes,
+    },
+
+    marketPenetrationLevel: {
+      availableValues: marketPenetration,
+    },
+
+    relatedProductService: {
+      availableValues: relatedProducts,
+    },
   },
 
   actions: {
@@ -504,6 +707,25 @@ export const keyCustomerResource = prismaResource("KeyCustomer", {
         edit: true,
         filter: false,
       },
+    },
+    category: {
+      availableValues: customerCategories,
+    },
+
+    productImportanceLevel: {
+      availableValues: productImportance,
+    },
+
+    revenueImpactLevel: {
+      availableValues: revenueImpact,
+    },
+
+    loyaltyLevel: {
+      availableValues: loyaltyLevels,
+    },
+
+    walletShareLevel: {
+      availableValues: shareOfWallet,
     },
   },
 
@@ -526,6 +748,21 @@ export const companyResourceCapabilityResource = prismaResource(
           edit: true,
           filter: false,
         },
+      },
+      category: {
+        availableValues: categoryOptions,
+      },
+
+      availabilityLevel: {
+        availableValues: accessLevelOptions,
+      },
+
+      rarityLevel: {
+        availableValues: rarityOptions,
+      },
+
+      inimitabilityLevel: {
+        availableValues: imitabilityOptions,
       },
     },
 
@@ -996,6 +1233,10 @@ const admin = new AdminJS({
       listProperties: ["id", "name", "industry", "userLimit", "createdAt"],
       editProperties: ["name", "industry", "userLimit"],
     }),
+    userInfoResource,
+    userEducationResource,
+    userTrainingCourseResource,
+    userCompetencyResource,
     companyBasicInfoResource,
     companyManagerResource,
     organizationUnitResource,
@@ -2582,7 +2823,6 @@ const admin = new AdminJS({
 
       editProperties: ["title", "description"],
     }),
-
     prismaResource("AnalysisForm", {
       navigation: {
         name: "تحلیل های تکی",
@@ -2669,12 +2909,7 @@ const admin = new AdminJS({
 
       properties: {
         id: {
-          isVisible: {
-            list: true,
-            filter: true,
-            show: true,
-            edit: false,
-          },
+          isVisible: { list: true, filter: true, show: true, edit: false },
         },
 
         title: {
@@ -2682,49 +2917,25 @@ const admin = new AdminJS({
           isRequired: true,
         },
 
-        formId: {
+        // روابط اصلی
+        analysisFormId: {
           reference: "AnalysisForm",
-          isRequired: true,
-
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
+          isVisible: { list: false, filter: true, show: true, edit: true },
         },
 
-        form: {
-          reference: "AnalysisForm",
-
-          isVisible: {
-            list: false,
-            filter: true,
-            show: false,
-            edit: false,
-          },
+        multiAnalysisFormId: {
+          reference: "MultiAnalysisForm",
+          isVisible: { list: false, filter: true, show: true, edit: true },
         },
 
         parentId: {
           reference: "FormQuestionCategory",
-
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
+          isVisible: { list: false, filter: false, show: true, edit: true },
         },
 
         parent: {
           reference: "FormQuestionCategory",
-
-          isVisible: {
-            list: false,
-            filter: true,
-            show: false,
-            edit: false,
-          },
+          isVisible: { list: false, filter: true, show: false, edit: false },
         },
 
         order: {
@@ -2736,56 +2947,30 @@ const admin = new AdminJS({
           type: "boolean",
         },
 
+        // فیلدهای مجازی
         formTitle: {
           type: "string",
           isVirtual: true,
           label: "فرم تحلیل",
-
-          isVisible: {
-            list: true,
-            show: true,
-            edit: false,
-            filter: false,
-          },
+          isVisible: { list: true, show: true, edit: false, filter: false },
         },
 
         parentTitle: {
           type: "string",
           isVirtual: true,
           label: "دسته والد",
-
-          isVisible: {
-            list: true,
-            show: true,
-            edit: false,
-            filter: false,
-          },
+          isVisible: { list: true, show: true, edit: false, filter: false },
         },
 
-        children: {
-          isVisible: false,
-        },
-
-        questions: {
-          isVisible: false,
-        },
+        children: { isVisible: false },
+        questions: { isVisible: false },
 
         createdAt: {
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: false,
-          },
+          isVisible: { list: false, filter: false, show: true, edit: false },
         },
 
         updatedAt: {
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: false,
-          },
+          isVisible: { list: false, filter: false, show: true, edit: false },
         },
       },
 
@@ -2798,7 +2983,13 @@ const admin = new AdminJS({
         "isActive",
       ],
 
-      filterProperties: ["form", "parent", "title", "isActive"],
+      filterProperties: [
+        "analysisFormId",
+        "multiAnalysisFormId",
+        "parentId",
+        "title",
+        "isActive",
+      ],
 
       showProperties: [
         "id",
@@ -2811,62 +3002,73 @@ const admin = new AdminJS({
         "updatedAt",
       ],
 
-      editProperties: ["formId", "parentId", "title", "order", "isActive"],
+      editProperties: [
+        "analysisFormId",
+        "multiAnalysisFormId",
+        "parentId",
+        "title",
+        "order",
+        "isActive",
+      ],
 
       actions: {
         list: {
           after: async (response) => {
             if (!response.records?.length) return response;
 
-            const formIds = [
+            const analysisFormIds = [
               ...new Set(
-                response.records.map((r) => r.params.form).filter(Boolean),
+                response.records
+                  .map((r) => r.params.analysisFormId)
+                  .filter(Boolean),
               ),
             ];
-
+            const multiFormIds = [
+              ...new Set(
+                response.records
+                  .map((r) => r.params.multiAnalysisFormId)
+                  .filter(Boolean),
+              ),
+            ];
             const parentIds = [
               ...new Set(
-                response.records.map((r) => r.params.parent).filter(Boolean),
+                response.records.map((r) => r.params.parentId).filter(Boolean),
               ),
-            ];
+            ]; // parentId درست شد
 
             const forms = await prisma.analysisForm.findMany({
-              where: {
-                id: {
-                  in: formIds,
-                },
-              },
-              select: {
-                id: true,
-                title: true,
-              },
+              where: { id: { in: analysisFormIds } },
+              select: { id: true, title: true },
+            });
+
+            const multiForms = await prisma.multiAnalysisForm.findMany({
+              where: { id: { in: multiFormIds } },
+              select: { id: true, title: true },
             });
 
             const parents = await prisma.formQuestionCategory.findMany({
-              where: {
-                id: {
-                  in: parentIds,
-                },
-              },
-              select: {
-                id: true,
-                title: true,
-              },
+              where: { id: { in: parentIds } },
+              select: { id: true, title: true },
             });
 
             const formMap = Object.fromEntries(
               forms.map((f) => [f.id, f.title]),
             );
-
+            const multiFormMap = Object.fromEntries(
+              multiForms.map((f) => [f.id, f.title]),
+            );
             const parentMap = Object.fromEntries(
               parents.map((p) => [p.id, p.title]),
             );
 
             response.records.forEach((record) => {
-              record.params.formTitle = formMap[record.params.form] || "—";
+              const formTitle =
+                formMap[record.params.analysisFormId] ||
+                multiFormMap[record.params.multiAnalysisFormId];
+              record.params.formTitle = formTitle || "—";
 
               record.params.parentTitle =
-                parentMap[record.params.parent] || "ریشه";
+                parentMap[record.params.parentId] || "ریشه";
             });
 
             return response;
@@ -2877,131 +3079,37 @@ const admin = new AdminJS({
           after: async (response) => {
             if (!response.record) return response;
 
-            const form = await prisma.analysisForm.findUnique({
-              where: {
-                id: response.record.params.form,
-              },
-              select: {
-                title: true,
-              },
-            });
+            const { analysisFormId, multiAnalysisFormId, parentId } =
+              response.record.params;
 
-            response.record.params.formTitle = form?.title || "—";
-
-            if (response.record.params.parent) {
-              const parent = await prisma.formQuestionCategory.findUnique({
-                where: {
-                  id: response.record.params.parent,
-                },
-                select: {
-                  title: true,
-                },
+            // فرم معمولی
+            if (analysisFormId) {
+              const form = await prisma.analysisForm.findUnique({
+                where: { id: analysisFormId },
+                select: { title: true },
               });
+              response.record.params.formTitle = form?.title || "—";
+            }
+            // فرم چندتحلیلی
+            else if (multiAnalysisFormId) {
+              const form = await prisma.multiAnalysisForm.findUnique({
+                where: { id: multiAnalysisFormId },
+                select: { title: true },
+              });
+              response.record.params.formTitle = form?.title || "—";
+            }
 
+            if (parentId) {
+              const parent = await prisma.formQuestionCategory.findUnique({
+                where: { id: parentId },
+                select: { title: true },
+              });
               response.record.params.parentTitle = parent?.title || "—";
             } else {
               response.record.params.parentTitle = "ریشه";
             }
 
             return response;
-          },
-        },
-
-        new: {
-          handler: async (request, response, context) => {
-            const { resource, h, currentAdmin } = context;
-
-            if (request.method === "get") {
-              return {
-                resource: resource.decorate().toJSON(currentAdmin),
-                record: null,
-              };
-            }
-
-            const payload = request.payload ?? {};
-
-            const formId = String(payload.formId || "");
-            const parentId = String(payload.parentId || "");
-            const title = String(payload.title || "").trim();
-            const order = parseIntegerValue(payload.order);
-            const isActive = parseBooleanValue(payload.isActive);
-
-            const errors = {};
-
-            if (!formId) {
-              errors.formId = {
-                message: "فرم الزامی است.",
-              };
-            }
-
-            if (!title) {
-              errors.title = {
-                message: "عنوان دسته بندی الزامی است.",
-              };
-            }
-
-            if (order === null) {
-              errors.order = {
-                message: "ترتیب باید عدد صحیح باشد.",
-              };
-            }
-
-            if (Object.keys(errors).length) {
-              throw new ValidationError(errors);
-            }
-
-            try {
-              const created = await prisma.formQuestionCategory.create({
-                data: {
-                  title,
-                  order,
-                  isActive,
-
-                  form: {
-                    connect: {
-                      id: formId,
-                    },
-                  },
-
-                  ...(parentId && {
-                    parent: {
-                      connect: {
-                        id: parentId,
-                      },
-                    },
-                  }),
-                },
-              });
-
-              const record = await resource.findOne(created.id);
-
-              return {
-                record: record?.toJSON(currentAdmin),
-
-                notice: {
-                  message: "دسته بندی با موفقیت ایجاد شد.",
-                  type: "success",
-                },
-
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource.id(),
-                  recordId: created.id,
-                  actionName: "show",
-                }),
-              };
-            } catch (error) {
-              console.error("CATEGORY_CREATE_ERROR:", error);
-
-              if (error instanceof ValidationError) {
-                throw error;
-              }
-
-              throw new ValidationError({
-                formId: {
-                  message: "خطا در ایجاد دسته بندی.",
-                },
-              });
-            }
           },
         },
 
@@ -3018,67 +3126,73 @@ const admin = new AdminJS({
 
             const payload = request.payload ?? {};
 
-            const formId = String(payload.formId || "");
-            const parentId = String(payload.parentId || "");
+            const analysisFormId = String(payload.analysisFormId || "").trim();
+            const multiAnalysisFormId = String(
+              payload.multiAnalysisFormId || "",
+            ).trim();
+            const parentId = String(payload.parentId || "").trim();
             const title = String(payload.title || "").trim();
             const order = parseIntegerValue(payload.order);
             const isActive = parseBooleanValue(payload.isActive);
 
             const errors = {};
 
-            if (!formId) {
-              errors.formId = {
-                message: "فرم الزامی است.",
+            if (!analysisFormId && !multiAnalysisFormId) {
+              errors.analysisFormId = {
+                message: "حداقل یکی از فرم‌ها الزامی است.",
+              };
+            }
+
+            if (analysisFormId && multiAnalysisFormId) {
+              errors.analysisFormId = {
+                message: "نمی‌توانید همزمان هر دو نوع فرم را انتخاب کنید.",
               };
             }
 
             if (!title) {
-              errors.title = {
-                message: "عنوان دسته بندی الزامی است.",
-              };
+              errors.title = { message: "عنوان دسته‌بندی الزامی است." };
             }
 
             if (order === null) {
-              errors.order = {
-                message: "ترتیب باید عدد صحیح باشد.",
-              };
+              errors.order = { message: "ترتیب باید عدد صحیح باشد." };
             }
 
             if (Object.keys(errors).length) {
               throw new ValidationError(errors);
             }
 
-            // اگر parent انتخاب شده، وجودش بررسی شود
+            // اعتبارسنجی parent
             if (parentId) {
               if (parentId === record.params.id) {
                 throw new ValidationError({
-                  parentId: {
-                    message: "دسته بندی نمی‌تواند والد خودش باشد.",
-                  },
+                  parentId: { message: "دسته‌بندی نمی‌تواند والد خودش باشد." },
                 });
               }
 
               const parent = await prisma.formQuestionCategory.findUnique({
-                where: {
-                  id: parentId,
-                },
+                where: { id: parentId },
                 select: {
-                  formId: true,
+                  analysisFormId: true,
+                  multiAnalysisFormId: true,
                 },
               });
 
               if (!parent) {
                 throw new ValidationError({
-                  parentId: {
-                    message: "دسته بندی والد معتبر نیست.",
-                  },
+                  parentId: { message: "دسته‌بندی والد معتبر نیست." },
                 });
               }
 
-              if (parent.formId !== formId) {
+              // بررسی هم‌خوانی فرم والد با فرزند
+              const isSameForm =
+                (analysisFormId && parent.analysisFormId === analysisFormId) ||
+                (multiAnalysisFormId &&
+                  parent.multiAnalysisFormId === multiAnalysisFormId);
+
+              if (!isSameForm) {
                 throw new ValidationError({
                   parentId: {
-                    message: "دسته بندی والد باید متعلق به همین فرم باشد.",
+                    message: "دسته‌بندی والد باید متعلق به همان فرم باشد.",
                   },
                 });
               }
@@ -3086,29 +3200,22 @@ const admin = new AdminJS({
 
             try {
               await prisma.formQuestionCategory.update({
-                where: {
-                  id: record.params.id,
-                },
+                where: { id: record.params.id },
                 data: {
                   title,
                   order,
                   isActive,
 
-                  form: {
-                    connect: {
-                      id: formId,
-                    },
-                  },
+                  ...(analysisFormId && {
+                    analysisForm: { connect: { id: analysisFormId } },
+                  }),
+                  ...(multiAnalysisFormId && {
+                    multiAnalysisForm: { connect: { id: multiAnalysisFormId } },
+                  }),
 
                   parent: parentId
-                    ? {
-                        connect: {
-                          id: parentId,
-                        },
-                      }
-                    : {
-                        disconnect: true,
-                      },
+                    ? { connect: { id: parentId } }
+                    : { disconnect: true },
                 },
               });
 
@@ -3116,12 +3223,10 @@ const admin = new AdminJS({
 
               return {
                 record: updatedRecord?.toJSON(currentAdmin),
-
                 notice: {
-                  message: "دسته بندی با موفقیت ویرایش شد.",
+                  message: "دسته‌بندی با موفقیت ویرایش شد.",
                   type: "success",
                 },
-
                 redirectUrl: h.recordActionUrl({
                   resourceId: resource.id(),
                   recordId: record.params.id,
@@ -3131,14 +3236,10 @@ const admin = new AdminJS({
             } catch (error) {
               console.error("CATEGORY_EDIT_ERROR:", error);
 
-              if (error instanceof ValidationError) {
-                throw error;
-              }
+              if (error instanceof ValidationError) throw error;
 
               throw new ValidationError({
-                formId: {
-                  message: "خطا در ویرایش دسته بندی.",
-                },
+                _form: { message: "خطا در ویرایش دسته‌بندی." },
               });
             }
           },
@@ -3153,27 +3254,7 @@ const admin = new AdminJS({
 
       properties: {
         id: {
-          isVisible: {
-            list: true,
-            filter: true,
-            show: true,
-            edit: false,
-          },
-        },
-
-        formId: {
-          reference: "AnalysisForm",
-          isRequired: true,
-        },
-
-        form: {
-          reference: "AnalysisForm",
-          isVisible: {
-            list: false,
-            filter: true,
-            show: false,
-            edit: false,
-          },
+          isVisible: { list: true, filter: true, show: true, edit: false },
         },
 
         categoryId: {
@@ -3183,12 +3264,7 @@ const admin = new AdminJS({
 
         category: {
           reference: "FormQuestionCategory",
-          isVisible: {
-            list: false,
-            filter: true,
-            show: false,
-            edit: false,
-          },
+          isVisible: { list: false, filter: true, show: false, edit: false },
         },
 
         label: {
@@ -3201,13 +3277,18 @@ const admin = new AdminJS({
           isRequired: true,
         },
 
-        weight: {
-          type: "number",
-          isRequired: false,
-        },
-
         required: {
           type: "boolean",
+          isRequired: true,
+        },
+
+        isScored: {
+          type: "boolean",
+          isVisible: { list: true, show: true, edit: true, filter: true },
+        },
+
+        weight: {
+          type: "number",
         },
 
         order: {
@@ -3215,29 +3296,25 @@ const admin = new AdminJS({
           isRequired: true,
         },
 
+        // فیلدهای مجازی
         formTitle: {
           type: "string",
           isVirtual: true,
           label: "فرم",
+          isVisible: { list: true, show: true, edit: false, filter: false },
         },
 
         categoryTitle: {
           type: "string",
           isVirtual: true,
-          label: "دسته بندی",
+          label: "دسته‌بندی",
+          isVisible: { list: true, show: true, edit: false, filter: false },
         },
 
-        options: {
-          isVisible: false,
-        },
+        options: { isVisible: false },
 
-        createdAt: {
-          isVisible: false,
-        },
-
-        updatedAt: {
-          isVisible: false,
-        },
+        createdAt: { isVisible: false },
+        updatedAt: { isVisible: false },
       },
 
       listProperties: [
@@ -3246,67 +3323,152 @@ const admin = new AdminJS({
         "categoryTitle",
         "label",
         "type",
+        "isScored",
         "weight",
         "required",
         "order",
       ],
-      filterProperties: ["form", "category", "label", "type", "required"],
+
+      filterProperties: ["categoryId", "label", "type", "isScored", "required"],
+
       showProperties: [
         "id",
         "formTitle",
         "categoryTitle",
         "label",
         "type",
+        "isScored",
+        "weight",
+        "required",
+        "order",
+        "createdAt",
+        "updatedAt",
+      ],
+
+      editProperties: [
+        "categoryId",
+        "label",
+        "type",
+        "isScored",
         "weight",
         "required",
         "order",
       ],
 
-      editProperties: [
-        "formId",
-        "categoryId",
-        "label",
-        "type",
-        "weight",
-        "required",
-        "order",
-      ],
       actions: {
         list: {
           after: async (response) => {
             if (!response.records?.length) return response;
-            const formIds = [
-              ...new Set(
-                response.records.map((r) => r.params.form).filter(Boolean),
-              ),
-            ];
+
             const categoryIds = [
               ...new Set(
-                response.records.map((r) => r.params.category).filter(Boolean),
+                response.records
+                  .map((r) => r.params.categoryId)
+                  .filter(Boolean),
               ),
             ];
-            const forms = await prisma.analysisForm.findMany({
-              where: { id: { in: formIds } },
-              select: { id: true, title: true },
-            });
+
             const categories = await prisma.formQuestionCategory.findMany({
               where: { id: { in: categoryIds } },
-              select: { id: true, title: true },
+              select: {
+                id: true,
+                title: true,
+                analysisFormId: true,
+                multiAnalysisFormId: true,
+              },
             });
+
+            // دریافت عنوان فرم از طریق دسته‌بندی
+            const analysisFormIds = [
+              ...new Set(
+                categories.map((c) => c.analysisFormId).filter(Boolean),
+              ),
+            ];
+            const multiFormIds = [
+              ...new Set(
+                categories.map((c) => c.multiAnalysisFormId).filter(Boolean),
+              ),
+            ];
+
+            const [forms, multiForms] = await Promise.all([
+              prisma.analysisForm.findMany({
+                where: { id: { in: analysisFormIds } },
+                select: { id: true, title: true },
+              }),
+              prisma.multiAnalysisForm.findMany({
+                where: { id: { in: multiFormIds } },
+                select: { id: true, title: true },
+              }),
+            ]);
+
             const formMap = Object.fromEntries(
               forms.map((f) => [f.id, f.title]),
+            );
+            const multiFormMap = Object.fromEntries(
+              multiForms.map((f) => [f.id, f.title]),
             );
             const categoryMap = Object.fromEntries(
               categories.map((c) => [c.id, c.title]),
             );
+
             response.records.forEach((record) => {
-              record.params.formTitle = formMap[record.params.form] || "—";
+              const cat = categories.find(
+                (c) => c.id === record.params.categoryId,
+              );
+              const formTitle = cat?.analysisFormId
+                ? formMap[cat.analysisFormId]
+                : cat?.multiAnalysisFormId
+                  ? multiFormMap[cat.multiAnalysisFormId]
+                  : null;
+
+              record.params.formTitle = formTitle || "—";
               record.params.categoryTitle =
-                categoryMap[record.params.category] || "—";
+                categoryMap[record.params.categoryId] || "—";
             });
+
             return response;
           },
         },
+
+        show: {
+          after: async (response) => {
+            if (!response.record) return response;
+
+            const categoryId = response.record.params.categoryId;
+
+            const category = await prisma.formQuestionCategory.findUnique({
+              where: { id: categoryId },
+              select: {
+                title: true,
+                analysisFormId: true,
+                multiAnalysisFormId: true,
+              },
+            });
+
+            if (category) {
+              response.record.params.categoryTitle = category.title;
+
+              let formTitle = "—";
+              if (category.analysisFormId) {
+                const form = await prisma.analysisForm.findUnique({
+                  where: { id: category.analysisFormId },
+                  select: { title: true },
+                });
+                formTitle = form?.title || "—";
+              } else if (category.multiAnalysisFormId) {
+                const form = await prisma.multiAnalysisForm.findUnique({
+                  where: { id: category.multiAnalysisFormId },
+                  select: { title: true },
+                });
+                formTitle = form?.title || "—";
+              }
+              response.record.params.formTitle = formTitle;
+            }
+
+            return response;
+          },
+        },
+
         new: {
           handler: async (request, response, context) => {
             const { resource, h, currentAdmin } = context;
@@ -3320,155 +3482,87 @@ const admin = new AdminJS({
 
             const payload = request.payload ?? {};
 
-            const formId = String(payload.formId || "");
             const categoryId = String(payload.categoryId || "");
             const label = String(payload.label || "").trim();
             const type = String(payload.type || "");
             const required = parseBooleanValue(payload.required);
+            const isScored = parseBooleanValue(payload.isScored);
             const order = parseIntegerValue(payload.order);
-
             const weight =
-              payload.weight === "" ||
-              payload.weight === undefined ||
-              payload.weight === null
+              payload.weight == null || payload.weight === ""
                 ? null
                 : parseIntegerValue(payload.weight);
 
             const errors = {};
 
-            if (!formId) {
-              errors.formId = { message: "فرم الزامی است." };
-            }
-
-            if (!categoryId) {
-              errors.categoryId = { message: "دسته بندی الزامی است." };
-            }
-
-            if (!label) {
-              errors.label = { message: "عنوان سوال الزامی است." };
-            }
-
-            if (!type) {
-              errors.type = { message: "نوع سوال الزامی است." };
-            }
-
-            if (order === null) {
-              errors.order = {
-                message: "ترتیب باید یک عدد صحیح باشد.",
-              };
-            }
+            if (!categoryId)
+              errors.categoryId = { message: "دسته‌بندی الزامی است." };
+            if (!label) errors.label = { message: "عنوان سوال الزامی است." };
+            if (!type) errors.type = { message: "نوع سوال الزامی است." };
+            if (order === null)
+              errors.order = { message: "ترتیب باید عدد صحیح باشد." };
 
             if (weight !== null && (weight < 0 || weight > 100)) {
-              errors.weight = {
-                message: "وزن باید بین 0 تا 100 باشد.",
-              };
+              errors.weight = { message: "وزن باید بین 0 تا 100 باشد." };
             }
 
-            if (Object.keys(errors).length) {
-              throw new ValidationError(errors);
-            }
+            if (Object.keys(errors).length) throw new ValidationError(errors);
 
+            // اعتبارسنجی دسته‌بندی + محاسبه وزن
             const category = await prisma.formQuestionCategory.findUnique({
               where: { id: categoryId },
               select: {
                 id: true,
-                formId: true,
+                analysisFormId: true,
+                multiAnalysisFormId: true,
               },
             });
 
             if (!category) {
               throw new ValidationError({
-                categoryId: {
-                  message: "دسته بندی انتخاب شده معتبر نیست.",
-                },
-              });
-            }
-
-            if (category.formId !== formId) {
-              throw new ValidationError({
-                categoryId: {
-                  message: "دسته بندی انتخاب شده متعلق به فرم انتخاب شده نیست.",
-                },
+                categoryId: { message: "دسته‌بندی معتبر نیست." },
               });
             }
 
             if (weight !== null) {
               const aggregate = await prisma.formQuestion.aggregate({
-                where: {
-                  formId,
-                  categoryId,
-                  weight: {
-                    not: null,
-                  },
-                },
-                _sum: {
-                  weight: true,
-                },
+                where: { categoryId, weight: { not: null } },
+                _sum: { weight: true },
               });
 
-              const currentWeight = aggregate._sum.weight || 0;
-
-              if (currentWeight + weight > 100) {
+              const currentSum = aggregate._sum.weight || 0;
+              if (currentSum + weight > 100) {
                 throw new ValidationError({
                   weight: {
-                    message: `جمع وزن سوالات این دسته‌بندی نمی‌تواند بیشتر از 100 باشد. (مجموع فعلی: ${currentWeight})`,
+                    message: `جمع وزن سوالات این دسته‌بندی نمی‌تواند بیشتر از 100 باشد (مجموع فعلی: ${currentSum})`,
                   },
                 });
               }
             }
 
-            try {
-              const created = await prisma.formQuestion.create({
-                data: {
-                  label,
-                  type,
-                  weight,
-                  required,
-                  order,
+            const created = await prisma.formQuestion.create({
+              data: {
+                label,
+                type,
+                required,
+                isScored,
+                weight,
+                order,
+                category: { connect: { id: categoryId } },
+              },
+            });
 
-                  form: {
-                    connect: {
-                      id: formId,
-                    },
-                  },
+            const record = await resource.findOne(created.id);
 
-                  category: {
-                    connect: {
-                      id: categoryId,
-                    },
-                  },
-                },
-              });
-
-              const record = await resource.findOne(created.id);
-
-              return {
-                record: record?.toJSON(currentAdmin),
-
-                notice: {
-                  message: "سوال با موفقیت ایجاد شد.",
-                  type: "success",
-                },
-
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource.id(),
-                  recordId: created.id,
-                  actionName: "show",
-                }),
-              };
-            } catch (error) {
-              console.error("FORM_QUESTION_CREATE_ERROR:", error);
-
-              if (error instanceof ValidationError) {
-                throw error;
-              }
-
-              throw new ValidationError({
-                formId: {
-                  message: "خطا در ایجاد سوال.",
-                },
-              });
-            }
+            return {
+              record: record?.toJSON(currentAdmin),
+              notice: { message: "سوال با موفقیت ایجاد شد.", type: "success" },
+              redirectUrl: h.recordActionUrl({
+                resourceId: resource.id(),
+                recordId: created.id,
+                actionName: "show",
+              }),
+            };
           },
         },
 
@@ -3485,203 +3579,95 @@ const admin = new AdminJS({
 
             const payload = request.payload ?? {};
 
-            const formId = String(payload.formId || "");
             const categoryId = String(payload.categoryId || "");
             const label = String(payload.label || "").trim();
             const type = String(payload.type || "");
             const required = parseBooleanValue(payload.required);
+            const isScored = parseBooleanValue(payload.isScored);
             const order = parseIntegerValue(payload.order);
-
             const weight =
-              payload.weight === "" ||
-              payload.weight === undefined ||
-              payload.weight === null
+              payload.weight == null || payload.weight === ""
                 ? null
                 : parseIntegerValue(payload.weight);
 
             const errors = {};
 
-            if (!formId) {
-              errors.formId = { message: "فرم الزامی است." };
-            }
-
-            if (!categoryId) {
-              errors.categoryId = { message: "دسته بندی الزامی است." };
-            }
-
-            if (!label) {
-              errors.label = { message: "عنوان سوال الزامی است." };
-            }
-
-            if (!type) {
-              errors.type = { message: "نوع سوال الزامی است." };
-            }
-
-            if (order === null) {
-              errors.order = {
-                message: "ترتیب باید یک عدد صحیح باشد.",
-              };
-            }
+            if (!categoryId)
+              errors.categoryId = { message: "دسته‌بندی الزامی است." };
+            if (!label) errors.label = { message: "عنوان سوال الزامی است." };
+            if (!type) errors.type = { message: "نوع سوال الزامی است." };
+            if (order === null)
+              errors.order = { message: "ترتیب باید عدد صحیح باشد." };
 
             if (weight !== null && (weight < 0 || weight > 100)) {
-              errors.weight = {
-                message: "وزن باید بین 0 تا 100 باشد.",
-              };
+              errors.weight = { message: "وزن باید بین 0 تا 100 باشد." };
             }
 
-            if (Object.keys(errors).length) {
-              throw new ValidationError(errors);
-            }
+            if (Object.keys(errors).length) throw new ValidationError(errors);
 
             const category = await prisma.formQuestionCategory.findUnique({
-              where: {
-                id: categoryId,
-              },
-              select: {
-                formId: true,
-              },
+              where: { id: categoryId },
+              select: { id: true },
             });
 
             if (!category) {
               throw new ValidationError({
-                categoryId: {
-                  message: "دسته بندی معتبر نیست.",
-                },
+                categoryId: { message: "دسته‌بندی معتبر نیست." },
               });
             }
 
-            if (category.formId !== formId) {
-              throw new ValidationError({
-                categoryId: {
-                  message: "دسته بندی متعلق به فرم انتخاب شده نیست.",
-                },
-              });
-            }
-
+            // چک وزن (بدون خود سوال فعلی)
             if (weight !== null) {
               const aggregate = await prisma.formQuestion.aggregate({
                 where: {
-                  formId,
                   categoryId,
-                  weight: {
-                    not: null,
-                  },
-                  NOT: {
-                    id: record.params.id,
-                  },
+                  weight: { not: null },
+                  NOT: { id: record.params.id },
                 },
-                _sum: {
-                  weight: true,
-                },
+                _sum: { weight: true },
               });
-              const totalWeight = (aggregate._sum.weight || 0) + weight;
 
-              if (totalWeight > 100) {
+              const total = (aggregate._sum.weight || 0) + weight;
+              if (total > 100) {
                 throw new ValidationError({
                   weight: {
-                    message: `جمع وزن سوالات نمی‌تواند بیشتر از 100 باشد. (مجموع جدید: ${totalWeight})`,
+                    message: `جمع وزن نمی‌تواند بیشتر از 100 باشد (مجموع جدید: ${total})`,
                   },
                 });
               }
             }
 
-            try {
-              await prisma.formQuestion.update({
-                where: {
-                  id: record.params.id,
-                },
-                data: {
-                  label,
-                  type,
-                  weight,
-                  required,
-                  order,
+            await prisma.formQuestion.update({
+              where: { id: record.params.id },
+              data: {
+                label,
+                type,
+                required,
+                isScored,
+                weight,
+                order,
+                category: { connect: { id: categoryId } },
+              },
+            });
 
-                  form: {
-                    connect: {
-                      id: formId,
-                    },
-                  },
+            const updatedRecord = await resource.findOne(record.params.id);
 
-                  category: {
-                    connect: {
-                      id: categoryId,
-                    },
-                  },
-                },
-              });
-
-              const updatedRecord = await resource.findOne(record.params.id);
-
-              return {
-                record: updatedRecord?.toJSON(currentAdmin),
-
-                notice: {
-                  message: "سوال با موفقیت ویرایش شد.",
-                  type: "success",
-                },
-
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource.id(),
-                  recordId: record.params.id,
-                  actionName: "show",
-                }),
-              };
-            } catch (error) {
-              console.error("FORM_QUESTION_EDIT_ERROR:", error);
-
-              if (error instanceof ValidationError) {
-                throw error;
-              }
-
-              throw new ValidationError({
-                formId: {
-                  message: "خطا در ویرایش سوال.",
-                },
-              });
-            }
-          },
-        },
-
-        show: {
-          after: async (response) => {
-            if (!response.record) return response;
-
-            const formId = response.record.params.form;
-            const categoryId = response.record.params.category;
-
-            const [form, category] = await Promise.all([
-              prisma.analysisForm.findUnique({
-                where: {
-                  id: formId,
-                },
-                select: {
-                  title: true,
-                },
+            return {
+              record: updatedRecord?.toJSON(currentAdmin),
+              notice: { message: "سوال با موفقیت ویرایش شد.", type: "success" },
+              redirectUrl: h.recordActionUrl({
+                resourceId: resource.id(),
+                recordId: record.params.id,
+                actionName: "show",
               }),
-
-              prisma.formQuestionCategory.findUnique({
-                where: {
-                  id: categoryId,
-                },
-                select: {
-                  title: true,
-                },
-              }),
-            ]);
-
-            response.record.params.formTitle = form?.title || "—";
-
-            response.record.params.categoryTitle = category?.title || "—";
-
-            return response;
+            };
           },
         },
       },
     }),
     prismaResource("FormQuestionOption", {
       navigation: {
-        name: "گزینه های سوالات",
+        name: "گزینه‌های سوالات",
         icon: "HelpCircle",
       },
 
@@ -3689,23 +3675,32 @@ const admin = new AdminJS({
         id: {
           isVisible: { list: true, filter: true, show: true, edit: false },
         },
+
         questionId: {
           reference: "FormQuestion",
           isRequired: true,
-
           isVisible: {
             list: false,
-            filter: false,
+            filter: true,
             show: true,
             edit: true,
           },
         },
+
         question: {
           reference: "FormQuestion",
-          isVisible: { list: false, filter: true, show: false, edit: false },
+          isVisible: { list: false, filter: false, show: false, edit: false },
         },
-        label: { isTitle: true, isRequired: true },
-        value: { isRequired: true },
+
+        label: {
+          isTitle: true,
+          isRequired: true,
+        },
+
+        value: {
+          isRequired: true,
+        },
+
         score: {
           availableValues: [
             { value: 1, label: "1" },
@@ -3714,25 +3709,25 @@ const admin = new AdminJS({
             { value: 4, label: "4" },
             { value: 5, label: "5" },
           ],
-
           isRequired: false,
         },
-        order: { type: "number", isRequired: true },
+
+        order: {
+          type: "number",
+          isRequired: true,
+        },
+
         questionTitle: {
           type: "string",
           isVirtual: true,
           label: "سوال",
-
-          isVisible: {
-            list: true,
-            show: true,
-            edit: false,
-            filter: false,
-          },
+          isVisible: { list: true, show: true, edit: false, filter: false },
         },
+
         createdAt: { isVisible: false },
         updatedAt: { isVisible: false },
       },
+
       listProperties: [
         "id",
         "questionTitle",
@@ -3741,7 +3736,9 @@ const admin = new AdminJS({
         "score",
         "order",
       ],
-      filterProperties: ["question", "label", "score"],
+
+      filterProperties: ["questionId", "label", "score"],
+
       showProperties: [
         "id",
         "questionTitle",
@@ -3749,8 +3746,12 @@ const admin = new AdminJS({
         "value",
         "score",
         "order",
+        "createdAt",
+        "updatedAt",
       ],
+
       editProperties: ["questionId", "label", "value", "score", "order"],
+
       actions: {
         list: {
           after: async (response) => {
@@ -3758,44 +3759,37 @@ const admin = new AdminJS({
 
             const questionIds = [
               ...new Set(
-                response.records.map((r) => r.params.question).filter(Boolean),
+                response.records
+                  .map((r) => r.params.questionId)
+                  .filter(Boolean),
               ),
             ];
 
             const questions = await prisma.formQuestion.findMany({
-              where: {
-                id: {
-                  in: questionIds,
-                },
-              },
-              select: {
-                id: true,
-                label: true,
-              },
+              where: { id: { in: questionIds } },
+              select: { id: true, label: true },
             });
 
-            const map = Object.fromEntries(
+            const questionMap = Object.fromEntries(
               questions.map((q) => [q.id, q.label]),
             );
 
             response.records.forEach((record) => {
-              record.params.questionTitle = map[record.params.question] || "—";
+              record.params.questionTitle =
+                questionMap[record.params.questionId] || "—";
             });
 
             return response;
           },
         },
+
         show: {
           after: async (response) => {
             if (!response.record) return response;
 
             const question = await prisma.formQuestion.findUnique({
-              where: {
-                id: response.record.params.question,
-              },
-              select: {
-                label: true,
-              },
+              where: { id: response.record.params.questionId },
+              select: { label: true },
             });
 
             response.record.params.questionTitle = question?.label || "—";
@@ -3803,6 +3797,7 @@ const admin = new AdminJS({
             return response;
           },
         },
+
         new: {
           handler: async (request, response, context) => {
             const { resource, h, currentAdmin } = context;
@@ -3816,129 +3811,76 @@ const admin = new AdminJS({
 
             const payload = request.payload ?? {};
 
-            const questionId = String(payload.questionId || "");
+            const questionId = String(payload.questionId || "").trim();
             const label = String(payload.label || "").trim();
             const value = String(payload.value || "").trim();
-
+            const order = parseIntegerValue(payload.order);
             const score =
-              payload.score === "" ||
-              payload.score === undefined ||
-              payload.score === null
+              payload.score == null || payload.score === ""
                 ? null
                 : parseIntegerValue(payload.score);
 
-            const order = parseIntegerValue(payload.order);
-
             const errors = {};
 
-            if (!questionId) {
-              errors.questionId = {
-                message: "سوال الزامی است.",
-              };
-            }
-
-            if (!label) {
-              errors.label = {
-                message: "عنوان گزینه الزامی است.",
-              };
-            }
-
-            if (!value) {
-              errors.value = {
-                message: "مقدار گزینه الزامی است.",
-              };
-            }
-
-            if (order === null) {
-              errors.order = {
-                message: "ترتیب باید عدد صحیح باشد.",
-              };
-            }
+            if (!questionId)
+              errors.questionId = { message: "سوال الزامی است." };
+            if (!label) errors.label = { message: "عنوان گزینه الزامی است." };
+            if (!value) errors.value = { message: "مقدار گزینه الزامی است." };
+            if (order === null)
+              errors.order = { message: "ترتیب باید عدد صحیح باشد." };
 
             if (score !== null && ![1, 2, 3, 4, 5].includes(score)) {
-              errors.score = {
-                message: "نمره باید عددی بین 1 تا 5 باشد.",
-              };
+              errors.score = { message: "نمره باید بین 1 تا 5 باشد." };
             }
 
+            // اعتبارسنجی منطق وزن و امتیاز
             const question = await prisma.formQuestion.findUnique({
-              where: {
-                id: questionId,
-              },
-              select: {
-                weight: true,
-              },
+              where: { id: questionId },
+              select: { weight: true, label: true },
             });
 
             if (!question) {
-              errors.questionId = {
-                message: "سوال انتخاب شده معتبر نیست.",
-              };
+              errors.questionId = { message: "سوال انتخاب شده معتبر نیست." };
             } else {
               if (question.weight !== null && score === null) {
                 errors.score = {
-                  message: "برای سوالات دارای وزن، نمره گزینه الزامی است.",
+                  message:
+                    "برای سوالات امتیازی، وارد کردن نمره گزینه الزامی است.",
                 };
               }
-
               if (question.weight === null && score !== null) {
                 errors.score = {
-                  message: "برای سوالات بدون وزن نباید نمره وارد شود.",
+                  message: "برای سوالات بدون وزن، نمی‌توانید نمره وارد کنید.",
                 };
               }
             }
 
-            if (Object.keys(errors).length) {
-              throw new ValidationError(errors);
-            }
+            if (Object.keys(errors).length) throw new ValidationError(errors);
 
-            try {
-              const created = await prisma.formQuestionOption.create({
-                data: {
-                  label,
-                  value,
-                  score,
-                  order,
+            const created = await prisma.formQuestionOption.create({
+              data: {
+                label,
+                value,
+                score,
+                order,
+                question: { connect: { id: questionId } },
+              },
+            });
 
-                  question: {
-                    connect: {
-                      id: questionId,
-                    },
-                  },
-                },
-              });
+            const record = await resource.findOne(created.id);
 
-              const record = await resource.findOne(created.id);
-
-              return {
-                record: record?.toJSON(currentAdmin),
-
-                notice: {
-                  message: "گزینه با موفقیت ایجاد شد.",
-                  type: "success",
-                },
-
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource.id(),
-                  recordId: created.id,
-                  actionName: "show",
-                }),
-              };
-            } catch (error) {
-              console.error(error);
-
-              if (error instanceof ValidationError) {
-                throw error;
-              }
-
-              throw new ValidationError({
-                questionId: {
-                  message: "خطا در ایجاد گزینه.",
-                },
-              });
-            }
+            return {
+              record: record?.toJSON(currentAdmin),
+              notice: { message: "گزینه با موفقیت ایجاد شد.", type: "success" },
+              redirectUrl: h.recordActionUrl({
+                resourceId: resource.id(),
+                recordId: created.id,
+                actionName: "show",
+              }),
+            };
           },
         },
+
         edit: {
           handler: async (request, response, context) => {
             const { record, resource, h, currentAdmin } = context;
@@ -3952,166 +3894,99 @@ const admin = new AdminJS({
 
             const payload = request.payload ?? {};
 
-            const questionId = String(payload.questionId || "");
+            const questionId = String(payload.questionId || "").trim();
             const label = String(payload.label || "").trim();
             const value = String(payload.value || "").trim();
-
+            const order = parseIntegerValue(payload.order);
             const score =
-              payload.score === "" ||
-              payload.score === undefined ||
-              payload.score === null
+              payload.score == null || payload.score === ""
                 ? null
                 : parseIntegerValue(payload.score);
 
-            const order = parseIntegerValue(payload.order);
-
             const errors = {};
 
-            if (!questionId) {
-              errors.questionId = {
-                message: "سوال الزامی است.",
-              };
-            }
-
-            if (!label) {
-              errors.label = {
-                message: "عنوان گزینه الزامی است.",
-              };
-            }
-
-            if (!value) {
-              errors.value = {
-                message: "مقدار گزینه الزامی است.",
-              };
-            }
-
-            if (order === null) {
-              errors.order = {
-                message: "ترتیب باید عدد صحیح باشد.",
-              };
-            }
+            if (!questionId)
+              errors.questionId = { message: "سوال الزامی است." };
+            if (!label) errors.label = { message: "عنوان گزینه الزامی است." };
+            if (!value) errors.value = { message: "مقدار گزینه الزامی است." };
+            if (order === null)
+              errors.order = { message: "ترتیب باید عدد صحیح باشد." };
 
             if (score !== null && ![1, 2, 3, 4, 5].includes(score)) {
-              errors.score = {
-                message: "نمره باید عددی بین 1 تا 5 باشد.",
-              };
+              errors.score = { message: "نمره باید بین 1 تا 5 باشد." };
             }
 
             const question = await prisma.formQuestion.findUnique({
-              where: {
-                id: questionId,
-              },
-              select: {
-                weight: true,
-              },
+              where: { id: questionId },
+              select: { weight: true },
             });
 
             if (!question) {
-              errors.questionId = {
-                message: "سوال انتخاب شده معتبر نیست.",
-              };
+              errors.questionId = { message: "سوال انتخاب شده معتبر نیست." };
             } else {
               if (question.weight !== null && score === null) {
                 errors.score = {
-                  message: "برای سوالات دارای وزن، نمره گزینه الزامی است.",
+                  message:
+                    "برای سوالات امتیازی، وارد کردن نمره گزینه الزامی است.",
                 };
               }
-
               if (question.weight === null && score !== null) {
                 errors.score = {
-                  message: "برای سوالات بدون وزن نباید نمره وارد شود.",
+                  message: "برای سوالات بدون وزن، نمی‌توانید نمره وارد کنید.",
                 };
               }
             }
 
-            if (Object.keys(errors).length) {
-              throw new ValidationError(errors);
-            }
+            if (Object.keys(errors).length) throw new ValidationError(errors);
 
-            try {
-              await prisma.formQuestionOption.update({
-                where: {
-                  id: record.params.id,
-                },
-                data: {
-                  label,
-                  value,
-                  score,
-                  order,
+            await prisma.formQuestionOption.update({
+              where: { id: record.params.id },
+              data: {
+                label,
+                value,
+                score,
+                order,
+                question: { connect: { id: questionId } },
+              },
+            });
 
-                  question: {
-                    connect: {
-                      id: questionId,
-                    },
-                  },
-                },
-              });
+            const updatedRecord = await resource.findOne(record.params.id);
 
-              const updatedRecord = await resource.findOne(record.params.id);
-
-              return {
-                record: updatedRecord?.toJSON(currentAdmin),
-
-                notice: {
-                  message: "گزینه با موفقیت ویرایش شد.",
-                  type: "success",
-                },
-
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource.id(),
-                  recordId: record.params.id,
-                  actionName: "show",
-                }),
-              };
-            } catch (error) {
-              console.error(error);
-
-              if (error instanceof ValidationError) {
-                throw error;
-              }
-
-              throw new ValidationError({
-                questionId: {
-                  message: "خطا در ویرایش گزینه.",
-                },
-              });
-            }
+            return {
+              record: updatedRecord?.toJSON(currentAdmin),
+              notice: {
+                message: "گزینه با موفقیت ویرایش شد.",
+                type: "success",
+              },
+              redirectUrl: h.recordActionUrl({
+                resourceId: resource.id(),
+                recordId: record.params.id,
+                actionName: "show",
+              }),
+            };
           },
         },
       },
     }),
     prismaResource("FormCategoryGroup", {
+      navigation: {
+        name: "گروه‌های دسته‌بندی",
+        icon: "Layers",
+      },
+
       properties: {
         id: {
-          isVisible: {
-            list: true,
-            filter: true,
-            show: true,
-            edit: false,
-          },
+          isVisible: { list: true, filter: true, show: true, edit: false },
         },
 
-        formId: {
+        analysisFormId: {
           reference: "AnalysisForm",
-          isRequired: true,
-
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
+          isVisible: { list: false, filter: true, show: true, edit: true },
         },
 
-        form: {
-          reference: "AnalysisForm",
-
-          isVisible: {
-            list: false,
-            filter: true,
-            show: false,
-            edit: false,
-          },
+        multiAnalysisFormId: {
+          reference: "MultiAnalysisForm",
+          isVisible: { list: false, filter: true, show: true, edit: true },
         },
 
         title: {
@@ -4128,39 +4003,22 @@ const admin = new AdminJS({
           type: "string",
           isVirtual: true,
           label: "فرم تحلیل",
-
-          isVisible: {
-            list: true,
-            show: true,
-            edit: false,
-            filter: false,
-          },
+          isVisible: { list: true, show: true, edit: false, filter: false },
         },
 
-        categories: {
-          isVisible: false,
-        },
+        categories: { isVisible: false },
 
         createdAt: {
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: false,
-          },
+          isVisible: { list: false, filter: false, show: true, edit: false },
         },
-
         updatedAt: {
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: false,
-          },
+          isVisible: { list: false, filter: false, show: true, edit: false },
         },
       },
+
       listProperties: ["id", "formTitle", "title", "order"],
-      filterProperties: ["form", "title"],
+      filterProperties: ["analysisFormId", "multiAnalysisFormId", "title"],
+
       showProperties: [
         "id",
         "formTitle",
@@ -4169,37 +4027,58 @@ const admin = new AdminJS({
         "createdAt",
         "updatedAt",
       ],
-      editProperties: ["formId", "title", "order"],
+
+      editProperties: [
+        "analysisFormId",
+        "multiAnalysisFormId",
+        "title",
+        "order",
+      ],
 
       actions: {
         list: {
           after: async (response) => {
             if (!response.records?.length) return response;
 
-            const formIds = [
+            const analysisFormIds = [
               ...new Set(
-                response.records.map((r) => r.params.form).filter(Boolean),
+                response.records
+                  .map((r) => r.params.analysisFormId)
+                  .filter(Boolean),
+              ),
+            ];
+            const multiFormIds = [
+              ...new Set(
+                response.records
+                  .map((r) => r.params.multiAnalysisFormId)
+                  .filter(Boolean),
               ),
             ];
 
-            const forms = await prisma.analysisForm.findMany({
-              where: {
-                id: {
-                  in: formIds,
-                },
-              },
-              select: {
-                id: true,
-                title: true,
-              },
-            });
+            const [forms, multiForms] = await Promise.all([
+              prisma.analysisForm.findMany({
+                where: { id: { in: analysisFormIds } },
+                select: { id: true, title: true },
+              }),
+              prisma.multiAnalysisForm.findMany({
+                where: { id: { in: multiFormIds } },
+                select: { id: true, title: true },
+              }),
+            ]);
 
             const formMap = Object.fromEntries(
-              forms.map((item) => [item.id, item.title]),
+              forms.map((f) => [f.id, f.title]),
+            );
+            const multiFormMap = Object.fromEntries(
+              multiForms.map((f) => [f.id, f.title]),
             );
 
             response.records.forEach((record) => {
-              record.params.formTitle = formMap[record.params.form] || "—";
+              const title = record.params.analysisFormId
+                ? formMap[record.params.analysisFormId]
+                : multiFormMap[record.params.multiAnalysisFormId];
+
+              record.params.formTitle = title || "—";
             });
 
             return response;
@@ -4210,17 +4089,26 @@ const admin = new AdminJS({
           after: async (response) => {
             if (!response.record) return response;
 
-            const form = await prisma.analysisForm.findUnique({
-              where: {
-                id: response.record.params.form,
-              },
-              select: {
-                title: true,
-              },
-            });
+            const { analysisFormId, multiAnalysisFormId } =
+              response.record.params;
 
-            response.record.params.formTitle = form?.title || "—";
+            let formTitle = "—";
 
+            if (analysisFormId) {
+              const form = await prisma.analysisForm.findUnique({
+                where: { id: analysisFormId },
+                select: { title: true },
+              });
+              formTitle = form?.title || "—";
+            } else if (multiAnalysisFormId) {
+              const form = await prisma.multiAnalysisForm.findUnique({
+                where: { id: multiAnalysisFormId },
+                select: { title: true },
+              });
+              formTitle = form?.title || "—";
+            }
+
+            response.record.params.formTitle = formTitle;
             return response;
           },
         },
@@ -4238,77 +4126,61 @@ const admin = new AdminJS({
 
             const payload = request.payload ?? {};
 
-            const formId = String(payload.formId || "");
+            const analysisFormId = String(payload.analysisFormId || "").trim();
+            const multiAnalysisFormId = String(
+              payload.multiAnalysisFormId || "",
+            ).trim();
             const title = String(payload.title || "").trim();
             const order = parseIntegerValue(payload.order);
 
             const errors = {};
 
-            if (!formId) {
-              errors.formId = {
-                message: "فرم الزامی است.",
+            if (!analysisFormId && !multiAnalysisFormId) {
+              errors.analysisFormId = {
+                message: "حداقل یکی از فرم‌ها الزامی است.",
               };
             }
-
+            if (analysisFormId && multiAnalysisFormId) {
+              errors.analysisFormId = {
+                message: "نمی‌توانید همزمان هر دو نوع فرم را انتخاب کنید.",
+              };
+            }
             if (!title) {
-              errors.title = {
-                message: "عنوان گروه الزامی است.",
-              };
+              errors.title = { message: "عنوان گروه الزامی است." };
             }
-
             if (order === null) {
-              errors.order = {
-                message: "ترتیب باید عدد صحیح باشد.",
-              };
+              errors.order = { message: "ترتیب باید عدد صحیح باشد." };
             }
 
-            if (Object.keys(errors).length) {
-              throw new ValidationError(errors);
-            }
+            if (Object.keys(errors).length) throw new ValidationError(errors);
 
-            try {
-              const created = await prisma.formCategoryGroup.create({
-                data: {
-                  title,
-                  order,
-
-                  form: {
-                    connect: {
-                      id: formId,
-                    },
-                  },
-                },
-              });
-
-              const record = await resource.findOne(created.id);
-
-              return {
-                record: record?.toJSON(currentAdmin),
-
-                notice: {
-                  message: "گروه دسته‌بندی با موفقیت ایجاد شد.",
-                  type: "success",
-                },
-
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource.id(),
-                  recordId: created.id,
-                  actionName: "show",
+            const created = await prisma.formCategoryGroup.create({
+              data: {
+                title,
+                order,
+                ...(analysisFormId && {
+                  analysisForm: { connect: { id: analysisFormId } },
                 }),
-              };
-            } catch (error) {
-              console.error("CATEGORY_GROUP_CREATE_ERROR:", error);
+                ...(multiAnalysisFormId && {
+                  multiAnalysisForm: { connect: { id: multiAnalysisFormId } },
+                }),
+              },
+            });
 
-              if (error instanceof ValidationError) {
-                throw error;
-              }
+            const record = await resource.findOne(created.id);
 
-              throw new ValidationError({
-                formId: {
-                  message: "خطا در ایجاد گروه.",
-                },
-              });
-            }
+            return {
+              record: record?.toJSON(currentAdmin),
+              notice: {
+                message: "گروه دسته‌بندی با موفقیت ایجاد شد.",
+                type: "success",
+              },
+              redirectUrl: h.recordActionUrl({
+                resourceId: resource.id(),
+                recordId: created.id,
+                actionName: "show",
+              }),
+            };
           },
         },
 
@@ -4325,171 +4197,116 @@ const admin = new AdminJS({
 
             const payload = request.payload ?? {};
 
-            const formId = String(payload.formId || "");
+            const analysisFormId = String(payload.analysisFormId || "").trim();
+            const multiAnalysisFormId = String(
+              payload.multiAnalysisFormId || "",
+            ).trim();
             const title = String(payload.title || "").trim();
             const order = parseIntegerValue(payload.order);
 
             const errors = {};
 
-            if (!formId) {
-              errors.formId = {
-                message: "فرم الزامی است.",
+            if (!analysisFormId && !multiAnalysisFormId) {
+              errors.analysisFormId = {
+                message: "حداقل یکی از فرم‌ها الزامی است.",
               };
             }
-
-            if (!title) {
-              errors.title = {
-                message: "عنوان گروه الزامی است.",
+            if (analysisFormId && multiAnalysisFormId) {
+              errors.analysisFormId = {
+                message: "نمی‌توانید همزمان هر دو نوع فرم را انتخاب کنید.",
               };
             }
+            if (!title) errors.title = { message: "عنوان گروه الزامی است." };
+            if (order === null)
+              errors.order = { message: "ترتیب باید عدد صحیح باشد." };
 
-            if (order === null) {
-              errors.order = {
-                message: "ترتیب باید عدد صحیح باشد.",
-              };
-            }
+            if (Object.keys(errors).length) throw new ValidationError(errors);
 
-            if (Object.keys(errors).length) {
-              throw new ValidationError(errors);
-            }
-
-            try {
-              await prisma.formCategoryGroup.update({
-                where: {
-                  id: record.params.id,
-                },
-                data: {
-                  title,
-                  order,
-
-                  form: {
-                    connect: {
-                      id: formId,
-                    },
-                  },
-                },
-              });
-
-              const updatedRecord = await resource.findOne(record.params.id);
-
-              return {
-                record: updatedRecord?.toJSON(currentAdmin),
-
-                notice: {
-                  message: "گروه دسته‌بندی با موفقیت ویرایش شد.",
-                  type: "success",
-                },
-
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource.id(),
-                  recordId: record.params.id,
-                  actionName: "show",
+            await prisma.formCategoryGroup.update({
+              where: { id: record.params.id },
+              data: {
+                title,
+                order,
+                ...(analysisFormId && {
+                  analysisForm: { connect: { id: analysisFormId } },
                 }),
-              };
-            } catch (error) {
-              console.error("CATEGORY_GROUP_EDIT_ERROR:", error);
+                ...(multiAnalysisFormId && {
+                  multiAnalysisForm: { connect: { id: multiAnalysisFormId } },
+                }),
+              },
+            });
 
-              if (error instanceof ValidationError) {
-                throw error;
-              }
+            const updatedRecord = await resource.findOne(record.params.id);
 
-              throw new ValidationError({
-                formId: {
-                  message: "خطا در ویرایش گروه.",
-                },
-              });
-            }
+            return {
+              record: updatedRecord?.toJSON(currentAdmin),
+              notice: {
+                message: "گروه دسته‌بندی با موفقیت ویرایش شد.",
+                type: "success",
+              },
+              redirectUrl: h.recordActionUrl({
+                resourceId: resource.id(),
+                recordId: record.params.id,
+                actionName: "show",
+              }),
+            };
           },
         },
       },
     }),
     prismaResource("FormCategoryGroupItem", {
+      navigation: {
+        name: "آیتم‌های گروه دسته‌بندی",
+        icon: "List",
+      },
+
       properties: {
         id: {
-          isVisible: {
-            list: true,
-            filter: true,
-            show: true,
-            edit: false,
-          },
+          isVisible: { list: true, filter: true, show: true, edit: false },
         },
 
         groupId: {
           reference: "FormCategoryGroup",
           isRequired: true,
-
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
+          isVisible: { list: false, filter: true, show: true, edit: true },
         },
 
         group: {
           reference: "FormCategoryGroup",
-
-          isVisible: {
-            list: false,
-            filter: true,
-            show: false,
-            edit: false,
-          },
+          isVisible: { list: false, filter: false, show: false, edit: false },
         },
 
         categoryId: {
           reference: "FormQuestionCategory",
           isRequired: true,
-
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
+          isVisible: { list: false, filter: true, show: true, edit: true },
         },
 
         category: {
           reference: "FormQuestionCategory",
-
-          isVisible: {
-            list: false,
-            filter: true,
-            show: false,
-            edit: false,
-          },
+          isVisible: { list: false, filter: false, show: false, edit: false },
         },
 
         groupTitle: {
           type: "string",
           isVirtual: true,
           label: "گروه",
-
-          isVisible: {
-            list: true,
-            show: true,
-            edit: false,
-            filter: false,
-          },
+          isVisible: { list: true, show: true, edit: false, filter: false },
         },
 
         categoryTitle: {
           type: "string",
           isVirtual: true,
-          label: "دسته بندی",
-
-          isVisible: {
-            list: true,
-            show: true,
-            edit: false,
-            filter: false,
-          },
+          label: "دسته‌بندی",
+          isVisible: { list: true, show: true, edit: false, filter: false },
         },
       },
+
       listProperties: ["id", "groupTitle", "categoryTitle"],
-      filterProperties: ["group", "category"],
+      filterProperties: ["groupId", "categoryId"],
       showProperties: ["id", "groupTitle", "categoryTitle"],
       editProperties: ["groupId", "categoryId"],
+
       actions: {
         list: {
           after: async (response) => {
@@ -4497,91 +4314,67 @@ const admin = new AdminJS({
 
             const groupIds = [
               ...new Set(
-                response.records.map((r) => r.params.group).filter(Boolean),
+                response.records.map((r) => r.params.groupId).filter(Boolean),
               ),
             ];
-
             const categoryIds = [
               ...new Set(
-                response.records.map((r) => r.params.category).filter(Boolean),
+                response.records
+                  .map((r) => r.params.categoryId)
+                  .filter(Boolean),
               ),
             ];
 
             const [groups, categories] = await Promise.all([
               prisma.formCategoryGroup.findMany({
-                where: {
-                  id: {
-                    in: groupIds,
-                  },
-                },
-                select: {
-                  id: true,
-                  title: true,
-                },
+                where: { id: { in: groupIds } },
+                select: { id: true, title: true },
               }),
-
               prisma.formQuestionCategory.findMany({
-                where: {
-                  id: {
-                    in: categoryIds,
-                  },
-                },
-                select: {
-                  id: true,
-                  title: true,
-                },
+                where: { id: { in: categoryIds } },
+                select: { id: true, title: true },
               }),
             ]);
 
             const groupMap = Object.fromEntries(
               groups.map((g) => [g.id, g.title]),
             );
-
             const categoryMap = Object.fromEntries(
               categories.map((c) => [c.id, c.title]),
             );
 
             response.records.forEach((record) => {
-              record.params.groupTitle = groupMap[record.params.group] || "—";
-
+              record.params.groupTitle = groupMap[record.params.groupId] || "—";
               record.params.categoryTitle =
-                categoryMap[record.params.category] || "—";
+                categoryMap[record.params.categoryId] || "—";
             });
 
             return response;
           },
         },
+
         show: {
           after: async (response) => {
             if (!response.record) return response;
 
             const [group, category] = await Promise.all([
               prisma.formCategoryGroup.findUnique({
-                where: {
-                  id: response.record.params.group,
-                },
-                select: {
-                  title: true,
-                },
+                where: { id: response.record.params.groupId },
+                select: { title: true },
               }),
-
               prisma.formQuestionCategory.findUnique({
-                where: {
-                  id: response.record.params.category,
-                },
-                select: {
-                  title: true,
-                },
+                where: { id: response.record.params.categoryId },
+                select: { title: true },
               }),
             ]);
 
             response.record.params.groupTitle = group?.title || "—";
-
             response.record.params.categoryTitle = category?.title || "—";
 
             return response;
           },
         },
+
         new: {
           handler: async (request, response, context) => {
             const { resource, h, currentAdmin } = context;
@@ -4600,133 +4393,96 @@ const admin = new AdminJS({
 
             const errors = {};
 
-            if (!groupId) {
-              errors.groupId = {
-                message: "گروه الزامی است.",
-              };
-            }
+            if (!groupId) errors.groupId = { message: "گروه الزامی است." };
+            if (!categoryId)
+              errors.categoryId = { message: "دسته‌بندی الزامی است." };
 
-            if (!categoryId) {
-              errors.categoryId = {
-                message: "دسته بندی الزامی است.",
-              };
-            }
-
-            if (Object.keys(errors).length) {
-              throw new ValidationError(errors);
-            }
+            if (Object.keys(errors).length) throw new ValidationError(errors);
 
             const [group, category] = await Promise.all([
               prisma.formCategoryGroup.findUnique({
-                where: {
-                  id: groupId,
-                },
+                where: { id: groupId },
                 select: {
                   id: true,
-                  formId: true,
+                  analysisFormId: true,
+                  multiAnalysisFormId: true,
                 },
               }),
-
               prisma.formQuestionCategory.findUnique({
-                where: {
-                  id: categoryId,
-                },
+                where: { id: categoryId },
                 select: {
                   id: true,
-                  formId: true,
+                  analysisFormId: true,
+                  multiAnalysisFormId: true,
                 },
               }),
             ]);
 
             if (!group) {
               throw new ValidationError({
-                groupId: {
-                  message: "گروه انتخاب شده معتبر نیست.",
-                },
+                groupId: { message: "گروه انتخاب شده معتبر نیست." },
               });
             }
-
             if (!category) {
               throw new ValidationError({
-                categoryId: {
-                  message: "دسته بندی انتخاب شده معتبر نیست.",
-                },
+                categoryId: { message: "دسته‌بندی انتخاب شده معتبر نیست." },
               });
             }
 
-            if (group.formId !== category.formId) {
+            // چک هم‌خوانی فرم (تحت تحلیل یا چندتحلیلی)
+            const sameForm =
+              (group.analysisFormId &&
+                group.analysisFormId === category.analysisFormId) ||
+              (group.multiAnalysisFormId &&
+                group.multiAnalysisFormId === category.multiAnalysisFormId);
+
+            if (!sameForm) {
               throw new ValidationError({
                 categoryId: {
-                  message: "گروه و دسته بندی باید متعلق به یک فرم باشند.",
+                  message: "گروه و دسته‌بندی باید متعلق به یک فرم باشند.",
                 },
               });
             }
 
+            // چک تکراری نبودن (به‌خاطر unique constraint)
             const exists = await prisma.formCategoryGroupItem.findUnique({
               where: {
-                groupId_categoryId: {
-                  groupId,
-                  categoryId,
-                },
+                groupId_categoryId: { groupId, categoryId },
               },
             });
 
             if (exists) {
               throw new ValidationError({
                 categoryId: {
-                  message: "این دسته بندی قبلاً به این گروه اضافه شده است.",
+                  message: "این دسته‌بندی قبلاً به این گروه اضافه شده است.",
                 },
               });
             }
 
-            try {
-              const created = await prisma.formCategoryGroupItem.create({
-                data: {
-                  group: {
-                    connect: {
-                      id: groupId,
-                    },
-                  },
+            const created = await prisma.formCategoryGroupItem.create({
+              data: {
+                group: { connect: { id: groupId } },
+                category: { connect: { id: categoryId } },
+              },
+            });
 
-                  category: {
-                    connect: {
-                      id: categoryId,
-                    },
-                  },
-                },
-              });
+            const record = await resource.findOne(created.id);
 
-              const record = await resource.findOne(created.id);
-
-              return {
-                record: record?.toJSON(currentAdmin),
-
-                notice: {
-                  message: "دسته بندی با موفقیت به گروه اضافه شد.",
-                  type: "success",
-                },
-
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource.id(),
-                  recordId: created.id,
-                  actionName: "show",
-                }),
-              };
-            } catch (error) {
-              console.error("FORM_CATEGORY_GROUP_ITEM_CREATE_ERROR:", error);
-
-              if (error instanceof ValidationError) {
-                throw error;
-              }
-
-              throw new ValidationError({
-                groupId: {
-                  message: "خطا در ایجاد رکورد.",
-                },
-              });
-            }
+            return {
+              record: record?.toJSON(currentAdmin),
+              notice: {
+                message: "دسته‌بندی با موفقیت به گروه اضافه شد.",
+                type: "success",
+              },
+              redirectUrl: h.recordActionUrl({
+                resourceId: resource.id(),
+                recordId: created.id,
+                actionName: "show",
+              }),
+            };
           },
         },
+
         edit: {
           handler: async (request, response, context) => {
             const { record, resource, h, currentAdmin } = context;
@@ -4745,142 +4501,86 @@ const admin = new AdminJS({
 
             const errors = {};
 
-            if (!groupId) {
-              errors.groupId = {
-                message: "گروه الزامی است.",
-              };
-            }
+            if (!groupId) errors.groupId = { message: "گروه الزامی است." };
+            if (!categoryId)
+              errors.categoryId = { message: "دسته‌بندی الزامی است." };
 
-            if (!categoryId) {
-              errors.categoryId = {
-                message: "دسته بندی الزامی است.",
-              };
-            }
-
-            if (Object.keys(errors).length) {
-              throw new ValidationError(errors);
-            }
+            if (Object.keys(errors).length) throw new ValidationError(errors);
 
             const [group, category] = await Promise.all([
               prisma.formCategoryGroup.findUnique({
-                where: {
-                  id: groupId,
-                },
-                select: {
-                  id: true,
-                  formId: true,
-                },
+                where: { id: groupId },
+                select: { analysisFormId: true, multiAnalysisFormId: true },
               }),
-
               prisma.formQuestionCategory.findUnique({
-                where: {
-                  id: categoryId,
-                },
-                select: {
-                  id: true,
-                  formId: true,
-                },
+                where: { id: categoryId },
+                select: { analysisFormId: true, multiAnalysisFormId: true },
               }),
             ]);
 
-            if (!group) {
+            if (!group || !category) {
               throw new ValidationError({
-                groupId: {
-                  message: "گروه انتخاب شده معتبر نیست.",
-                },
+                groupId: { message: "اطلاعات انتخاب شده معتبر نیست." },
               });
             }
 
-            if (!category) {
-              throw new ValidationError({
-                categoryId: {
-                  message: "دسته بندی انتخاب شده معتبر نیست.",
-                },
-              });
-            }
+            const sameForm =
+              (group.analysisFormId &&
+                group.analysisFormId === category.analysisFormId) ||
+              (group.multiAnalysisFormId &&
+                group.multiAnalysisFormId === category.multiAnalysisFormId);
 
-            if (group.formId !== category.formId) {
+            if (!sameForm) {
               throw new ValidationError({
                 categoryId: {
-                  message: "گروه و دسته بندی باید متعلق به یک فرم باشند.",
+                  message: "گروه و دسته‌بندی باید متعلق به یک فرم باشند.",
                 },
               });
             }
 
+            // چک تکراری (به جز رکورد فعلی)
             const exists = await prisma.formCategoryGroupItem.findFirst({
               where: {
                 groupId,
                 categoryId,
-
-                NOT: {
-                  id: record.params.id,
-                },
+                NOT: { id: record.params.id },
               },
             });
 
             if (exists) {
               throw new ValidationError({
                 categoryId: {
-                  message: "این دسته بندی قبلاً در این گروه ثبت شده است.",
+                  message: "این دسته‌بندی قبلاً در این گروه ثبت شده است.",
                 },
               });
             }
 
-            try {
-              await prisma.formCategoryGroupItem.update({
-                where: {
-                  id: record.params.id,
-                },
+            await prisma.formCategoryGroupItem.update({
+              where: { id: record.params.id },
+              data: {
+                group: { connect: { id: groupId } },
+                category: { connect: { id: categoryId } },
+              },
+            });
 
-                data: {
-                  group: {
-                    connect: {
-                      id: groupId,
-                    },
-                  },
+            const updatedRecord = await resource.findOne(record.params.id);
 
-                  category: {
-                    connect: {
-                      id: categoryId,
-                    },
-                  },
-                },
-              });
-
-              const updatedRecord = await resource.findOne(record.params.id);
-
-              return {
-                record: updatedRecord?.toJSON(currentAdmin),
-
-                notice: {
-                  message: "رکورد با موفقیت ویرایش شد.",
-                  type: "success",
-                },
-
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource.id(),
-                  recordId: record.params.id,
-                  actionName: "show",
-                }),
-              };
-            } catch (error) {
-              console.error("FORM_CATEGORY_GROUP_ITEM_EDIT_ERROR:", error);
-
-              if (error instanceof ValidationError) {
-                throw error;
-              }
-
-              throw new ValidationError({
-                groupId: {
-                  message: "خطا در ویرایش رکورد.",
-                },
-              });
-            }
+            return {
+              record: updatedRecord?.toJSON(currentAdmin),
+              notice: {
+                message: "رکورد با موفقیت ویرایش شد.",
+                type: "success",
+              },
+              redirectUrl: h.recordActionUrl({
+                resourceId: resource.id(),
+                recordId: record.params.id,
+                actionName: "show",
+              }),
+            };
           },
         },
       },
     }),
-
     prismaResource("FeaturedAnalysis", {
       navigation: {
         name: "تحلیل های منتخب",
@@ -8358,6 +8058,90 @@ const admin = new AdminJS({
       showProperties: ["id", "form", "profileFieldKey", "isArray", "createdAt"],
 
       editProperties: ["form", "profileFieldKey", "isArray"],
+
+      actions: {
+        new: {
+          before: async (request) => {
+            validateAdminProfileFieldPayload(request);
+            return request;
+          },
+        },
+
+        edit: {
+          before: async (request) => {
+            validateAdminProfileFieldPayload(request);
+            return request;
+          },
+        },
+      },
+    }),
+    prismaResource("MultiAnalysisFormProfileField", {
+      navigation: {
+        name: "تنظیمات تحلیل",
+        icon: "Settings",
+      },
+
+      properties: {
+        id: {
+          isTitle: true,
+        },
+
+        multiAnalysisForm: {
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: true,
+          },
+        },
+
+        profileFieldKey: {
+          availableValues: COMPANY_PROFILE_FIELD_OPTIONS,
+        },
+
+        isArray: {
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: true,
+          },
+        },
+
+        createdAt: {
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: false,
+          },
+        },
+      },
+
+      listProperties: [
+        "id",
+        "multiAnalysisForm",
+        "profileFieldKey",
+        "isArray",
+        "createdAt",
+      ],
+
+      filterProperties: [
+        "multiAnalysisForm",
+        "profileFieldKey",
+        "isArray",
+        "createdAt",
+      ],
+
+      showProperties: [
+        "id",
+        "multiAnalysisForm",
+        "profileFieldKey",
+        "isArray",
+        "createdAt",
+      ],
+
+      editProperties: ["multiAnalysisForm", "profileFieldKey", "isArray"],
 
       actions: {
         new: {

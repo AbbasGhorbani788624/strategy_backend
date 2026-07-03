@@ -397,6 +397,7 @@ const buildInitialMultiAnalysisPrompt = ({
   title,
   selectedGoals,
   companyProfileData,
+  readableFormResponses,
   sourceProjectSummaries,
   domain,
   temperature,
@@ -405,10 +406,12 @@ const buildInitialMultiAnalysisPrompt = ({
     Recipes: buildRecipeSteps(promptSegments, 1),
     "Analysis title": title,
     temperature: temperature ?? 0.7,
+    "company information": companyProfileData?.companyProfile || {},
     "Selected goals": Array.isArray(selectedGoals) ? selectedGoals : [],
     "User Clarification": "",
     domain: domain || "",
-    Summaries: sourceProjectSummaries || {},
+    Summaries: sourceProjectSummaries || [],
+    "Form responses": readableFormResponses || {},
   };
 
   return JSON.stringify(promptObject, null, 2);
@@ -455,12 +458,10 @@ const buildFinalAnalysisWithCorrectionPrompt = ({
   };
 
   if (mode === "MULTI") {
-    promptObject.Summaries = sourceProjectSummaries || {};
+    promptObject.Summaries = sourceProjectSummaries || [];
   }
 
-  if (mode === "SINGLE") {
-    promptObject["Form responses"] = readableFormResponses || {};
-  }
+  promptObject["Form responses"] = readableFormResponses || {};
 
   return JSON.stringify(promptObject, null, 2);
 };

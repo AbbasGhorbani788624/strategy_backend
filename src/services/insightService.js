@@ -2,22 +2,16 @@ const prisma = require("../prismaClient");
 const { createBadRequestError } = require("../utils");
 const axios = require("axios");
 
-const AI_INSIGHT_API_URL = "https://your-api.com/generate-company-insight";
+const AI_INSIGHT_API_URL = "http://185.237.85.53:8080/insights";
 
-const callAIInsightAPI = async (company) => {
+const callAIInsightAPI = async (payload) => {
   try {
-    const response = await axios.post(
-      AI_INSIGHT_API_URL,
-      {
-        company: company,
+    const response = await axios.post(AI_INSIGHT_API_URL, payload, {
+      headers: {
+        "Content-Type": "application/json",
       },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        timeout: 60000,
-      },
-    );
+      timeout: 60000,
+    });
 
     return {
       insight: response.data.insight || response.data.insightText,
@@ -27,11 +21,23 @@ const callAIInsightAPI = async (company) => {
         [],
     };
   } catch (error) {
-    console.error("AI API Error:", error.response?.data || error.message);
+    console.error("========== AI API ERROR ==========");
+    console.error("Message:", error.message);
+    console.error("Code:", error.code);
+    console.error("Status:", error.response?.status);
+    console.error("Status Text:", error.response?.statusText);
+    console.error("Response Data:", error.response?.data);
+    console.error("Response Headers:", error.response?.headers);
+    console.error("Request URL:", error.config?.url);
+    console.error("Request Method:", error.config?.method);
+    console.error("Request Data:", error.config?.data);
+    console.error("==================================");
 
-    createBadRequestError(
-      error.response?.data?.message || "خطا در دریافت تحلیل هوش مصنوعی",
-      500,
+    throw createBadRequestError(
+      error.response?.data?.message ||
+        error.message ||
+        "خطا در دریافت تحلیل هوش مصنوعی",
+      error.response?.status || 500,
     );
   }
 };
@@ -120,30 +126,32 @@ const syncCompanyInsightService = async (companyId, userId) => {
   const { companyAdminData, ...companyData } = company;
 
   const aiPayload = {
-    ...companyData,
-    "Additional company information": companyAdminData?.data ?? null,
+    company: companyData,
+    Additional_company_information: companyAdminData?.data ?? null,
   };
 
   const aiResponse = await callAIInsightAPI(aiPayload);
 
-  const insight = await prisma.companyInsight.upsert({
-    where: {
-      companyId,
-    },
-    create: {
-      companyId,
-      insightText: aiResponse.insight,
-      suggestedAnalyses: aiResponse.recommendedAnalyses,
-      generatedAt: new Date(),
-    },
-    update: {
-      insightText: aiResponse.insight,
-      suggestedAnalyses: aiResponse.recommendedAnalyses,
-      generatedAt: new Date(),
-    },
-  });
+  console.log("aiResponse =>", aiResponse);
 
-  return insight;
+  // const insight = await prisma.companyInsight.upsert({
+  //   where: {
+  //     companyId,
+  //   },
+  //   create: {
+  //     companyId,
+  //     insightText: aiResponse.insight,
+  //     suggestedAnalyses: aiResponse.recommendedAnalyses,
+  //     generatedAt: new Date(),
+  //   },
+  //   update: {
+  //     insightText: aiResponse.insight,
+  //     suggestedAnalyses: aiResponse.recommendedAnalyses,
+  //     generatedAt: new Date(),
+  //   },
+  // });
+
+  // return insight;
 };
 
 const getCompanyInsightService = async (companyId, userId) => {

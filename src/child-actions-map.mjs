@@ -1,4 +1,5 @@
-import { buildCompanyChildActions } from "./actions.mjs";
+//child-actions-map
+import { buildCompanyChildActions, buildUserChildActions } from "./actions.mjs";
 import {
   companyBasicInfoFields,
   companyManagerFields,
@@ -13,6 +14,10 @@ import {
   companyBalanceSheetFields,
   companyIncomeStatementFields,
   companyResourceCapabilityFields,
+  userInfoFields,
+  userEducationFields,
+  userTrainingCourseFields,
+  userCompetencyFields,
 } from "./company-child-fields.mjs";
 
 export const companyBasicInfoActions = buildCompanyChildActions(
@@ -91,4 +96,25 @@ export const companyResourceCapabilityActions = buildCompanyChildActions(
   "companyResourceCapability",
   companyResourceCapabilityFields,
   false,
+);
+
+export const userInfoActions = buildUserChildActions(
+  "userInfo",
+  userInfoFields,
+  true,
+);
+
+export const userEducationActions = buildUserChildActions(
+  "userEducation",
+  userEducationFields,
+);
+
+export const userTrainingCourseActions = buildUserChildActions(
+  "userTrainingCourse",
+  userTrainingCourseFields,
+);
+
+export const userCompetencyActions = buildUserChildActions(
+  "userCompetency",
+  userCompetencyFields,
 );

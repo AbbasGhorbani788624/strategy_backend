@@ -1,3 +1,4 @@
+//actions.mjs
 import { ValidationError } from "adminjs";
 import {
   extractReferenceId,
@@ -186,6 +187,170 @@ export const buildCompanyChildActions = (
               company: {
                 connect: {
                   id: companyId,
+                },
+              },
+            },
+          });
+
+          return {
+            record: resource.build(updated).toJSON(currentAdmin),
+            redirectUrl: h.resourceUrl({
+              resourceId: resource.id(),
+            }),
+            notice: {
+              message: "با موفقیت ویرایش شد",
+              type: "success",
+            },
+          };
+        } catch (error) {
+          if (error instanceof ValidationError) {
+            const merged = {
+              ...record.params,
+              ...payload,
+            };
+
+            const rebuilt = resource.build(merged);
+
+            return {
+              record: {
+                ...rebuilt.toJSON(currentAdmin),
+                errors: error.propertyErrors,
+              },
+              notice: {
+                message: "خطا در اعتبارسنجی",
+                type: "error",
+              },
+            };
+          }
+
+          throw error;
+        }
+      },
+    },
+  };
+};
+
+export const buildUserChildActions = (
+  modelName,
+  fields,
+  isOneToOne = false,
+) => {
+  return {
+    new: {
+      handler: async (request, response, context) => {
+        const { resource, h, currentAdmin } = context;
+
+        if (request.method !== "post") {
+          return {
+            record: resource.build({}),
+          };
+        }
+
+        const payload = request.payload || {};
+        const userId = extractReferenceId(payload.userId);
+
+        try {
+          if (!userId) {
+            throw new ValidationError({
+              userId: {
+                message: "انتخاب کاربر الزامی است",
+              },
+            });
+          }
+
+          if (isOneToOne) {
+            const existing = await prisma[modelName].findUnique({
+              where: { userId },
+            });
+
+            if (existing) {
+              throw new ValidationError({
+                userId: {
+                  message: "برای این کاربر قبلاً این اطلاعات ثبت شده است",
+                },
+              });
+            }
+          }
+
+          let data = mapPayloadToData(payload, fields);
+          data = applyRelationFields(data, payload, "create");
+
+          const created = await prisma[modelName].create({
+            data: {
+              ...data,
+              user: {
+                connect: {
+                  id: userId,
+                },
+              },
+            },
+          });
+
+          return {
+            record: resource.build(created).toJSON(currentAdmin),
+            redirectUrl: h.resourceUrl({
+              resourceId: resource.id(),
+            }),
+            notice: {
+              message: "با موفقیت ایجاد شد",
+              type: "success",
+            },
+          };
+        } catch (error) {
+          if (error instanceof ValidationError) {
+            const record = resource.build(payload);
+
+            return {
+              record: {
+                ...record.toJSON(currentAdmin),
+                errors: error.propertyErrors,
+              },
+              notice: {
+                message: "خطا در اعتبارسنجی",
+                type: "error",
+              },
+            };
+          }
+
+          throw error;
+        }
+      },
+    },
+
+    edit: {
+      handler: async (request, response, context) => {
+        const { record, resource, h, currentAdmin } = context;
+
+        if (request.method !== "post") {
+          return {
+            record: record.toJSON(currentAdmin),
+          };
+        }
+
+        const payload = request.payload || {};
+        const userId = extractReferenceId(payload.userId);
+
+        try {
+          if (!userId) {
+            throw new ValidationError({
+              userId: {
+                message: "انتخاب کاربر الزامی است",
+              },
+            });
+          }
+
+          let data = mapPayloadToData(payload, fields);
+          data = applyRelationFields(data, payload, "update");
+
+          const updated = await prisma[modelName].update({
+            where: {
+              id: record.params.id,
+            },
+            data: {
+              ...data,
+              user: {
+                connect: {
+                  id: userId,
                 },
               },
             },

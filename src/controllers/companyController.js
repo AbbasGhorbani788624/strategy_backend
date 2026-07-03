@@ -71,6 +71,8 @@ exports.postCompanyBasicInfo = async (req, res) => {
       phoneNumber,
       website,
       region,
+      vision,
+      objectives,
     } = req.body;
 
     const companyId = req.user.companyId;
@@ -91,6 +93,8 @@ exports.postCompanyBasicInfo = async (req, res) => {
       phoneNumber,
       website,
       region,
+      vision,
+      objectives,
     });
 
     return successResponse(res, 201, result);
