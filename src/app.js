@@ -55,7 +55,10 @@ app.use(limiter);
 app.use(express.urlencoded({ limit: "30mb", extended: true }));
 app.use(express.json({ limit: "30mb" }));
 
-app.use(express.static(path.resolve(__dirname, "..", "public", "images")));
+app.use(
+  "/images",
+  express.static(path.resolve(__dirname, "..", "public", "images")),
+);
 
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 

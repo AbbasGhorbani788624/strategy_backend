@@ -254,6 +254,7 @@ const upsertCompanyBasicInfo = async (data) => {
     },
     update: {
       brandTitle: data.brandTitle,
+      knownAs: data?.knownAs,
       nationalId: data.nationalId,
       companyType: data.companyType,
       establishmentYear: data.establishmentYear,
@@ -273,6 +274,7 @@ const upsertCompanyBasicInfo = async (data) => {
     create: {
       companyId: data.companyId,
       brandTitle: data.brandTitle,
+      knownAs: data?.knownAs,
       nationalId: data.nationalId,
       companyType: data.companyType,
       establishmentYear: data.establishmentYear,
@@ -401,6 +403,16 @@ const getCompanyProfile = async (companyId, userId) => {
     orderBy: [{ createdAt: "asc" }],
   });
 
+  const suppliers = await prisma.companySupplier.findMany({
+    where: { companyId },
+    orderBy: [{ createdAt: "asc" }],
+  });
+
+  const rawMaterials = await prisma.companyRawMaterial.findMany({
+    where: { companyId },
+    orderBy: [{ createdAt: "asc" }],
+  });
+
   return {
     userInfo: {
       id: userInfo.id,
@@ -428,6 +440,8 @@ const getCompanyProfile = async (companyId, userId) => {
     resourceCapabilities,
     balanceSheets,
     incomeStatements,
+    suppliers,
+    rawMaterials,
   };
 };
 

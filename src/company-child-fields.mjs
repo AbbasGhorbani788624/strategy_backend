@@ -1,5 +1,6 @@
 export const companyBasicInfoFields = {
   brandTitle: "string",
+  knownAs: "knownAs",
   nationalId: "string",
   companyType: "string",
   establishmentYear: "string",
@@ -29,6 +30,7 @@ export const revenueCenterFields = {
   title: "string",
   activityYearsCount: "int",
   totalRevenueSharePercent: "decimal",
+  lastYearEstimatedRevenue: "decimal",
   personnelCount: "int",
   sortOrder: "int",
 };
@@ -45,7 +47,6 @@ export const organizationUnitFields = {
   unitName: "string",
   structureLevel: "string",
   isRevenueCenter: "boolean",
-  parentUnitName: "string",
   managerName: "string",
   employeeCount: "int",
   structureFileId: "string",
@@ -60,6 +61,7 @@ export const companyLicenseCertificateFields = {
 
 export const companyMembershipFields = {
   associationName: "string",
+  activityScope: "string",
   membershipDate: "date",
   isBoardMember: "boolean",
 };
@@ -83,6 +85,7 @@ export const companyMarketFields = {
   marketPenetrationLevel: "string",
   yearsInMarket: "int",
   relatedProductService: "string",
+  targetMarketType: "string",
   sortOrder: "int",
 };
 
@@ -90,7 +93,6 @@ export const keyCustomerFields = {
   customerName: "string",
   category: "string",
   businessField: "string",
-  productImportanceLevel: "string",
   revenueImpactLevel: "string",
   loyaltyLevel: "string",
   walletShareLevel: "string",
@@ -98,22 +100,16 @@ export const keyCustomerFields = {
 };
 
 export const companyBalanceSheetFields = {
-  fiscalPeriodStart: "date",
-  fiscalPeriodEnd: "date",
-  category: "string",
+  year: "int",
   title: "string",
-  amount: "decimal",
   balanceFileId: "string",
   description: "string",
   sortOrder: "int",
 };
 
 export const companyIncomeStatementFields = {
-  fiscalPeriodStart: "date",
-  fiscalPeriodEnd: "date",
-  category: "string",
+  year: "int",
   title: "string",
-  amount: "decimal",
   incomeFileId: "string",
   description: "string",
   sortOrder: "int",
@@ -123,7 +119,6 @@ export const companyResourceCapabilityFields = {
   capability: "string",
   category: "string",
   importanceLevel: "string",
-  availabilityLevel: "string",
   rarityLevel: "string",
   inimitabilityLevel: "string",
   sortOrder: "int",
@@ -168,5 +163,23 @@ export const userCompetencyFields = {
   yearsOfExperience: "int",
   jobRelevance: "string",
   importance: "string",
+  sortOrder: "int",
+};
+
+export const companySupplierFields = {
+  supplierName: "string",
+  productOrService: "string",
+  bargainingPower: "string",
+  supplierMarket: "string",
+  description: "string",
+  sortOrder: "int",
+};
+
+export const companyRawMaterialFields = {
+  materialName: "string",
+  costImpactLevel: "string",
+  purchaseBudgetShare: "string",
+  category: "string",
+  description: "string",
   sortOrder: "int",
 };

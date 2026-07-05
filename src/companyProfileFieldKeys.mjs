@@ -1,6 +1,7 @@
 export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
   COMPANY_BASIC_INFO: [
     { value: "brandTitle", label: "عنوان برند" },
+    { value: "knownAs", label: "نام/برند شناخته شده شرکت" },
     { value: "nationalId", label: "شناسه ملی" },
     { value: "companyType", label: "نوع شرکت" },
     { value: "establishmentYear", label: "سال تاسیس" },
@@ -29,6 +30,10 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "title", label: "عنوان" },
     { value: "activityYearsCount", label: "تعداد سال‌های فعالیت" },
     { value: "totalRevenueSharePercent", label: "درصد سهم از کل درآمد" },
+    {
+      value: "lastYearEstimatedRevenue",
+      label: "برآورد تقریبی درآمد سال گذشته (ریال)",
+    },
     { value: "personnelCount", label: "تعداد پرسنل" },
   ],
 
@@ -44,7 +49,6 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "unitName", label: "نام واحد" },
     { value: "structureLevel", label: "سطح ساختار" },
     { value: "isRevenueCenter", label: "مرکز درآمد بودن" },
-    { value: "parentUnitName", label: "نام واحد والد" },
     { value: "managerName", label: "نام مدیر" },
     { value: "employeeCount", label: "تعداد کارکنان" },
     { value: "structureFileId", label: "شناسه فایل ساختار" },
@@ -60,6 +64,7 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
 
   COMPANY_MEMBERSHIP: [
     { value: "associationName", label: "نام انجمن / عضویت" },
+    { value: "activityScope", label: "حیطه فعالیت انجمن" },
     { value: "membershipDate", label: "تاریخ عضویت" },
     { value: "isBoardMember", label: "عضو هیئت مدیره" },
   ],
@@ -82,34 +87,28 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "marketPenetrationLevel", label: "سطح نفوذ در بازار" },
     { value: "yearsInMarket", label: "سال‌های حضور در بازار" },
     { value: "relatedProductService", label: "محصول / خدمت مرتبط" },
+    { value: "targetMarketType", label: "نوع بازار هدف" },
   ],
 
   KEY_CUSTOMER: [
     { value: "customerName", label: "نام مشتری" },
     { value: "category", label: "دسته‌بندی" },
     { value: "businessField", label: "حوزه کسب‌وکار" },
-    { value: "productImportanceLevel", label: "سطح اهمیت محصول" },
     { value: "revenueImpactLevel", label: "سطح اثرگذاری بر درآمد" },
     { value: "loyaltyLevel", label: "سطح وفاداری" },
     { value: "walletShareLevel", label: "سهم از کیف پول مشتری" },
   ],
 
   COMPANY_BALANCE_SHEET: [
-    { value: "fiscalPeriodStart", label: "شروع دوره مالی" },
-    { value: "fiscalPeriodEnd", label: "پایان دوره مالی" },
-    { value: "category", label: "دسته‌بندی" },
+    { value: "year", label: "سال" },
     { value: "title", label: "عنوان" },
-    { value: "amount", label: "مبلغ" },
     { value: "balanceFileId", label: "شناسه فایل ترازنامه" },
     { value: "description", label: "توضیحات" },
   ],
 
   COMPANY_INCOME_STATEMENT: [
-    { value: "fiscalPeriodStart", label: "شروع دوره مالی" },
-    { value: "fiscalPeriodEnd", label: "پایان دوره مالی" },
-    { value: "category", label: "دسته‌بندی" },
+    { value: "year", label: "سال" },
     { value: "title", label: "عنوان" },
-    { value: "amount", label: "مبلغ" },
     { value: "incomeFileId", label: "شناسه فایل صورت سود و زیان" },
     { value: "description", label: "توضیحات" },
   ],
@@ -118,7 +117,6 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "capability", label: "قابلیت" },
     { value: "category", label: "دسته‌بندی" },
     { value: "importanceLevel", label: "سطح اهمیت" },
-    { value: "availabilityLevel", label: "سطح دسترس‌پذیری" },
     { value: "rarityLevel", label: "سطح کمیابی" },
     { value: "inimitabilityLevel", label: "سطح تقلیدناپذیری" },
   ],

@@ -58,6 +58,7 @@ exports.postCompanyBasicInfo = async (req, res) => {
   try {
     const {
       brandTitle,
+      knownAs,
       nationalId,
       companyType,
       establishmentYear,
@@ -80,6 +81,7 @@ exports.postCompanyBasicInfo = async (req, res) => {
     const result = await upsertCompanyBasicInfo({
       companyId,
       brandTitle,
+      knownAs,
       nationalId,
       companyType,
       establishmentYear,

@@ -36,6 +36,8 @@ import {
   userEducationActions,
   userInfoActions,
   userTrainingCourseActions,
+  companySupplierActions,
+  companyRawMaterialActions,
 } from "./child-actions-map.mjs";
 
 import path from "path";
@@ -81,6 +83,10 @@ const {
   rarityOptions,
   imitabilityOptions,
   ACTIVITY_SCOPE,
+  BARGAINING_POWER,
+  COST_IMPACT_LEVELS,
+  PURCHASE_BUDGET_SHARES,
+  PROCUREMENT_CATEGORIES,
 } = profileConfig;
 
 AdminJS.registerAdapter({
@@ -257,6 +263,81 @@ const formatFileSize = (bytes) => {
 
   return `${size.toFixed(2)} ${units[unit]}`;
 };
+//////
+const getUploadedFile = (request) => {
+  if (!request.files) {
+    return null;
+  }
+
+  return Object.values(request.files)[0] ?? null;
+};
+
+const syncFileAttachment = async (record, request, currentAdmin) => {
+  if (!record) {
+    return;
+  }
+
+  const uploadedFile = getUploadedFile(request);
+
+  const uploadKey = record.params.uploadKey;
+  const recordId = record.params.id;
+
+  const updateData = {
+    uploadedById: currentAdmin?.id ?? null,
+  };
+
+  if (uploadKey) {
+    updateData.filePath = `uploads/${uploadKey}`;
+  }
+
+  if (uploadedFile) {
+    updateData.originalName = uploadedFile.name;
+
+    updateData.extension = path
+      .extname(uploadedFile.name)
+      .replace(".", "")
+      .toLowerCase();
+  }
+
+  await prisma.fileAttachment.update({
+    where: {
+      id: recordId,
+    },
+    data: updateData,
+  });
+
+  Object.assign(record.params, updateData);
+
+  if (currentAdmin?.id) {
+    record.params.uploadedBy = currentAdmin.id;
+  }
+};
+
+const prepareRequest = (request, currentAdmin) => {
+  if (request.method !== "post") {
+    return request;
+  }
+
+  request.payload ??= {};
+
+  if (currentAdmin?.id) {
+    request.payload.uploadedById = currentAdmin.id;
+  }
+
+  const uploadedFile = getUploadedFile(request);
+
+  if (uploadedFile) {
+    request.payload.originalName = uploadedFile.name;
+
+    request.payload.extension = path
+      .extname(uploadedFile.name)
+      .replace(".", "")
+      .toLowerCase();
+  }
+
+  return request;
+};
+////
 
 export const userInfoResource = prismaResource("UserInfo", {
   navigation: userProfileNavigation,
@@ -452,10 +533,6 @@ export const organizationUnitResource = prismaResource("OrganizationUnit", {
     },
     structureLevel: {
       availableValues: ORG_STRUCTURE_LEVELS,
-    },
-
-    parentUnitName: {
-      availableValues: PARENT_UNITS,
     },
   },
 
@@ -712,10 +789,6 @@ export const keyCustomerResource = prismaResource("KeyCustomer", {
       availableValues: customerCategories,
     },
 
-    productImportanceLevel: {
-      availableValues: productImportance,
-    },
-
     revenueImpactLevel: {
       availableValues: revenueImpact,
     },
@@ -753,10 +826,6 @@ export const companyResourceCapabilityResource = prismaResource(
         availableValues: categoryOptions,
       },
 
-      availabilityLevel: {
-        availableValues: accessLevelOptions,
-      },
-
       rarityLevel: {
         availableValues: rarityOptions,
       },
@@ -771,6 +840,62 @@ export const companyResourceCapabilityResource = prismaResource(
     },
   },
 );
+
+export const companySupplierResource = prismaResource("CompanySupplier", {
+  navigation: companyProfileNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+      isVisible: {
+        list: true,
+        show: true,
+        edit: true,
+        filter: false,
+      },
+    },
+
+    bargainingPower: {
+      availableValues: BARGAINING_POWER,
+    },
+  },
+
+  actions: {
+    ...companySupplierActions,
+  },
+});
+
+export const companyRawMaterialResource = prismaResource("CompanyRawMaterial", {
+  navigation: companyProfileNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+      isVisible: {
+        list: true,
+        show: true,
+        edit: true,
+        filter: false,
+      },
+    },
+
+    costImpactLevel: {
+      availableValues: COST_IMPACT_LEVELS,
+    },
+
+    purchaseBudgetShare: {
+      availableValues: PURCHASE_BUDGET_SHARES,
+    },
+
+    category: {
+      availableValues: PROCUREMENT_CATEGORIES,
+    },
+  },
+
+  actions: {
+    ...companyRawMaterialActions,
+  },
+});
 
 const fileAttachmentResource = {
   resource: {
@@ -995,8 +1120,8 @@ const fileAttachmentResource = {
 
           const ownerMap = Object.create(null);
 
-          for (const manager of managers) {
-            ownerMap[manager.resumeFileId] = `رزومه مدیر: ${manager.fullName}`;
+          for (const item of managers) {
+            ownerMap[item.resumeFileId] = `رزومه مدیر: ${item.fullName}`;
           }
 
           for (const item of organizationUnits) {
@@ -1016,99 +1141,40 @@ const fileAttachmentResource = {
           }
 
           for (const record of response.records) {
-            record.params.owner = ownerMap[record.params.id] || "-";
+            record.params.owner = ownerMap[record.params.id] ?? "-";
           }
 
           return response;
         },
       },
+
       new: {
         before: async (request, context) => {
-          if (request.method !== "post") return request;
-
-          const uploadedFile = request.payload?.uploadFile;
-
-          if (uploadedFile) {
-            request.payload.originalName = uploadedFile.name;
-
-            request.payload.extension = path
-              .extname(uploadedFile.name)
-              .replace(".", "")
-              .toLowerCase();
-
-            request.payload.fileName = uploadedFile.name;
-          }
-
-          if (!request.payload.originalName) {
-            request.payload.originalName = "unknown";
-          }
-
-          if (!request.payload.fileName) {
-            request.payload.fileName = "unknown";
-          }
-
-          request.payload.filePath = "";
-
-          return request;
+          return prepareRequest(request, context.currentAdmin);
         },
 
-        after: async (response) => {
-          const recordId = response.record?.params?.id;
-          const filePath = response.record?.params?.filePath;
-
-          if (recordId && filePath) {
-            const filePath = filePath;
-
-            await prisma.fileAttachment.update({
-              where: {
-                id: recordId,
-              },
-              data: {
-                filePath,
-              },
-            });
-          }
+        after: async (response, request, context) => {
+          await syncFileAttachment(
+            response.record,
+            request,
+            context.currentAdmin,
+          );
 
           return response;
         },
       },
 
       edit: {
-        before: async (request) => {
-          if (request.method !== "post") return request;
-
-          const uploadedFile = request.payload?.uploadFile;
-
-          if (uploadedFile) {
-            request.payload.originalName = uploadedFile.name;
-
-            request.payload.extension = path
-              .extname(uploadedFile.name)
-              .replace(".", "")
-              .toLowerCase();
-
-            request.payload.fileName = uploadedFile.name;
-          }
-
-          return request;
+        before: async (request, context) => {
+          return prepareRequest(request, context.currentAdmin);
         },
 
-        after: async (response) => {
-          const recordId = response.record?.params?.id;
-          const filePath = response.record?.params?.filePath;
-
-          if (recordId && filePath) {
-            const filePath = filePath;
-
-            await prisma.fileAttachment.update({
-              where: {
-                id: recordId,
-              },
-              data: {
-                filePath,
-              },
-            });
-          }
+        after: async (response, request, context) => {
+          await syncFileAttachment(
+            response.record,
+            request,
+            context.currentAdmin,
+          );
 
           return response;
         },
@@ -1679,7 +1745,6 @@ const admin = new AdminJS({
             const phoneNumber = payload.phoneNumber;
             const role = payload.role;
             const companyId = payload.companyId;
-            const profile = payload.profile;
             const progress = payload.progress;
             const profileCompleted = payload.profileCompleted;
 
@@ -1710,7 +1775,6 @@ const admin = new AdminJS({
                 email: email ? String(email).trim() : null,
                 phoneNumber: phoneNumber ? String(phoneNumber).trim() : null,
                 role: String(role).trim(),
-                profile: profile ?? null,
                 progress: progress ?? null,
                 profileCompleted:
                   profileCompleted === true ||
@@ -1784,7 +1848,6 @@ const admin = new AdminJS({
             const phoneNumber = payload.phoneNumber;
             const role = payload.role;
             const companyId = payload.companyId;
-            const profile = payload.profile;
             const progress = payload.progress;
             const profileCompleted = payload.profileCompleted;
 
@@ -1808,7 +1871,6 @@ const admin = new AdminJS({
                 email: email ? String(email).trim() : null,
                 phoneNumber: phoneNumber ? String(phoneNumber).trim() : null,
                 role: String(role).trim(),
-                profile: profile ?? null,
                 progress: progress ?? null,
                 profileCompleted:
                   profileCompleted === true ||
@@ -2796,6 +2858,15 @@ const admin = new AdminJS({
           isTitle: true,
         },
 
+        image: {
+          isVisible: {
+            list: true,
+            show: true,
+            edit: false,
+            filter: false,
+          },
+        },
+
         createdAt: {
           isVisible: {
             list: true,
@@ -2815,13 +2886,49 @@ const admin = new AdminJS({
         },
       },
 
-      listProperties: ["id", "title", "createdAt"],
+      features: [
+        uploadFeature({
+          componentLoader,
+          provider: {
+            local: {
+              bucket: path.join(__dirname, "..", "public", "images"),
+            },
+          },
+
+          properties: {
+            key: "image",
+            file: "uploadFile",
+          },
+
+          validation: {
+            mimeTypes: [
+              "image/png",
+              "image/jpeg",
+              "image/webp",
+              "image/svg+xml",
+            ],
+            maxSize: 5 * 1024 * 1024, // 5MB
+          },
+
+          uploadPath: (record, filename) =>
+            `analysis-categories/${Date.now()}-${filename}`,
+        }),
+      ],
+
+      listProperties: ["id", "image", "title", "createdAt"],
 
       filterProperties: ["title", "createdAt"],
 
-      showProperties: ["id", "title", "description", "createdAt", "updatedAt"],
+      showProperties: [
+        "id",
+        "image",
+        "title",
+        "description",
+        "createdAt",
+        "updatedAt",
+      ],
 
-      editProperties: ["title", "description"],
+      editProperties: ["title", "description", "uploadFile"],
     }),
     prismaResource("AnalysisForm", {
       navigation: {
@@ -2834,7 +2941,7 @@ const admin = new AdminJS({
           isTitle: true,
         },
 
-        categoryId: {
+        category: {
           reference: "AnalysisCategory",
         },
 
@@ -2864,7 +2971,7 @@ const admin = new AdminJS({
       listProperties: [
         "id",
         "title",
-        "categoryId",
+        "category",
         "isActive",
         "order",
         "temperature",
@@ -2873,7 +2980,7 @@ const admin = new AdminJS({
 
       filterProperties: [
         "title",
-        "categoryId",
+        "category",
         "isActive",
         "order",
         "temperature",
@@ -2883,7 +2990,7 @@ const admin = new AdminJS({
       showProperties: [
         "id",
         "title",
-        "categoryId",
+        "category",
         "info",
         "order",
         "isActive",
@@ -2894,7 +3001,7 @@ const admin = new AdminJS({
 
       editProperties: [
         "title",
-        "categoryId",
+        "category",
         "info",
         "order",
         "isActive",

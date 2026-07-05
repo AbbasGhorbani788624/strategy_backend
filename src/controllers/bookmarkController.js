@@ -7,10 +7,7 @@ const { successResponse } = require("../utils/responses");
 
 exports.addBookmark = async (req, res, next) => {
   try {
-    const bookmark = await addBookmarkservice(
-      req.user.id,
-      req.params.projectId,
-    );
+    const bookmark = await addBookmarkService(req.user.id, req.params.id);
 
     return successResponse(res, 201, bookmark);
   } catch (error) {
@@ -20,7 +17,7 @@ exports.addBookmark = async (req, res, next) => {
 
 exports.removeBookmark = async (req, res, next) => {
   try {
-    await removeBookmarkService(req.user.id, req.params.projectId);
+    await removeBookmarkService(req.user.id, req.params.id);
 
     return successResponse(res, 200, {
       message: "پروژ با موفقیت از بوکمارک حذف شد",

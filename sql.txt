@@ -88,3 +88,23 @@ updated_at timestamp DEFAULT CURRENT_TIMESTAMP
 
 getCompanyMembersService
 getCompanyProfile
+
+
+
+list: {
+        after: async (response) => {
+          if (!response.records.length) {
+        return response;
+      }
+
+      const fileIds = response.records.map((record) => record.params.id);
+
+
+          const file = await prisma.fileAttachment.findUnique({
+            where: {
+              id: firstId,
+            },
+          });
+          return response;
+        },
+      },

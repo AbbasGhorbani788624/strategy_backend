@@ -18,6 +18,8 @@ import {
   userEducationFields,
   userTrainingCourseFields,
   userCompetencyFields,
+  companySupplierFields,
+  companyRawMaterialFields,
 } from "./company-child-fields.mjs";
 
 export const companyBasicInfoActions = buildCompanyChildActions(
@@ -117,4 +119,16 @@ export const userTrainingCourseActions = buildUserChildActions(
 export const userCompetencyActions = buildUserChildActions(
   "userCompetency",
   userCompetencyFields,
+);
+
+export const companySupplierActions = buildCompanyChildActions(
+  "companySupplier",
+  companySupplierFields,
+  false,
+);
+
+export const companyRawMaterialActions = buildCompanyChildActions(
+  "companyRawMaterial",
+  companyRawMaterialFields,
+  false,
 );

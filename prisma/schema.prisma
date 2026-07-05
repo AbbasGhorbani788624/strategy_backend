@@ -82,6 +82,13 @@ enum Region {
   INTERNATIONAL
 }
 
+
+
+enum TargetMarketType {
+  PRIMARY
+  INDIVIDUAL
+}
+
 model User {
   id              String           @id @default(uuid())
   username        String           @unique
@@ -191,8 +198,6 @@ model UserCompetency {
   type             String?
   expectedLevel    String?
   currentLevel     String?
-
-  yearsOfExperience Int?
 
   jobRelevance String?
   importance  String?
@@ -344,10 +349,10 @@ model AnalysisCategory {
   id          String         @id @default(uuid())
   title       String
   description String?
+  image       String?
   forms       AnalysisForm[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model AnalysisForm {
@@ -802,6 +807,8 @@ model Company {
 
   balanceSheets    CompanyBalanceSheet[]
   incomeStatements CompanyIncomeStatement[]
+  keySuppliers CompanySupplier[]
+  rawMaterials CompanyRawMaterial[]
 
   resourceCapabilities CompanyResourceCapability[]
 }
@@ -813,10 +820,12 @@ model CompanyBasicInfo {
 
   companyId String  @unique
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
   brandTitle                  String?
-  nationalId                  String?
-  companyType                 String?
+  knownAs                     String?
+  nationalId                  String?             
+  isPublicCompany     Boolean @default(false)
+  isHolding           Boolean @default(false)
+  isHoldingSubsidiary Boolean @default(false)    
   establishmentYear           String?
   commercialActivityStartYear String?
   parentCompanyName           String?
@@ -863,6 +872,7 @@ model RevenueCenter {
   title                    String
   activityYearsCount       Int?
   totalRevenueSharePercent Decimal? @db.Decimal(5, 2)
+  lastYearEstimatedRevenue Decimal? @db.Decimal(20, 0)
   personnelCount           Int?
   sortOrder                Int?
 
@@ -939,6 +949,7 @@ model CompanyMembership {
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   associationName String
+  activityScope String?
   membershipDate  DateTime?
   isBoardMember   Boolean?
 
@@ -980,9 +991,8 @@ model CompanyMarket {
   marketSharePercent     Decimal? @db.Decimal(5, 2)
   marketPenetrationLevel String?
   yearsInMarket          Int?
-
-  relatedProductService String?
-
+  targetMarketType       TargetMarketType?
+  relatedProductService Json?
   sortOrder Int?
 
   @@index([companyId])
@@ -999,7 +1009,6 @@ model KeyCustomer {
   customerName           String
   category               String?
   businessField          String?
-  productImportanceLevel String?
   revenueImpactLevel     String?
   loyaltyLevel           String?
   walletShareLevel       String?
@@ -1016,12 +1025,8 @@ model CompanyBalanceSheet {
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  fiscalPeriodStart DateTime?
-  fiscalPeriodEnd   DateTime?
-
-  category String?
-  title    String
-  amount   Decimal? @db.Decimal(18, 2)
+  year  Int?
+  title String
 
   balanceFileId String?
   balanceFile   FileAttachment? @relation(fields: [balanceFileId], references: [id], onDelete: Cascade)
@@ -1031,7 +1036,7 @@ model CompanyBalanceSheet {
 
   @@index([companyId])
   @@index([balanceFileId])
-  @@index([fiscalPeriodStart, fiscalPeriodEnd])
+  @@index([year])
 }
 
 model CompanyIncomeStatement {
@@ -1042,12 +1047,8 @@ model CompanyIncomeStatement {
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  fiscalPeriodStart DateTime?
-  fiscalPeriodEnd   DateTime?
-
-  category String?
-  title    String
-  amount   Decimal? @db.Decimal(18, 2)
+  year  Int?
+  title String
 
   incomeFileId String?
   incomeFile   FileAttachment? @relation(fields: [incomeFileId], references: [id], onDelete: Cascade)
@@ -1057,7 +1058,7 @@ model CompanyIncomeStatement {
 
   @@index([companyId])
   @@index([incomeFileId])
-  @@index([fiscalPeriodStart, fiscalPeriodEnd])
+  @@index([year])
 }
 
 model CompanyResourceCapability {
@@ -1071,7 +1072,6 @@ model CompanyResourceCapability {
   capability         String
   category           String?
   importanceLevel    String?
-  availabilityLevel  String?
   rarityLevel        String?
   inimitabilityLevel String?
 
@@ -1079,6 +1079,44 @@ model CompanyResourceCapability {
 
   @@index([companyId])
   @@index([companyId, sortOrder])
+}
+
+model CompanySupplier {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  supplierName         String
+  productOrService     String?
+  bargainingPower      String?
+  supplierMarket       String?
+
+  description String?
+  sortOrder   Int?
+
+  @@index([companyId])
+}
+
+model CompanyRawMaterial {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  materialName          String
+  costImpactLevel       String?
+  purchaseBudgetShare   String?
+  category              String?
+
+  description String?
+  sortOrder   Int?
+
+  @@index([companyId])
 }
 
 model FileAttachment {

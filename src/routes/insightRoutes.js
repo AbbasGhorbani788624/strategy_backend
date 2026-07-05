@@ -7,7 +7,12 @@ const {
   getCompanyInsightController,
 } = require("../controllers/insightController");
 
-router.post("/sync", auth, syncCompanyInsightController);
+router.post(
+  "/sync",
+  auth,
+  roleGuard(["SUPER_ADMIN"]),
+  syncCompanyInsightController,
+);
 
 router.get("/", auth, getCompanyInsightController);
 

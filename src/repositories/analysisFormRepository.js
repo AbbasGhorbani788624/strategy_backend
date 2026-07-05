@@ -218,14 +218,29 @@ const getSingleForms = async (companyId) => {
       where: { isActive: true },
       orderBy: { order: "asc" },
       include: {
+        category: {
+          select: {
+            id: true,
+            title: true,
+            image: true,
+            description: true,
+          },
+        },
         profileFields: true,
         goals: {
-          select: { id: true, title: true },
+          select: {
+            id: true,
+            title: true,
+          },
         },
         categories: {
           select: {
             id: true,
-            _count: { select: { questions: true } },
+            _count: {
+              select: {
+                questions: true,
+              },
+            },
           },
         },
       },
@@ -251,17 +266,21 @@ const getSingleForms = async (companyId) => {
     }),
   ]);
 
-  return forms.map((form) => {
+  const mappedForms = forms.map((form) => {
     const missingModels = new Set();
 
     for (const field of form.profileFields) {
       const completed = isProfileFieldCompleted(company, field.profileFieldKey);
+
       if (!completed) {
         const [model] = field.profileFieldKey.split(".");
-        missingModels.add({
-          key: model,
-          title: MODEL_TITLES[model] || model,
-        });
+
+        missingModels.add(
+          JSON.stringify({
+            key: model,
+            title: MODEL_TITLES[model] || model,
+          }),
+        );
       }
     }
 
@@ -273,9 +292,32 @@ const getSingleForms = async (companyId) => {
       goals: form.goals,
       hasForm: form.categories.some((c) => c._count.questions > 0),
       disabled: missingModels.size > 0,
-      missingModels: Array.from(missingModels),
+      missingModels: [...missingModels].map((item) => JSON.parse(item)),
+      category: form.category,
     };
   });
+
+  const groupedMap = new Map();
+
+  for (const form of mappedForms) {
+    const categoryId = form.category?.id || "uncategorized";
+
+    if (!groupedMap.has(categoryId)) {
+      groupedMap.set(categoryId, {
+        id: form.category?.id || null,
+        title: form.category?.title || "بدون دسته‌بندی",
+        image: form.category?.image || null,
+        description: form.category?.description || null,
+        forms: [],
+      });
+    }
+
+    const { category, ...formData } = form;
+
+    groupedMap.get(categoryId).forms.push(formData);
+  }
+
+  return [...groupedMap.values()];
 };
 
 const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {

@@ -356,7 +356,14 @@ const getSelectableProjectsForMultiAnalysisService = async (
               finalAnalysis: true,
               averageRating: true,
               ratingCount: true,
+              creator: {
+                select: {
+                  id: true,
+                  username: true,
+                },
+              },
             },
+
             orderBy: {
               createdAt: "desc",
             },
@@ -396,6 +403,7 @@ const getSelectableProjectsForMultiAnalysisService = async (
           status: project.status,
           createdAt: project.createdAt,
           updatedAt: project.updatedAt,
+          creator: project.creator,
           hasInitialAnalysis: !!project.initialAnalysis,
           hasRiskAnalysis: !!project.riskAnalysis,
           hasFinalAnalysis: !!project.finalAnalysis,

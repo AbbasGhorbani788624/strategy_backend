@@ -1,6 +1,7 @@
 //profile config
 const ORGANIZATIONAL_LEVELS = [
   { value: "CEO", label: "مدیرعامل" },
+  { value: "SENIOR_MANAGER", label: "مدیر ارشد" },
   { value: "MIDDLE_MANAGER", label: "مدیر میانی" },
   { value: "EXPERT", label: "کارشناس" },
   { value: "EMPLOYEE", label: "کارمند" },
@@ -19,7 +20,9 @@ const DEGREE_TYPES = [
   { value: "BACHELOR_DEGREE", label: "کارشناسی" },
   { value: "MASTER_DEGREE", label: "کارشناسی ارشد" },
   { value: "PHD", label: "دکتری" },
-  { value: "POST_DOCTORATE", label: "پس‌دکتری" },
+  { value: "POST_DOCTORATE", label: "پس‌ دکتری" },
+  { value: "DBA", label: "DBA" },
+  { value: "NBA", label: "NBA" },
 ];
 
 const COURSE_LEVELS = [
@@ -27,16 +30,20 @@ const COURSE_LEVELS = [
   { value: "INTERMEDIATE", label: "متوسط" },
   { value: "ADVANCED", label: "پیشرفته" },
   { value: "SPECIALIZED", label: "تخصصی" },
-  { value: "CERTIFIED", label: "مدرک‌دار" },
 ];
 
 const CURRENT_LEVELS = [
-  { value: "0_NO_KNOWLEDGE", label: "صفر (آشنایی ندارم)" },
-  { value: "1_BASIC_AWARENESS", label: "۱ (آشنایی مقدماتی)" },
-  { value: "2_BEGINNER", label: "۲ (مبتدی)" },
-  { value: "3_INTERMEDIATE", label: "۳ (متوسط)" },
-  { value: "4_ADVANCED", label: "۴ (پیشرفته)" },
-  { value: "5_SPECIALIST", label: "۵ (متخصص)" },
+  { value: "FAMILIAR", label: "آشنایی" },
+  { value: "NORMAL", label: "معمولی" },
+  { value: "PROFESSIONAL", label: "حرفه‌ای" },
+  { value: "EXPERT", label: "خبرگی" },
+];
+
+const EXPECTED_LEVELS = [
+  { value: "FAMILIAR", label: "آشنایی" },
+  { value: "NORMAL", label: "معمولی" },
+  { value: "PROFESSIONAL", label: "حرفه‌ای" },
+  { value: "EXPERT", label: "خبرگی" },
 ];
 
 const IMPORTANCE_LEVELS = [
@@ -51,21 +58,14 @@ const SKILL_TYPES = [
   { value: "SOFT_SKILL", label: "مهارت‌های نرم" },
   { value: "FOREIGN_LANGUAGE", label: "زبان خارجی" },
   { value: "MANAGERIAL_SKILL", label: "مدیریتی" },
-  { value: "METACOGNITIVE_SKILL", label: "فراشناختی" },
+  { value: "METACOGNITIVE_SKILL", label: "مهارتی" },
 ];
 
 const JOB_RELEVANCE = [
-  { value: "LOW", label: "کم" },
-  { value: "MEDIUM", label: "متوسط" },
-  { value: "HIGH", label: "زیاد" },
-  { value: "CRITICAL", label: "حیاتی" },
-];
-
-const EXPECTED_LEVELS = [
-  { value: "LOW", label: "پایین" },
-  { value: "MEDIUM", label: "متوسط" },
-  { value: "HIGH", label: "بالا" },
-  { value: "MAXIMUM", label: "حداکثر" },
+  { value: "NOT_RELATED", label: "کاملاً نامرتبط" },
+  { value: "PARTIALLY_RELATED", label: "تاحدودی مرتبط" },
+  { value: "RELATED", label: "مرتبط" },
+  { value: "HIGHLY_IMPACTFUL", label: "بسیار اثرگذار" },
 ];
 
 /////////////
@@ -76,9 +76,9 @@ const ACTIVITY_SCOPE = [
 ];
 
 const COMPANY_TYPES = [
-  { value: "LISTED", label: "شرکت بورسی" },
+  { value: "PUBLIC_COMPANY", label: "شرکت بورسی" },
   { value: "HOLDING", label: "هلدینگ" },
-  { value: "SUBSIDIARY", label: "زیرمجموعه هلدینگ" },
+  { value: "HOLDING_SUBSIDIARY", label: "زیرمجموعه هلدینگ" },
 ];
 
 const MANAGER_ROLES = [
@@ -93,14 +93,12 @@ const SHAREHOLDER_TYPES_COMPANY = [
 
 const SHAREHOLDER_BOARD_MEMBERSHIP = [
   { value: "isBoardMember", label: "عضو هیأت مدیره" },
-  { value: "isPreferredShare", label: "سهام ممتازی" },
+  { value: "isPreferredShare", label: "سهام ممتاز" },
 ];
 
 const ORG_STRUCTURE_LEVELS = [
-  { value: "EXECUTIVE", label: "مدیریت ارشد" },
-  { value: "DEPARTMENT", label: "دپارتمان" },
-  { value: "DIVISION", label: "واحد" },
-  { value: "TEAM", label: "تیم" },
+  { value: "TOP", label: "تاپ چارت" },
+  { value: "MIDDLE", label: "میانی" },
 ];
 
 const ORG_UNIT_TYPES = [{ value: "REVENUE_CENTER", label: "مرکز درآمد" }];
@@ -138,7 +136,6 @@ const marketPositions = [
   { value: "challenger", label: "چالشگر (Challenger)" },
   { value: "niche", label: "نیچ مارکت / گوشه بازار (Niche Player)" },
   { value: "follower", label: "پیرو بازار (Follower)" },
-  { value: "innovator", label: "نوآور و پیشگام (Innovator)" },
 ];
 
 const revenueShares = [
@@ -158,19 +155,12 @@ const marketTypes = [
 ];
 
 const marketPenetration = [
+  { value: "targeted", label: "تنها هدف‌گذاری شده" },
+  { value: "new_entry", label: "ورود تازه (شروع فعالیت)" },
   { value: "low", label: "نفوذ کم (شروع کار)" },
   { value: "medium", label: "نفوذ متوسط (رشد پایدار)" },
   { value: "high", label: "نفوذ بالا (اشباع نسبی)" },
   { value: "dominant", label: "نفوذ غالب (تسلط بر بازار)" },
-  { value: "new_entry", label: "ورود تازه (شروع فعالیت)" },
-];
-
-const relatedProducts = [
-  { value: "core_product", label: "محصول هسته‌ای اصلی" },
-  { value: "complementary_service", label: "خدمت مکمل" },
-  { value: "new_product", label: "محصول جدید" },
-  { value: "upgrade", label: "نسخه ارتقا یافته" },
-  { value: "consulting", label: "خدمات مشاوره‌ای" },
 ];
 
 const customerCategories = [
@@ -180,6 +170,7 @@ const customerCategories = [
   { value: "government", label: "دولتی و نیمه‌دولتی" },
   { value: "reseller", label: "بازاریاب / نماینده فروش" },
   { value: "partner", label: "شریک تجاری استراتژیک" },
+  { value: "distribution_channel", label: "کانال توزیع" },
 ];
 
 const productImportance = [
@@ -220,6 +211,8 @@ const categoryOptions = [
   { value: "human_resource", label: "نیروی انسانی و تخصص" },
   { value: "brand_reputation", label: "برند و شهرت" },
   { value: "infrastructure", label: "زیرساخت و تجهیزات" },
+  { value: "management_systems", label: "نظام‌های مدیریتی" },
+  { value: "other", label: "سایر" },
 ];
 
 const accessLevelOptions = [
@@ -251,6 +244,37 @@ const COMPANY_STRUCTURE_TYPES = [
   { value: "SUBSIDIARY", label: "زیرمجموعه هلدینگ" },
 ];
 
+//قدرت چانه زنی
+
+const BARGAINING_POWER = [
+  { value: "LOW", label: "کم" },
+  { value: "MEDIUM", label: "متوسط" },
+  { value: "HIGH", label: "زیاد" },
+  { value: "VERY_HIGH", label: "بسیار زیاد" },
+];
+
+const COST_IMPACT_LEVELS = [
+  { value: "LESS_THAN_5", label: "کمتر از ۵ درصد" },
+  { value: "BETWEEN_5_AND_10", label: "بین ۵ تا ۱۰ درصد" },
+  { value: "BETWEEN_10_AND_30", label: "بین ۱۰ تا ۳۰ درصد" },
+  { value: "MORE_THAN_30", label: "بیشتر از ۳۰ درصد" },
+];
+
+const PURCHASE_BUDGET_SHARES = [
+  { value: "LESS_THAN_1", label: "کمتر از ۱ درصد" },
+  { value: "BETWEEN_1_AND_5", label: "بین ۱ تا ۵ درصد" },
+  { value: "BETWEEN_5_AND_20", label: "بین ۵ تا ۲۰ درصد" },
+  { value: "BETWEEN_20_AND_60", label: "بین ۲۰ تا ۶۰ درصد" },
+  { value: "MORE_THAN_60", label: "بیشتر از ۶۰ درصد" },
+];
+
+const PROCUREMENT_CATEGORIES = [
+  { value: "STRATEGIC", label: "استراتژیک" },
+  { value: "LEVERAGE", label: "اهرمی" },
+  { value: "BOTTLENECK", label: "گلوگاهی" },
+  { value: "ROUTINE", label: "روتین" },
+];
+
 module.exports = {
   SHAREHOLDER_TYPES,
   ORGANIZATIONAL_LEVELS,
@@ -272,13 +296,11 @@ module.exports = {
   ORG_UNIT_TYPES,
   PARENT_UNITS,
 
-  revenueCenters,
   types,
   marketPositions,
   revenueShares,
   marketTypes,
   marketPenetration,
-  relatedProducts,
   customerCategories,
   productImportance,
   revenueImpact,
@@ -289,4 +311,9 @@ module.exports = {
   accessLevelOptions,
   rarityOptions,
   imitabilityOptions,
+
+  BARGAINING_POWER,
+  COST_IMPACT_LEVELS,
+  PURCHASE_BUDGET_SHARES,
+  PROCUREMENT_CATEGORIES,
 };

@@ -1,6 +1,6 @@
 const express = require("express");
 const auth = require("../middleware/auth");
-
+const prisma = require("../prismaClient");
 const {
   SHAREHOLDER_TYPES,
   ORGANIZATIONAL_LEVELS,
@@ -19,13 +19,11 @@ const {
   ORG_STRUCTURE_LEVELS,
   ORG_UNIT_TYPES,
   PARENT_UNITS,
-  revenueCenters,
   types,
   marketPositions,
   revenueShares,
   marketTypes,
   marketPenetration,
-  relatedProducts,
   customerCategories,
   productImportance,
   revenueImpact,
@@ -36,12 +34,41 @@ const {
   rarityOptions,
   imitabilityOptions,
   ACTIVITY_SCOPE,
+  BARGAINING_POWER,
+  COST_IMPACT_LEVELS,
+  PURCHASE_BUDGET_SHARES,
+  PROCUREMENT_CATEGORIES,
 } = require("../configs/profileConfig");
 
 const router = express.Router();
 
-router.get("/", auth, (req, res, next) => {
+router.get("/", auth, async (req, res, next) => {
   try {
+    const revenueCenters = await prisma.revenueCenter.findMany({
+      where: {
+        companyId: req.user.companyId,
+      },
+      select: {
+        id: true,
+        title: true,
+      },
+      orderBy: {
+        sortOrder: "asc",
+      },
+    });
+
+    const productServices = await prisma.companyProductService.findMany({
+      where: {
+        companyId: req.user.companyId,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+      orderBy: {
+        sortOrder: "asc",
+      },
+    });
     const options = {
       shareholderTypes: SHAREHOLDER_TYPES,
       organizationalLevels: ORGANIZATIONAL_LEVELS,
@@ -61,13 +88,19 @@ router.get("/", auth, (req, res, next) => {
       ORG_UNIT_TYPES: ORG_UNIT_TYPES,
       PARENT_UNITS: PARENT_UNITS,
       ACTIVITY_SCOPE,
-      revenueCenters,
+      revenueCenters: revenueCenters.map((item) => ({
+        value: item.title,
+        label: item.title,
+      })),
+      productServices: productServices.map((item) => ({
+        value: item.name,
+        label: item.name,
+      })),
       types,
       marketPositions,
       revenueShares,
       marketTypes,
       marketPenetration,
-      relatedProducts,
       customerCategories,
       productImportance,
       revenueImpact,
@@ -77,6 +110,12 @@ router.get("/", auth, (req, res, next) => {
       accessLevelOptions,
       rarityOptions,
       imitabilityOptions,
+
+      bargainingpower: BARGAINING_POWER,
+
+      costimpactlevels: COST_IMPACT_LEVELS,
+      purchasebudgetshares: PURCHASE_BUDGET_SHARES,
+      procurementcategories: PROCUREMENT_CATEGORIES,
     };
 
     res.status(200).json({

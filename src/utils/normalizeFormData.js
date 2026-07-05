@@ -41,15 +41,10 @@ const numberFields = {
 };
 
 const decimalFields = {
-  revenueCenters: ["totalRevenueSharePercent"],
-
+  revenueCenters: ["totalRevenueSharePercent", "lastYearEstimatedRevenue"],
   shareholders: ["sharePercent"],
 
   markets: ["marketSharePercent"],
-
-  balanceSheets: ["amount"],
-
-  incomeStatements: ["amount"],
 };
 
 const dateFields = {

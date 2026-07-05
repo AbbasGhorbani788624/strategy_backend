@@ -13,26 +13,12 @@ const callAIInsightAPI = async (payload) => {
       timeout: 60000,
     });
 
+    console.log(JSON.stringify(response.data, null, 2));
     return {
-      insight: response.data.insight || response.data.insightText,
-      recommendedAnalyses:
-        response.data.recommendedAnalyses ||
-        response.data.suggestedAnalyses ||
-        [],
+      insight: response.data.executiveInsight || "",
+      recommendedAnalyses: response.data.recommendedAnalyses || [],
     };
   } catch (error) {
-    console.error("========== AI API ERROR ==========");
-    console.error("Message:", error.message);
-    console.error("Code:", error.code);
-    console.error("Status:", error.response?.status);
-    console.error("Status Text:", error.response?.statusText);
-    console.error("Response Data:", error.response?.data);
-    console.error("Response Headers:", error.response?.headers);
-    console.error("Request URL:", error.config?.url);
-    console.error("Request Method:", error.config?.method);
-    console.error("Request Data:", error.config?.data);
-    console.error("==================================");
-
     throw createBadRequestError(
       error.response?.data?.message ||
         error.message ||
@@ -71,7 +57,6 @@ const syncCompanyInsightService = async (companyId, userId) => {
           unitName: true,
           structureLevel: true,
           isRevenueCenter: true,
-          parentUnitName: true,
           managerName: true,
           employeeCount: true,
         },
@@ -94,7 +79,6 @@ const syncCompanyInsightService = async (companyId, userId) => {
           fiscalPeriodEnd: true,
           category: true,
           title: true,
-          amount: true,
           description: true,
           sortOrder: true,
         },
@@ -105,7 +89,6 @@ const syncCompanyInsightService = async (companyId, userId) => {
           fiscalPeriodEnd: true,
           category: true,
           title: true,
-          amount: true,
           description: true,
           sortOrder: true,
         },
@@ -132,26 +115,24 @@ const syncCompanyInsightService = async (companyId, userId) => {
 
   const aiResponse = await callAIInsightAPI(aiPayload);
 
-  console.log("aiResponse =>", aiResponse);
+  const insight = await prisma.companyInsight.upsert({
+    where: {
+      companyId,
+    },
+    create: {
+      companyId,
+      insightText: aiResponse.insight,
+      suggestedAnalyses: aiResponse.recommendedAnalyses,
+      generatedAt: new Date(),
+    },
+    update: {
+      insightText: aiResponse.insight,
+      suggestedAnalyses: aiResponse.recommendedAnalyses,
+      generatedAt: new Date(),
+    },
+  });
 
-  // const insight = await prisma.companyInsight.upsert({
-  //   where: {
-  //     companyId,
-  //   },
-  //   create: {
-  //     companyId,
-  //     insightText: aiResponse.insight,
-  //     suggestedAnalyses: aiResponse.recommendedAnalyses,
-  //     generatedAt: new Date(),
-  //   },
-  //   update: {
-  //     insightText: aiResponse.insight,
-  //     suggestedAnalyses: aiResponse.recommendedAnalyses,
-  //     generatedAt: new Date(),
-  //   },
-  // });
-
-  // return insight;
+  return insight;
 };
 
 const getCompanyInsightService = async (companyId, userId) => {
@@ -173,11 +154,17 @@ const getCompanyInsightService = async (companyId, userId) => {
     createBadRequestError("شرکت یافت نشد.", 404);
   }
 
-  const insight = await prisma.companyInsight.findUnique({
+  let insight = await prisma.companyInsight.findUnique({
     where: {
       companyId,
     },
   });
+
+  if (insight) {
+    return insight;
+  }
+
+  insight = await syncCompanyInsightService(companyId, userId);
 
   return insight;
 };
@@ -186,3 +173,15 @@ module.exports = {
   syncCompanyInsightService,
   getCompanyInsightService,
 };
+
+//  console.error("========== AI API ERROR ==========");
+//     console.error("Message:", error.message);
+//     console.error("Code:", error.code);
+//     console.error("Status:", error.response?.status);
+//     console.error("Status Text:", error.response?.statusText);
+//     console.error("Response Data:", error.response?.data);
+//     console.error("Response Headers:", error.response?.headers);
+//     console.error("Request URL:", error.config?.url);
+//     console.error("Request Method:", error.config?.method);
+//     console.error("Request Data:", error.config?.data);
+//     console.error("==================================");

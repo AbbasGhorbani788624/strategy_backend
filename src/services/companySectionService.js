@@ -40,6 +40,7 @@ exports.create = async (companyId, section, data, files, uploadedById) => {
         data: {
           originalName: file.originalname,
           fileName: file.filename,
+          uploadKey: `file/${file.filename}`,
           filePath: `uploads/file/${file.filename}`,
           mimeType: file.mimetype,
           extension: file.originalname.split(".").pop(),
@@ -97,6 +98,7 @@ exports.update = async (section, id, data, files, uploadedById) => {
         data: {
           originalName: uploadedFile.originalname,
           fileName: uploadedFile.filename,
+          uploadKey: `file/${uploadedFile.filename}`,
           filePath: `uploads/file/${uploadedFile.filename}`,
           mimeType: uploadedFile.mimetype,
           extension: uploadedFile.originalname.split(".").pop(),
