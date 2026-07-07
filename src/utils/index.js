@@ -17,6 +17,8 @@ const MODEL_TO_COMPANY_KEY = {
   COMPANY_BALANCE_SHEET: "balanceSheets",
   COMPANY_INCOME_STATEMENT: "incomeStatements",
   COMPANY_RESOURCE_CAPABILITY: "resourceCapabilities",
+  COMPANY_SUPPLIER: "keySuppliers",
+  COMPANY_RAW_MATERIAL: "rawMaterials",
 };
 
 const createBadRequestError = (message, statusCode) => {

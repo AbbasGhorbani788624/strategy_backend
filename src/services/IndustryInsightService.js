@@ -1,21 +1,6 @@
 const axios = require("axios");
 const prisma = require("../prismaClient");
-const INDUSTRY_INSIGHT_API_URL = "https://your-api.com/industry-insight";
-
-const keepLastFourInsights = async (industryName) => {
-  const insights = await prisma.industryInsight.findMany({
-    where: { industryName },
-    orderBy: { fetchedAt: "desc" },
-    select: { id: true },
-  });
-
-  if (insights.length > 4) {
-    const idsToDelete = insights.slice(4).map((i) => i.id);
-    await prisma.industryInsight.deleteMany({
-      where: { id: { in: idsToDelete } },
-    });
-  }
-};
+const INDUSTRY_INSIGHT_API_URL = "http://185.237.85.53:8080/industry";
 
 const syncIndustryInsightService = async (companyId) => {
   if (!companyId) return null;
@@ -23,52 +8,56 @@ const syncIndustryInsightService = async (companyId) => {
   try {
     const company = await prisma.company.findUnique({
       where: { id: companyId },
-      select: { industry: true },
+      select: {
+        industry: true,
+        basicInfo: {
+          select: {
+            region: true,
+          },
+        },
+      },
     });
 
-    const industryName = company?.industry?.trim();
-    if (!industryName) return null;
-
-    const lastInsight = await prisma.industryInsight.findFirst({
-      where: { industryName },
-      orderBy: { fetchedAt: "desc" },
-      select: { fetchedAt: true },
-    });
-
-    if (lastInsight) {
-      const hoursSinceLast =
-        (Date.now() - new Date(lastInsight.fetchedAt).getTime()) /
-        (1000 * 60 * 60);
-      if (hoursSinceLast < 20) {
-        console.log(`⏭️ ${industryName} هنوز تازه است (skip)`);
-        return lastInsight;
-      }
+    if (!company?.industry) {
+      console.log("❌ Company or industry not found.");
+      return null;
     }
 
-    // ادامه درخواست به API
+    const industry = company.industry.trim();
+    const region = company.basicInfo?.region || null;
+
+    // console.log("========== AI REQUEST ==========");
+    // console.log({
+    //   url: INDUSTRY_INSIGHT_API_URL,
+    //   payload: {
+    //     industry,
+    //     region,
+    //   },
+    // });
+
     const response = await axios.post(
       INDUSTRY_INSIGHT_API_URL,
-      { industry: industryName, language: "fa" },
-      { timeout: 60000 },
+      {
+        industry,
+        region,
+      },
+      {
+        timeout: 60000,
+      },
     );
 
-    const newInsight = {
-      industryName,
-      title: response.data.title || `بینش صنعت ${industryName}`,
-      insightText: response.data.insight || response.data.insightText,
-      source: response.data.source || "AI",
-      fetchedAt: new Date(),
-    };
+    await prisma.industryInsight.create({
+      data: {
+        industryName: industry,
+        source: INDUSTRY_INSIGHT_API_URL,
+        insightData: response.data,
+      },
+    });
 
-    const saved = await prisma.industryInsight.create({ data: newInsight });
-    await keepLastFourInsights(industryName);
-
-    return saved;
+    return response.data;
   } catch (error) {
-    console.error(
-      `Industry Insight Error for company ${companyId}:`,
-      error.message,
-    );
+    console.log(error);
+
     return null;
   }
 };
@@ -76,22 +65,45 @@ const syncIndustryInsightService = async (companyId) => {
 const getLatestIndustryInsightsService = async (companyId, limit = 4) => {
   try {
     const company = await prisma.company.findUnique({
-      where: { id: companyId },
-      select: { industry: true },
+      where: {
+        id: companyId,
+      },
+      select: {
+        industry: true,
+      },
     });
 
-    const industryName = company?.industry?.trim();
+    if (!company?.industry) return [];
 
-    return await prisma.industryInsight.findMany({
-      where: { industryName },
-      orderBy: { fetchedAt: "desc" },
+    const industry = company.industry.trim();
+
+    let insights = await prisma.industryInsight.findMany({
+      where: {
+        industryName: industry,
+      },
+      orderBy: {
+        fetchedAt: "desc",
+      },
       take: limit,
     });
+
+    if (insights.length === 0) {
+      await syncIndustryInsightService(companyId);
+
+      insights = await prisma.industryInsight.findMany({
+        where: {
+          industryName: industry,
+        },
+        orderBy: {
+          fetchedAt: "desc",
+        },
+        take: limit,
+      });
+    }
+
+    return insights;
   } catch (error) {
-    console.error(
-      `Error fetching insights for company ${companyId}:`,
-      error.message,
-    );
+    console.error(error);
     return [];
   }
 };

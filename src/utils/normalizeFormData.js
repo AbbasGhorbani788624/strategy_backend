@@ -25,9 +25,9 @@ const numberFields = {
 
   keyCustomers: ["sortOrder"],
 
-  balanceSheets: ["sortOrder"],
+  balanceSheets: ["sortOrder", "year"],
 
-  incomeStatements: ["sortOrder"],
+  incomeStatements: ["sortOrder", "year"],
 
   organizationUnits: ["employeeCount"],
 

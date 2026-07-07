@@ -113,7 +113,6 @@ function buildCategory(category, answers, categoryScores) {
 
         if (question.weight != null && hasScore(selectedOption)) {
           weightedScore += question.weight * selectedOption.score;
-
           totalWeight += question.weight;
         }
       }
@@ -122,7 +121,7 @@ function buildCategory(category, answers, categoryScores) {
     // ===========================
     // CHECKBOX
     // ===========================
-    if (question.type === "CHECKBOX") {
+    else if (question.type === "CHECKBOX") {
       selected = [];
 
       let scoreSum = 0;
@@ -136,7 +135,6 @@ function buildCategory(category, answers, categoryScores) {
 
         if (hasScore(option)) {
           item.score = option.score;
-
           scoreSum += option.score;
           scoreCount++;
         }
@@ -148,9 +146,28 @@ function buildCategory(category, answers, categoryScores) {
         const averageScore = scoreSum / scoreCount;
 
         weightedScore += question.weight * averageScore;
-
         totalWeight += question.weight;
       }
+    }
+
+    // ===========================
+    // TEXT
+    // ===========================
+    else if (question.type === "TEXT") {
+      selected =
+        typeof answer === "string" && answer.trim() !== ""
+          ? answer.trim()
+          : null;
+    }
+
+    // ===========================
+    // NUMBER
+    // ===========================
+    else if (question.type === "NUMBER") {
+      selected =
+        answer !== undefined && answer !== null && answer !== ""
+          ? Number(answer)
+          : null;
     }
 
     return {
@@ -176,6 +193,7 @@ function buildCategory(category, answers, categoryScores) {
     totalWeight,
     weightedScore,
   };
+
   return {
     id: category.id,
     title: category.title,

@@ -139,13 +139,12 @@ const marketPositions = [
 ];
 
 const revenueShares = [
-  { value: "low", label: "کمتر از ۱۰٪" },
-  { value: "medium_low", label: "۱۰٪ تا ۳۰٪" },
-  { value: "medium_high", label: "۳۰٪ تا ۶۰٪" },
-  { value: "high", label: "بیش از ۶۰٪" },
-  { value: "primary", label: "منبع اصلی درآمد" },
+  { value: "revenue_share_less_than_10_percent", label: "کمتر از ۱۰٪" },
+  { value: "revenue_share_10_to_30_percent", label: "۱۰٪ تا ۳۰٪" },
+  { value: "revenue_share_30_to_60_percent", label: "۳۰٪ تا ۶۰٪" },
+  { value: "revenue_share_more_than_60_percent", label: "بیش از ۶۰٪" },
+  { value: "primary_revenue_source", label: "منبع اصلی درآمد" },
 ];
-
 const marketTypes = [
   { value: "local", label: "بازار محلی" },
   { value: "national", label: "بازار ملی" },
@@ -198,11 +197,26 @@ const loyaltyLevels = [
 ];
 
 const shareOfWallet = [
-  { value: "exclusive", label: "انحصاری (۱۰۰٪ نیاز توسط ما تأمین می‌شود)" },
-  { value: "dominant", label: "غالب (بیش از ۷۰٪)" },
-  { value: "majority", label: "اکثریت (۵۰٪ تا ۷۰٪)" },
-  { value: "competitive", label: "رقابتی (۲۰٪ تا ۵۰٪)" },
-  { value: "minor", label: "ناچیز (کمتر از ۲۰٪)" },
+  {
+    value: "share_of_wallet_exclusive_100_percent",
+    label: "انحصاری (۱۰۰٪ نیاز توسط ما تأمین می‌شود)",
+  },
+  {
+    value: "share_of_wallet_more_than_70_percent",
+    label: "غالب (بیش از ۷۰٪)",
+  },
+  {
+    value: "share_of_wallet_50_to_70_percent",
+    label: "اکثریت (۵۰٪ تا ۷۰٪)",
+  },
+  {
+    value: "share_of_wallet_20_to_50_percent",
+    label: "رقابتی (۲۰٪ تا ۵۰٪)",
+  },
+  {
+    value: "share_of_wallet_less_than_20_percent",
+    label: "ناچیز (کمتر از ۲۰٪)",
+  },
 ];
 
 const categoryOptions = [
@@ -254,18 +268,27 @@ const BARGAINING_POWER = [
 ];
 
 const COST_IMPACT_LEVELS = [
-  { value: "LESS_THAN_5", label: "کمتر از ۵ درصد" },
-  { value: "BETWEEN_5_AND_10", label: "بین ۵ تا ۱۰ درصد" },
-  { value: "BETWEEN_10_AND_30", label: "بین ۱۰ تا ۳۰ درصد" },
-  { value: "MORE_THAN_30", label: "بیشتر از ۳۰ درصد" },
+  { value: "cost_impact_less_than_5_percent", label: "کمتر از ۵ درصد" },
+  { value: "cost_impact_5_to_10_percent", label: "بین ۵ تا ۱۰ درصد" },
+  { value: "cost_impact_10_to_30_percent", label: "بین ۱۰ تا ۳۰ درصد" },
+  { value: "cost_impact_more_than_30_percent", label: "بیشتر از ۳۰ درصد" },
 ];
 
 const PURCHASE_BUDGET_SHARES = [
-  { value: "LESS_THAN_1", label: "کمتر از ۱ درصد" },
-  { value: "BETWEEN_1_AND_5", label: "بین ۱ تا ۵ درصد" },
-  { value: "BETWEEN_5_AND_20", label: "بین ۵ تا ۲۰ درصد" },
-  { value: "BETWEEN_20_AND_60", label: "بین ۲۰ تا ۶۰ درصد" },
-  { value: "MORE_THAN_60", label: "بیشتر از ۶۰ درصد" },
+  {
+    value: "purchase_budget_share_less_than_1_percent",
+    label: "کمتر از ۱ درصد",
+  },
+  { value: "purchase_budget_share_1_to_5_percent", label: "بین ۱ تا ۵ درصد" },
+  { value: "purchase_budget_share_5_to_20_percent", label: "بین ۵ تا ۲۰ درصد" },
+  {
+    value: "purchase_budget_share_20_to_60_percent",
+    label: "بین ۲۰ تا ۶۰ درصد",
+  },
+  {
+    value: "purchase_budget_share_more_than_60_percent",
+    label: "بیشتر از ۶۰ درصد",
+  },
 ];
 
 const PROCUREMENT_CATEGORIES = [

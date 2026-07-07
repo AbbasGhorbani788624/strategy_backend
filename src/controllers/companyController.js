@@ -54,7 +54,7 @@ exports.getCompanyMemebers = async (req, res, next) => {
   }
 };
 
-exports.postCompanyBasicInfo = async (req, res) => {
+exports.postCompanyBasicInfo = async (req, res, next) => {
   try {
     const {
       brandTitle,
@@ -63,7 +63,7 @@ exports.postCompanyBasicInfo = async (req, res) => {
       companyType,
       establishmentYear,
       commercialActivityStartYear,
-      isListed,
+      isPublicCompany,
       isHolding,
       isHoldingSubsidiary,
       parentCompanyName,
@@ -86,7 +86,7 @@ exports.postCompanyBasicInfo = async (req, res) => {
       companyType,
       establishmentYear,
       commercialActivityStartYear,
-      isListed,
+      isPublicCompany,
       isHolding,
       isHoldingSubsidiary,
       parentCompanyName,
@@ -101,6 +101,7 @@ exports.postCompanyBasicInfo = async (req, res) => {
 
     return successResponse(res, 201, result);
   } catch (error) {
+    next(error);
     return res.status(500).json({
       success: false,
       message: error.message || "Internal server error",
@@ -108,7 +109,7 @@ exports.postCompanyBasicInfo = async (req, res) => {
   }
 };
 
-exports.getCompanyProfileController = async (req, res) => {
+exports.getCompanyProfileController = async (req, res, next) => {
   try {
     const companyId = req.user.companyId;
     const userId = req.user.id;
@@ -123,6 +124,7 @@ exports.getCompanyProfileController = async (req, res) => {
 
     return successResponse(res, 200, result);
   } catch (error) {
+    next(error);
     return res.status(500).json({
       success: false,
       message: error.message || "Internal server error",

@@ -43,6 +43,8 @@ enum QuestionType {
   CHECKBOX
   RADIO
   NUMBER
+  TEXT
+
 }
 
 enum FollowUpStatus {
@@ -82,8 +84,6 @@ enum Region {
   INTERNATIONAL
 }
 
-
-
 enum TargetMarketType {
   PRIMARY
   INDIVIDUAL
@@ -100,10 +100,10 @@ model User {
   progress        Json?
   projectComments ProjectComment[]
 
-  userInfo          UserInfo?
-  educations        UserEducation[]
-  trainingCourses   UserTrainingCourse[]
-  competencies      UserCompetency[]
+  userInfo        UserInfo?
+  educations      UserEducation[]
+  trainingCourses UserTrainingCourse[]
+  competencies    UserCompetency[]
 
   profileCompleted Boolean          @default(false)
   createdAt        DateTime         @default(now())
@@ -134,16 +134,16 @@ model UserInfo {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  firstName     String
-  lastName      String
-  nationalCode  String
-  jobTitle      String
-  birthDate     DateTime?
-  lastJobTitle  String
+  firstName           String
+  lastName            String
+  nationalCode        String
+  jobTitle            String
+  birthDate           DateTime?
+  lastJobTitle        String
   organizationalLevel String
 
-  isboardMember       Boolean @default(false)
-  isshareholder       Boolean @default(false)
+  isboardMember        Boolean @default(false)
+  isshareholder        Boolean @default(false)
   isstrategyTeamMember Boolean @default(false)
 }
 
@@ -153,13 +153,13 @@ model UserEducation {
   updatedAt DateTime @updatedAt
 
   userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  degree          String?
-  fieldOfStudy    String?
-  specialization  String?
-  graduationYear  Int?
-  university      String?
+  degree         String?
+  fieldOfStudy   String?
+  specialization String?
+  graduationYear Int?
+  university     String?
 
   sortOrder Int?
 
@@ -172,13 +172,13 @@ model UserTrainingCourse {
   updatedAt DateTime @updatedAt
 
   userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   courseName String
   level      String?
   hours      Int?
   provider   String?
-  date        DateTime?
+  date       DateTime?
 
   sortOrder Int?
 
@@ -191,16 +191,16 @@ model UserCompetency {
   updatedAt DateTime @updatedAt
 
   userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  competencyName   String
+  competencyName String
 
-  type             String?
-  expectedLevel    String?
-  currentLevel     String?
+  type          String?
+  expectedLevel String?
+  currentLevel  String?
 
   jobRelevance String?
-  importance  String?
+  importance   String?
 
   sortOrder Int @default(0)
 
@@ -240,7 +240,6 @@ model Project {
   formResponses       Json?
   formId              String?
   multiAnalysisFormId String?
-  summaryAnalysis     String?            @db.Text
   promptVersionId     String?
   comments            ProjectComment[]
   chatMessages        ChatMessage[]
@@ -252,9 +251,16 @@ model Project {
   multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
   promptVersion       PromptVersion?     @relation(fields: [promptVersionId], references: [id], onDelete: Cascade)
   domain              String?            @db.Text
+  
   initialAnalysis     String?            @db.Text
-  riskAnalysis        String?            @db.Text
   finalAnalysis       String?            @db.Text
+  summaryAnalysis     String?             @db.Text
+  riskPercentage      Float?
+
+  riskAnalysis        String?            @db.Text
+  keyStrategicInsights String?   @db.Text
+
+
 
   ratings          ProjectRatingHistory[]
   accesses         ProjectAccess[]
@@ -265,11 +271,9 @@ model Project {
   averageRating  Float   @default(0)
   ratingCount    Int     @default(0)
   hasRating      Boolean @default(false)
-  riskPercentage Float?
 
   chatModeStartedAt    DateTime?
   chatModeEndedAt      DateTime?
-  keyStrategicInsights String?   @db.Text
 
   selectedSourceProjects MultiAnalysisProjectSource[] @relation("MultiProjectSources")
   usedInMultiProjects    MultiAnalysisProjectSource[] @relation("SourceProjectUsedInMulti")
@@ -346,13 +350,14 @@ model ChatMessage {
 }
 
 model AnalysisCategory {
-  id          String         @id @default(uuid())
+  id          String              @id @default(uuid())
   title       String
   description String?
   image       String?
   forms       AnalysisForm[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  multiForms  MultiAnalysisForm[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 }
 
 model AnalysisForm {
@@ -374,7 +379,8 @@ model AnalysisForm {
   createdAt               DateTime                     @default(now())
   updatedAt               DateTime                     @updatedAt
   featuredAnalysis        FeaturedAnalysis?
-  categoryGroups FormCategoryGroup[]
+  categoryGroups          FormCategoryGroup[]
+  checklistTitle          String?
 
   @@index([isActive])
   @@index([order])
@@ -382,26 +388,26 @@ model AnalysisForm {
 }
 
 model FormQuestionCategory {
-  id        String @id @default(uuid())
+  id String @id @default(uuid())
 
-  title     String
-  order     Int @default(0)
+  title String
+  order Int    @default(0)
 
-  analysisFormId      String?
-  analysisForm        AnalysisForm? @relation(fields: [analysisFormId], references: [id], onDelete: Cascade)
+  analysisFormId String?
+  analysisForm   AnalysisForm? @relation(fields: [analysisFormId], references: [id], onDelete: Cascade)
 
   multiAnalysisFormId String?
   multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
 
-  parentId  String?
-  parent    FormQuestionCategory?  @relation("QuestionCategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children  FormQuestionCategory[] @relation("QuestionCategoryTree")
+  parentId String?
+  parent   FormQuestionCategory?  @relation("QuestionCategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children FormQuestionCategory[] @relation("QuestionCategoryTree")
 
   questions FormQuestion[]
 
   groups FormCategoryGroupItem[]
 
-  isActive  Boolean @default(true)
+  isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -415,7 +421,7 @@ model FormQuestion {
   id String @id @default(uuid())
 
   categoryId String
-  category FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category   FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   label String
 
@@ -458,10 +464,10 @@ model FormCategoryGroup {
   id String @id @default(uuid())
 
   analysisFormId String?
-  analysisForm AnalysisForm? @relation(fields: [analysisFormId], references: [id], onDelete: Cascade)
+  analysisForm   AnalysisForm? @relation(fields: [analysisFormId], references: [id], onDelete: Cascade)
 
   multiAnalysisFormId String?
-  multiAnalysisForm MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
+  multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
 
   title String
 
@@ -480,10 +486,10 @@ model FormCategoryGroupItem {
   id String @id @default(uuid())
 
   groupId String
-  group FormCategoryGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group   FormCategoryGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   categoryId String
-  category FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category   FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, categoryId])
 }
@@ -596,24 +602,31 @@ model MultiAnalysisProjectSource {
 }
 
 model MultiAnalysisForm {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  isActive    Boolean  @default(true)
-  order       Int?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String            @id @default(uuid())
+  title          String
+  description    String?
+  isActive       Boolean           @default(true)
+  order          Int?
+  checklistTitle String?
+  categoryId     String?
+  category       AnalysisCategory? @relation(fields: [categoryId], references: [id])
 
   requiredForms    MultiAnalysisRequiredForm[]
   goals            MultiAnalysisGoal[]
   projects         Project[]
   promptDefinition PromptDefinition?
   profileFields    MultiAnalysisFormProfileField[]
-  temperature      Float                           @default(0.7)
-  categories FormQuestionCategory[]
-  categoryGroups FormCategoryGroup[]
+  categories       FormQuestionCategory[]
+  categoryGroups   FormCategoryGroup[]
+
+  temperature Float @default(0.7)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([isActive])
   @@index([order])
+  @@index([categoryId])
 }
 
 model MultiAnalysisGoal {
@@ -807,8 +820,8 @@ model Company {
 
   balanceSheets    CompanyBalanceSheet[]
   incomeStatements CompanyIncomeStatement[]
-  keySuppliers CompanySupplier[]
-  rawMaterials CompanyRawMaterial[]
+  keySuppliers     CompanySupplier[]
+  rawMaterials     CompanyRawMaterial[]
 
   resourceCapabilities CompanyResourceCapability[]
 }
@@ -818,14 +831,14 @@ model CompanyBasicInfo {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  companyId String  @unique
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId                   String  @unique
+  company                     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   brandTitle                  String?
   knownAs                     String?
-  nationalId                  String?             
-  isPublicCompany     Boolean @default(false)
-  isHolding           Boolean @default(false)
-  isHoldingSubsidiary Boolean @default(false)    
+  nationalId                  String?
+  isPublicCompany             Boolean @default(false)
+  isHolding                   Boolean @default(false)
+  isHoldingSubsidiary         Boolean @default(false)
   establishmentYear           String?
   commercialActivityStartYear String?
   parentCompanyName           String?
@@ -949,7 +962,7 @@ model CompanyMembership {
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   associationName String
-  activityScope String?
+  activityScope   String?
   membershipDate  DateTime?
   isBoardMember   Boolean?
 
@@ -988,12 +1001,12 @@ model CompanyMarket {
 
   marketName             String
   marketType             String?
-  marketSharePercent     Decimal? @db.Decimal(5, 2)
+  marketSharePercent     Decimal?          @db.Decimal(5, 2)
   marketPenetrationLevel String?
   yearsInMarket          Int?
   targetMarketType       TargetMarketType?
-  relatedProductService Json?
-  sortOrder Int?
+  relatedProductService  Json?
+  sortOrder              Int?
 
   @@index([companyId])
 }
@@ -1006,13 +1019,13 @@ model KeyCustomer {
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  customerName           String
-  category               String?
-  businessField          String?
-  revenueImpactLevel     String?
-  loyaltyLevel           String?
-  walletShareLevel       String?
-  sortOrder              Int?
+  customerName       String
+  category           String?
+  businessField      String?
+  revenueImpactLevel String?
+  loyaltyLevel       String?
+  walletShareLevel   String?
+  sortOrder          Int?
 
   @@index([companyId])
 }
@@ -1089,10 +1102,10 @@ model CompanySupplier {
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  supplierName         String
-  productOrService     String?
-  bargainingPower      String?
-  supplierMarket       String?
+  supplierName     String
+  productOrService String?
+  bargainingPower  String?
+  supplierMarket   String?
 
   description String?
   sortOrder   Int?
@@ -1108,10 +1121,10 @@ model CompanyRawMaterial {
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  materialName          String
-  costImpactLevel       String?
-  purchaseBudgetShare   String?
-  category              String?
+  materialName        String
+  costImpactLevel     String?
+  purchaseBudgetShare String?
+  category            String?
 
   description String?
   sortOrder   Int?
@@ -1194,7 +1207,9 @@ model IndustryInsight {
   createdAt    DateTime @default(now())
   industryName String?
   title        String?
-  insightText  String
+
+  insightData  Json     
+
   source       String?
   fetchedAt    DateTime @default(now())
 

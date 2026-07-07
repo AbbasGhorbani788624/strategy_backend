@@ -120,6 +120,20 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "rarityLevel", label: "سطح کمیابی" },
     { value: "inimitabilityLevel", label: "سطح تقلیدناپذیری" },
   ],
+
+  COMPANY_SUPPLIER: [
+    { value: "supplierName", label: "نام تأمین‌کننده" },
+    { value: "productOrService", label: "محصول یا خدمت" },
+    { value: "bargainingPower", label: "قدرت چانه‌زنی" },
+    { value: "supplierMarket", label: "بازار تامین کننده" },
+  ],
+
+  COMPANY_RAW_MATERIAL: [
+    { value: "materialName", label: "نام ماده اولیه/ خدمت" },
+    { value: "costImpactLevel", label: "تاثیر دربهای تمام شده" },
+    { value: "purchaseBudgetShare", label: "سهم از بودجه خرید" },
+    { value: "category", label: "دسته‌بندی" },
+  ],
 };
 
 export const COMPANY_PROFILE_FIELD_OPTIONS = Object.entries(

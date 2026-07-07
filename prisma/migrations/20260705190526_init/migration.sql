@@ -7,7 +7,6 @@ CREATE TABLE `User` (
     `phoneNumber` VARCHAR(191) NULL,
     `role` ENUM('SUPER_ADMIN', 'COMPANY', 'MEMBER') NOT NULL,
     `companyId` VARCHAR(191) NULL,
-    `profile` JSON NULL,
     `progress` JSON NULL,
     `profileCompleted` BOOLEAN NOT NULL DEFAULT false,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -18,6 +17,80 @@ CREATE TABLE `User` (
     UNIQUE INDEX `User_phoneNumber_key`(`phoneNumber`),
     INDEX `User_role_idx`(`role`),
     INDEX `User_companyId_idx`(`companyId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `UserInfo` (
+    `id` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `firstName` VARCHAR(191) NOT NULL,
+    `lastName` VARCHAR(191) NOT NULL,
+    `nationalCode` VARCHAR(191) NOT NULL,
+    `jobTitle` VARCHAR(191) NOT NULL,
+    `birthDate` DATETIME(3) NULL,
+    `lastJobTitle` VARCHAR(191) NOT NULL,
+    `organizationalLevel` VARCHAR(191) NOT NULL,
+    `isboardMember` BOOLEAN NOT NULL DEFAULT false,
+    `isshareholder` BOOLEAN NOT NULL DEFAULT false,
+    `isstrategyTeamMember` BOOLEAN NOT NULL DEFAULT false,
+
+    UNIQUE INDEX `UserInfo_userId_key`(`userId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `UserEducation` (
+    `id` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `degree` VARCHAR(191) NULL,
+    `fieldOfStudy` VARCHAR(191) NULL,
+    `specialization` VARCHAR(191) NULL,
+    `graduationYear` INTEGER NULL,
+    `university` VARCHAR(191) NULL,
+    `sortOrder` INTEGER NULL,
+
+    INDEX `UserEducation_userId_idx`(`userId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `UserTrainingCourse` (
+    `id` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `courseName` VARCHAR(191) NOT NULL,
+    `level` VARCHAR(191) NULL,
+    `hours` INTEGER NULL,
+    `provider` VARCHAR(191) NULL,
+    `date` DATETIME(3) NULL,
+    `sortOrder` INTEGER NULL,
+
+    INDEX `UserTrainingCourse_userId_idx`(`userId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `UserCompetency` (
+    `id` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `competencyName` VARCHAR(191) NOT NULL,
+    `type` VARCHAR(191) NULL,
+    `expectedLevel` VARCHAR(191) NULL,
+    `currentLevel` VARCHAR(191) NULL,
+    `jobRelevance` VARCHAR(191) NULL,
+    `importance` VARCHAR(191) NULL,
+    `sortOrder` INTEGER NOT NULL DEFAULT 0,
+
+    INDEX `UserCompetency_userId_idx`(`userId`),
+    INDEX `UserCompetency_userId_sortOrder_idx`(`userId`, `sortOrder`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -142,6 +215,7 @@ CREATE TABLE `AnalysisCategory` (
     `id` VARCHAR(191) NOT NULL,
     `title` VARCHAR(191) NOT NULL,
     `description` VARCHAR(191) NULL,
+    `image` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -171,22 +245,22 @@ CREATE TABLE `FormQuestionCategory` (
     `id` VARCHAR(191) NOT NULL,
     `title` VARCHAR(191) NOT NULL,
     `order` INTEGER NOT NULL DEFAULT 0,
-    `formId` VARCHAR(191) NOT NULL,
+    `analysisFormId` VARCHAR(191) NULL,
+    `multiAnalysisFormId` VARCHAR(191) NULL,
     `parentId` VARCHAR(191) NULL,
     `isActive` BOOLEAN NOT NULL DEFAULT true,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
-    INDEX `FormQuestionCategory_formId_idx`(`formId`),
+    INDEX `FormQuestionCategory_analysisFormId_idx`(`analysisFormId`),
+    INDEX `FormQuestionCategory_multiAnalysisFormId_idx`(`multiAnalysisFormId`),
     INDEX `FormQuestionCategory_parentId_idx`(`parentId`),
-    INDEX `FormQuestionCategory_order_idx`(`order`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
 CREATE TABLE `FormQuestion` (
     `id` VARCHAR(191) NOT NULL,
-    `formId` VARCHAR(191) NOT NULL,
     `categoryId` VARCHAR(191) NOT NULL,
     `label` VARCHAR(191) NOT NULL,
     `type` ENUM('CHECKBOX', 'RADIO', 'NUMBER') NOT NULL,
@@ -212,6 +286,31 @@ CREATE TABLE `FormQuestionOption` (
     `updatedAt` DATETIME(3) NOT NULL,
 
     INDEX `FormQuestionOption_questionId_idx`(`questionId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `FormCategoryGroup` (
+    `id` VARCHAR(191) NOT NULL,
+    `analysisFormId` VARCHAR(191) NULL,
+    `multiAnalysisFormId` VARCHAR(191) NULL,
+    `title` VARCHAR(191) NOT NULL,
+    `order` INTEGER NOT NULL DEFAULT 0,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `FormCategoryGroup_analysisFormId_idx`(`analysisFormId`),
+    INDEX `FormCategoryGroup_multiAnalysisFormId_idx`(`multiAnalysisFormId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `FormCategoryGroupItem` (
+    `id` VARCHAR(191) NOT NULL,
+    `groupId` VARCHAR(191) NOT NULL,
+    `categoryId` VARCHAR(191) NOT NULL,
+
+    UNIQUE INDEX `FormCategoryGroupItem_groupId_categoryId_key`(`groupId`, `categoryId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -500,18 +599,21 @@ CREATE TABLE `CompanyBasicInfo` (
     `updatedAt` DATETIME(3) NOT NULL,
     `companyId` VARCHAR(191) NOT NULL,
     `brandTitle` VARCHAR(191) NULL,
+    `knownAs` VARCHAR(191) NULL,
     `nationalId` VARCHAR(191) NULL,
-    `companyType` VARCHAR(191) NULL,
+    `isPublicCompany` BOOLEAN NOT NULL DEFAULT false,
+    `isHolding` BOOLEAN NOT NULL DEFAULT false,
+    `isHoldingSubsidiary` BOOLEAN NOT NULL DEFAULT false,
     `establishmentYear` VARCHAR(191) NULL,
     `commercialActivityStartYear` VARCHAR(191) NULL,
-    `isListed` BOOLEAN NULL,
-    `isHolding` BOOLEAN NULL,
-    `isHoldingSubsidiary` BOOLEAN NULL,
     `parentCompanyName` VARCHAR(191) NULL,
     `totalPersonnelCount` INTEGER NULL,
     `operationalPersonnelCount` INTEGER NULL,
     `phoneNumber` VARCHAR(191) NULL,
     `website` VARCHAR(191) NULL,
+    `vision` TEXT NULL,
+    `objectives` TEXT NULL,
+    `region` ENUM('IRAN', 'INTERNATIONAL') NULL,
 
     UNIQUE INDEX `CompanyBasicInfo_companyId_key`(`companyId`),
     PRIMARY KEY (`id`)
@@ -546,6 +648,7 @@ CREATE TABLE `RevenueCenter` (
     `title` VARCHAR(191) NOT NULL,
     `activityYearsCount` INTEGER NULL,
     `totalRevenueSharePercent` DECIMAL(5, 2) NULL,
+    `lastYearEstimatedRevenue` DECIMAL(20, 0) NULL,
     `personnelCount` INTEGER NULL,
     `sortOrder` INTEGER NULL,
 
@@ -612,6 +715,7 @@ CREATE TABLE `CompanyMembership` (
     `updatedAt` DATETIME(3) NOT NULL,
     `companyId` VARCHAR(191) NOT NULL,
     `associationName` VARCHAR(191) NOT NULL,
+    `activityScope` VARCHAR(191) NULL,
     `membershipDate` DATETIME(3) NULL,
     `isBoardMember` BOOLEAN NULL,
 
@@ -650,7 +754,8 @@ CREATE TABLE `CompanyMarket` (
     `marketSharePercent` DECIMAL(5, 2) NULL,
     `marketPenetrationLevel` VARCHAR(191) NULL,
     `yearsInMarket` INTEGER NULL,
-    `relatedProductService` VARCHAR(191) NULL,
+    `targetMarketType` ENUM('PRIMARY', 'INDIVIDUAL') NULL,
+    `relatedProductService` JSON NULL,
     `sortOrder` INTEGER NULL,
 
     INDEX `CompanyMarket_companyId_idx`(`companyId`),
@@ -666,7 +771,6 @@ CREATE TABLE `KeyCustomer` (
     `customerName` VARCHAR(191) NOT NULL,
     `category` VARCHAR(191) NULL,
     `businessField` VARCHAR(191) NULL,
-    `productImportanceLevel` VARCHAR(191) NULL,
     `revenueImpactLevel` VARCHAR(191) NULL,
     `loyaltyLevel` VARCHAR(191) NULL,
     `walletShareLevel` VARCHAR(191) NULL,
@@ -682,18 +786,15 @@ CREATE TABLE `CompanyBalanceSheet` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
     `companyId` VARCHAR(191) NOT NULL,
-    `fiscalPeriodStart` DATETIME(3) NULL,
-    `fiscalPeriodEnd` DATETIME(3) NULL,
-    `category` VARCHAR(191) NULL,
+    `year` INTEGER NULL,
     `title` VARCHAR(191) NOT NULL,
-    `amount` DECIMAL(18, 2) NULL,
     `balanceFileId` VARCHAR(191) NULL,
     `description` VARCHAR(191) NULL,
     `sortOrder` INTEGER NULL,
 
     INDEX `CompanyBalanceSheet_companyId_idx`(`companyId`),
     INDEX `CompanyBalanceSheet_balanceFileId_idx`(`balanceFileId`),
-    INDEX `CompanyBalanceSheet_fiscalPeriodStart_fiscalPeriodEnd_idx`(`fiscalPeriodStart`, `fiscalPeriodEnd`),
+    INDEX `CompanyBalanceSheet_year_idx`(`year`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -703,18 +804,15 @@ CREATE TABLE `CompanyIncomeStatement` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
     `companyId` VARCHAR(191) NOT NULL,
-    `fiscalPeriodStart` DATETIME(3) NULL,
-    `fiscalPeriodEnd` DATETIME(3) NULL,
-    `category` VARCHAR(191) NULL,
+    `year` INTEGER NULL,
     `title` VARCHAR(191) NOT NULL,
-    `amount` DECIMAL(18, 2) NULL,
     `incomeFileId` VARCHAR(191) NULL,
     `description` VARCHAR(191) NULL,
     `sortOrder` INTEGER NULL,
 
     INDEX `CompanyIncomeStatement_companyId_idx`(`companyId`),
     INDEX `CompanyIncomeStatement_incomeFileId_idx`(`incomeFileId`),
-    INDEX `CompanyIncomeStatement_fiscalPeriodStart_fiscalPeriodEnd_idx`(`fiscalPeriodStart`, `fiscalPeriodEnd`),
+    INDEX `CompanyIncomeStatement_year_idx`(`year`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -727,13 +825,46 @@ CREATE TABLE `CompanyResourceCapability` (
     `capability` VARCHAR(191) NOT NULL,
     `category` VARCHAR(191) NULL,
     `importanceLevel` VARCHAR(191) NULL,
-    `availabilityLevel` VARCHAR(191) NULL,
     `rarityLevel` VARCHAR(191) NULL,
     `inimitabilityLevel` VARCHAR(191) NULL,
     `sortOrder` INTEGER NOT NULL DEFAULT 0,
 
     INDEX `CompanyResourceCapability_companyId_idx`(`companyId`),
     INDEX `CompanyResourceCapability_companyId_sortOrder_idx`(`companyId`, `sortOrder`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `CompanySupplier` (
+    `id` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    `companyId` VARCHAR(191) NOT NULL,
+    `supplierName` VARCHAR(191) NOT NULL,
+    `productOrService` VARCHAR(191) NULL,
+    `bargainingPower` VARCHAR(191) NULL,
+    `supplierMarket` VARCHAR(191) NULL,
+    `description` VARCHAR(191) NULL,
+    `sortOrder` INTEGER NULL,
+
+    INDEX `CompanySupplier_companyId_idx`(`companyId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `CompanyRawMaterial` (
+    `id` VARCHAR(191) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    `companyId` VARCHAR(191) NOT NULL,
+    `materialName` VARCHAR(191) NOT NULL,
+    `costImpactLevel` VARCHAR(191) NULL,
+    `purchaseBudgetShare` VARCHAR(191) NULL,
+    `category` VARCHAR(191) NULL,
+    `description` VARCHAR(191) NULL,
+    `sortOrder` INTEGER NULL,
+
+    INDEX `CompanyRawMaterial_companyId_idx`(`companyId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -812,6 +943,18 @@ CREATE TABLE `IndustryInsight` (
 ALTER TABLE `User` ADD CONSTRAINT `User_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `UserInfo` ADD CONSTRAINT `UserInfo_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `UserEducation` ADD CONSTRAINT `UserEducation_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `UserTrainingCourse` ADD CONSTRAINT `UserTrainingCourse_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `UserCompetency` ADD CONSTRAINT `UserCompetency_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE `ProfileViewAccess` ADD CONSTRAINT `ProfileViewAccess_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -863,19 +1006,31 @@ ALTER TABLE `ChatMessage` ADD CONSTRAINT `ChatMessage_userId_fkey` FOREIGN KEY (
 ALTER TABLE `AnalysisForm` ADD CONSTRAINT `AnalysisForm_categoryId_fkey` FOREIGN KEY (`categoryId`) REFERENCES `AnalysisCategory`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `FormQuestionCategory` ADD CONSTRAINT `FormQuestionCategory_formId_fkey` FOREIGN KEY (`formId`) REFERENCES `AnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `FormQuestionCategory` ADD CONSTRAINT `FormQuestionCategory_analysisFormId_fkey` FOREIGN KEY (`analysisFormId`) REFERENCES `AnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FormQuestionCategory` ADD CONSTRAINT `FormQuestionCategory_multiAnalysisFormId_fkey` FOREIGN KEY (`multiAnalysisFormId`) REFERENCES `MultiAnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `FormQuestionCategory` ADD CONSTRAINT `FormQuestionCategory_parentId_fkey` FOREIGN KEY (`parentId`) REFERENCES `FormQuestionCategory`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `FormQuestion` ADD CONSTRAINT `FormQuestion_formId_fkey` FOREIGN KEY (`formId`) REFERENCES `AnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `FormQuestion` ADD CONSTRAINT `FormQuestion_categoryId_fkey` FOREIGN KEY (`categoryId`) REFERENCES `FormQuestionCategory`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `FormQuestionOption` ADD CONSTRAINT `FormQuestionOption_questionId_fkey` FOREIGN KEY (`questionId`) REFERENCES `FormQuestion`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FormCategoryGroup` ADD CONSTRAINT `FormCategoryGroup_analysisFormId_fkey` FOREIGN KEY (`analysisFormId`) REFERENCES `AnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FormCategoryGroup` ADD CONSTRAINT `FormCategoryGroup_multiAnalysisFormId_fkey` FOREIGN KEY (`multiAnalysisFormId`) REFERENCES `MultiAnalysisForm`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FormCategoryGroupItem` ADD CONSTRAINT `FormCategoryGroupItem_groupId_fkey` FOREIGN KEY (`groupId`) REFERENCES `FormCategoryGroup`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `FormCategoryGroupItem` ADD CONSTRAINT `FormCategoryGroupItem_categoryId_fkey` FOREIGN KEY (`categoryId`) REFERENCES `FormQuestionCategory`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `FeaturedAnalysis` ADD CONSTRAINT `FeaturedAnalysis_analysisFormId_fkey` FOREIGN KEY (`analysisFormId`) REFERENCES `AnalysisForm`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -1011,6 +1166,12 @@ ALTER TABLE `CompanyIncomeStatement` ADD CONSTRAINT `CompanyIncomeStatement_inco
 
 -- AddForeignKey
 ALTER TABLE `CompanyResourceCapability` ADD CONSTRAINT `CompanyResourceCapability_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `CompanySupplier` ADD CONSTRAINT `CompanySupplier_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `CompanyRawMaterial` ADD CONSTRAINT `CompanyRawMaterial_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `Company`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `FileAttachment` ADD CONSTRAINT `FileAttachment_uploadedById_fkey` FOREIGN KEY (`uploadedById`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

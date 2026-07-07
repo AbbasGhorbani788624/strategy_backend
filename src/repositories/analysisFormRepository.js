@@ -322,11 +322,25 @@ const getSingleForms = async (companyId) => {
 
 const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
   const multiForms = await prisma.multiAnalysisForm.findMany({
-    where: { isActive: true },
-    orderBy: { order: "asc" },
+    where: {
+      isActive: true,
+    },
+    orderBy: {
+      order: "asc",
+    },
     include: {
+      category: {
+        select: {
+          id: true,
+          title: true,
+          image: true,
+          description: true,
+        },
+      },
       requiredForms: {
-        orderBy: { order: "asc" },
+        orderBy: {
+          order: "asc",
+        },
         include: {
           form: {
             select: {
@@ -342,7 +356,6 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
           title: true,
         },
       },
-      // اضافه شده برای محاسبه hasForm
       categories: {
         select: {
           id: true,
@@ -357,6 +370,7 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
   });
 
   if (!multiForms.length) return [];
+  console.log(userId?.userId);
 
   const completedProjects = await prisma.project.findMany({
     where: {
@@ -372,7 +386,7 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
 
   const completedFormIds = new Set(completedProjects.map((p) => p.formId));
 
-  return multiForms.map((multiForm) => {
+  const mappedForms = multiForms.map((multiForm) => {
     const requiredAnalysisTitles = multiForm.requiredForms.map(
       (r) => r.form.title,
     );
@@ -381,10 +395,6 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
       .filter((r) => !completedFormIds.has(r.formId))
       .map((r) => r.form.title);
 
-    const hasForm = multiForm.categories.some(
-      (category) => category._count.questions > 0,
-    );
-
     return {
       id: multiForm.id,
       title: multiForm.title,
@@ -392,10 +402,33 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
       goals: multiForm.goals,
       requiredAnalysisTitles,
       missingAnalysisTitles,
-      hasForm,
+      hasForm: multiForm.categories.some((c) => c._count.questions > 0),
       isAvailable: missingAnalysisTitles.length === 0,
+      category: multiForm.category,
     };
   });
+
+  const groupedMap = new Map();
+
+  for (const form of mappedForms) {
+    const categoryId = form.category?.id || "uncategorized";
+
+    if (!groupedMap.has(categoryId)) {
+      groupedMap.set(categoryId, {
+        id: form.category?.id || null,
+        title: form.category?.title || "بدون دسته‌بندی",
+        image: form.category?.image || null,
+        description: form.category?.description || null,
+        forms: [],
+      });
+    }
+
+    const { category, ...formData } = form;
+
+    groupedMap.get(categoryId).forms.push(formData);
+  }
+
+  return [...groupedMap.values()];
 };
 
 module.exports = {

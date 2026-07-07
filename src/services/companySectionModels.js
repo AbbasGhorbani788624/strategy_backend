@@ -17,4 +17,6 @@ module.exports = {
   educations: "userEducation",
   trainingCourses: "userTrainingCourse",
   competencies: "userCompetency",
+  CompanySupplier: "CompanySupplier",
+  CompanyRawMaterial: "CompanyRawMaterial",
 };

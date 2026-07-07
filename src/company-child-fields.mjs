@@ -84,7 +84,7 @@ export const companyMarketFields = {
   marketSharePercent: "decimal",
   marketPenetrationLevel: "string",
   yearsInMarket: "int",
-  relatedProductService: "string",
+  relatedProductService: "json",
   targetMarketType: "string",
   sortOrder: "int",
 };

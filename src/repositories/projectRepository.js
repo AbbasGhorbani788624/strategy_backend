@@ -19,74 +19,79 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
   const skip = (parsedPage - 1) * parsedLimit;
   const take = parsedLimit;
 
-  let whereClause = {};
+  let accessWhere = {};
 
   if (userRole === "COMPANY") {
     if (!companyId) {
       createBadRequestError("CompanyId is required for COMPANY role");
     }
 
-    whereClause = {
+    accessWhere = {
       companyId,
     };
   } else {
-    const accessWhere = await buildProjectAccessWhere({
+    accessWhere = await buildProjectAccessWhere({
       userId,
       userRole,
       companyId,
       targetUserId,
     });
-
-    const filters = [];
-
-    if (Object.keys(accessWhere).length > 0) {
-      filters.push(accessWhere);
-    }
-
-    if (scoreFilter === "high") {
-      filters.push({
-        averageRating: {
-          gte: 4,
-        },
-      });
-    } else if (scoreFilter === "medium") {
-      filters.push({
-        averageRating: {
-          gte: 2,
-          lt: 4,
-        },
-      });
-    } else if (scoreFilter === "low") {
-      filters.push({
-        averageRating: {
-          lt: 2,
-        },
-      });
-    }
-
-    if (search) {
-      filters.push({
-        title: {
-          contains: search,
-        },
-      });
-    }
-
-    if (formId) {
-      filters.push({
-        OR: [
-          {
-            formId,
-          },
-          {
-            multiAnalysisFormId: formId,
-          },
-        ],
-      });
-    }
-
-    whereClause = filters.length > 0 ? { AND: filters } : {};
   }
+
+  const filters = [];
+
+  if (Object.keys(accessWhere).length) {
+    filters.push(accessWhere);
+  }
+
+  if (scoreFilter === "high") {
+    filters.push({
+      averageRating: {
+        gte: 4,
+      },
+    });
+  } else if (scoreFilter === "medium") {
+    filters.push({
+      averageRating: {
+        gte: 2,
+        lt: 4,
+      },
+    });
+  } else if (scoreFilter === "low") {
+    filters.push({
+      averageRating: {
+        lt: 2,
+      },
+    });
+  }
+
+  if (search) {
+    filters.push({
+      title: {
+        contains: search,
+      },
+    });
+  }
+
+  if (formId) {
+    filters.push({
+      OR: [
+        {
+          formId,
+        },
+        {
+          multiAnalysisFormId: formId,
+        },
+      ],
+    });
+  }
+
+  const whereClause =
+    filters.length > 0
+      ? {
+          AND: filters,
+        }
+      : {};
 
   const allowedSortFields = ["createdAt", "averageRating"];
   const allowedSortOrders = ["asc", "desc"];
@@ -97,7 +102,14 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     ? sortOrder
     : "desc";
 
-  let orderBy = [{ createdAt: "desc" }, { id: "desc" }];
+  let orderBy = [
+    {
+      createdAt: "desc",
+    },
+    {
+      id: "desc",
+    },
+  ];
 
   if (safeSortBy === "createdAt") {
     orderBy = [
@@ -204,7 +216,6 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     },
   };
 };
-
 const isProjectExists = async (projectId) => {
   return await prisma.project.count({ where: { id: projectId } });
 };
@@ -286,18 +297,6 @@ const getProject = async (projectId, userId, userRole, companyId) => {
 
   const ratingsListRaw = project.ratings || [];
 
-  const ratingsList = ratingsListRaw.map((history) => ({
-    id: history.id,
-    role: history.rater.role,
-    score: history.score,
-    comment: history.comment,
-    ratedBy: {
-      name: history.rater.username,
-      role: history.rater.role,
-    },
-    ratedAt: history.createdAt,
-  }));
-
   const superAdminRatingRaw = ratingsListRaw.find(
     (history) => history.rater?.role === "SUPER_ADMIN",
   );
@@ -350,11 +349,10 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     })),
 
     items: project.items,
-    // domain: project.domain,
     chatMessages: chatUiMessages,
     initialAnalysis: project.initialAnalysis,
-    riskAnalysis: project.riskAnalysis,
     finalAnalysis: project.finalAnalysis,
+    summaryAnalysis: project.summaryAnalysis,
 
     status: project.status,
     averageRating: project.averageRating,

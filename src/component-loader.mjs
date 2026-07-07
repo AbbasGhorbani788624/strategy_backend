@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 export const questionTypeValues = [
   { value: "RADIO", label: "رادیویی" },
   { value: "CHECKBOX", label: "چک‌باکس" },
+  { value: "TEXT", label: "متن" },
 ];
 
 const choiceQuestionTypes = ["RADIO", "CHECKBOX"];
@@ -263,5 +264,9 @@ export const Components = {
   DownloadFile: componentLoader.add(
     "DownloadFile",
     path.resolve(__dirname, "components", "DownloadFile.jsx"),
+  ),
+  GenerateInsight: componentLoader.add(
+    "GenerateInsight",
+    path.resolve(__dirname, "components", "GenerateInsight.jsx"),
   ),
 };

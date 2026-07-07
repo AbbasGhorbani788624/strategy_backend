@@ -32,7 +32,7 @@ const calculateUserProgress = (user) => {
 };
 
 const calculateCompanyProgress = (profileData) => {
-  const steps = new Array(13).fill(0);
+  const steps = new Array(15).fill(0);
   let stepIndex = 0;
 
   const check = (records) => {
@@ -44,6 +44,7 @@ const calculateCompanyProgress = (profileData) => {
   const market = profileData?.market;
   const financial = profileData?.financialStuation;
   const resources = profileData?.resourcesCapabilities;
+  const suppliers = profileData?.suppliers;
 
   check(companyInfo?.basicInfoRecords);
   check(companyInfo?.managmentsRecords);
@@ -61,6 +62,10 @@ const calculateCompanyProgress = (profileData) => {
   check(financial?.profitLossRecords);
 
   check(resources?.resourcesCapabilitiesRecords);
+
+  // تب جدید
+  check(suppliers?.suppliersRecords);
+  check(suppliers?.rawMaterialsRecords);
 
   const firstIncompleteIndex = steps.findIndex((s) => s === 0);
 
@@ -84,18 +89,42 @@ const resolveProfileRoute = ({ role, userProgress, companyProgress }) => {
     const step = companyProgress.nextStep;
 
     if (step <= 7) {
-      return { entity: "company", tab: 2, step };
+      return {
+        entity: "company",
+        tab: 2,
+        step,
+      };
     }
 
     if (step <= 10) {
-      return { entity: "company", tab: 3, step: step - 7 };
+      return {
+        entity: "company",
+        tab: 3,
+        step: step - 7,
+      };
     }
 
     if (step <= 12) {
-      return { entity: "company", tab: 4, step: step - 10 };
+      return {
+        entity: "company",
+        tab: 4,
+        step: step - 10,
+      };
     }
 
-    return { entity: "company", tab: 5, step: 1 };
+    if (step === 13) {
+      return {
+        entity: "company",
+        tab: 5,
+        step: 1,
+      };
+    }
+
+    return {
+      entity: "company",
+      tab: 6,
+      step: step - 13,
+    };
   }
 
   return null;
@@ -154,6 +183,14 @@ const getCompanyProfileForProgress = async (companyId) => {
     where: { companyId },
   });
 
+  const suppliers = await prisma.companySupplier.findMany({
+    where: { companyId },
+  });
+
+  const rawMaterials = await prisma.companyRawMaterial.findMany({
+    where: { companyId },
+  });
+
   return {
     companyInfo: {
       basicInfoRecords: basicInfo ? [basicInfo] : [],
@@ -175,6 +212,10 @@ const getCompanyProfileForProgress = async (companyId) => {
     },
     resourcesCapabilities: {
       resourcesCapabilitiesRecords: resourceCapabilities || [],
+    },
+    suppliers: {
+      suppliersRecords: suppliers || [],
+      rawMaterialsRecords: rawMaterials || [],
     },
   };
 };

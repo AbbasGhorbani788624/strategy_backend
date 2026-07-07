@@ -13,10 +13,11 @@ const callAIInsightAPI = async (payload) => {
       timeout: 60000,
     });
 
-    console.log(JSON.stringify(response.data, null, 2));
     return {
       insight: response.data.executiveInsight || "",
-      recommendedAnalyses: response.data.recommendedAnalyses || [],
+      recommendedAnalyses: Array.isArray(response.data.recommendedAnalyses)
+        ? response.data.recommendedAnalyses
+        : [],
     };
   } catch (error) {
     throw createBadRequestError(
@@ -28,16 +29,20 @@ const callAIInsightAPI = async (payload) => {
   }
 };
 
-const syncCompanyInsightService = async (companyId, userId) => {
-  const company = await prisma.company.findFirst({
-    where: {
-      id: companyId,
-      members: {
-        some: {
-          id: userId,
-        },
+const syncCompanyInsightService = async (companyId, userId = null) => {
+  const where = {
+    id: companyId,
+  };
+
+  if (userId) {
+    where.members = {
+      some: {
+        id: userId,
       },
-    },
+    };
+  }
+  const company = await prisma.company.findFirst({
+    where,
     include: {
       basicInfo: true,
       managers: {
@@ -75,20 +80,34 @@ const syncCompanyInsightService = async (companyId, userId) => {
       keyCustomers: true,
       balanceSheets: {
         select: {
-          fiscalPeriodStart: true,
-          fiscalPeriodEnd: true,
-          category: true,
+          year: true,
           title: true,
           description: true,
-          sortOrder: true,
         },
       },
       incomeStatements: {
         select: {
-          fiscalPeriodStart: true,
-          fiscalPeriodEnd: true,
-          category: true,
+          year: true,
           title: true,
+          description: true,
+        },
+      },
+      keySuppliers: {
+        select: {
+          supplierName: true,
+          productOrService: true,
+          bargainingPower: true,
+          supplierMarket: true,
+          description: true,
+          sortOrder: true,
+        },
+      },
+      rawMaterials: {
+        select: {
+          materialName: true,
+          costImpactLevel: true,
+          purchaseBudgetShare: true,
+          category: true,
           description: true,
           sortOrder: true,
         },
@@ -115,6 +134,32 @@ const syncCompanyInsightService = async (companyId, userId) => {
 
   const aiResponse = await callAIInsightAPI(aiPayload);
 
+  const forms = await prisma.analysisForm.findMany({
+    select: {
+      id: true,
+      title: true,
+    },
+  });
+
+  const formsMap = new Map(
+    forms.map((form) => [form.title.trim().toLowerCase(), form]),
+  );
+
+  const suggestedAnalyses = aiResponse.recommendedAnalyses.map((item) => {
+    const normalizedTitle = item.title?.trim().toLowerCase();
+
+    const form = normalizedTitle ? formsMap.get(normalizedTitle) : null;
+
+    if (!form) {
+      console.warn(`Analysis form not found for title: ${item.title}`);
+    }
+
+    return {
+      ...item,
+      analysisId: form?.id ?? null,
+    };
+  });
+
   const insight = await prisma.companyInsight.upsert({
     where: {
       companyId,
@@ -122,12 +167,12 @@ const syncCompanyInsightService = async (companyId, userId) => {
     create: {
       companyId,
       insightText: aiResponse.insight,
-      suggestedAnalyses: aiResponse.recommendedAnalyses,
+      suggestedAnalyses,
       generatedAt: new Date(),
     },
     update: {
       insightText: aiResponse.insight,
-      suggestedAnalyses: aiResponse.recommendedAnalyses,
+      suggestedAnalyses,
       generatedAt: new Date(),
     },
   });

@@ -69,6 +69,7 @@ router.get("/", auth, async (req, res, next) => {
         sortOrder: "asc",
       },
     });
+
     const options = {
       shareholderTypes: SHAREHOLDER_TYPES,
       organizationalLevels: ORGANIZATIONAL_LEVELS,

@@ -125,8 +125,6 @@ const getProjectForm = async (project) => {
 const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {
   try {
     const payload = typeof prompt === "string" ? JSON.parse(prompt) : prompt;
-    console.log("data =>", prompt);
-    console.log("mode =>", mode);
 
     const endpoint = mode === "MULTI" ? "full_analyze" : "analyze";
     const url = `http://185.237.85.53:8080/${endpoint}`;
@@ -137,25 +135,11 @@ const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {
       headers: { "Content-Type": "application/json" },
     });
 
-    // console.log("analyze status =>", response.status);
-    // console.log("analyze data =>", response.data);
+    console.log(JSON.stringify(response.data, null, 2));
 
     return response.data;
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      console.error("Status:", error.response?.status);
-
-      console.error("Response:", JSON.stringify(error.response?.data, null, 2));
-
-      console.error(
-        "Detail:",
-        JSON.stringify(error.response?.data?.detail, null, 2),
-      );
-    } else {
-      console.error(error);
-    }
-
-    throw error;
+    console.error(error);
   }
 };
 
@@ -413,13 +397,27 @@ const handleConversationStepService = async (
   ) => {
     const aiResponse = await sendPromptToAnalyze(prompt, mode);
 
-    const {
-      finalAnalysis,
-      riskAnalysis,
-      riskPercentage,
-      summaryAnalysis,
-      keyStrategicInsights,
-    } = extractAnalysisData(aiResponse);
+    let parsedOutput = {};
+
+    try {
+      parsedOutput =
+        typeof aiResponse?.final_output === "string"
+          ? JSON.parse(aiResponse.final_output)
+          : aiResponse?.final_output || {};
+    } catch {
+      parsedOutput = {};
+    }
+
+    const finalAnalysis = parsedOutput.analyze_output || null;
+    const summaryAnalysis = parsedOutput.insight_summary || null;
+
+    const riskPercentage =
+      parsedOutput.output_confidence_rate != null
+        ? Number(parsedOutput.output_confidence_rate)
+        : null;
+
+    const riskAnalysis = null;
+    const keyStrategicInsights = null;
 
     const updatedProject = await prisma.project.update({
       where: { id: projectId },
@@ -427,10 +425,11 @@ const handleConversationStepService = async (
         status: "FINAL_ANALYSIS",
 
         finalAnalysis,
-        riskAnalysis,
-        riskPercentage,
         summaryAnalysis,
-        keyStrategicInsights,
+        riskPercentage,
+
+        riskAnalysis: null,
+        keyStrategicInsights: null,
 
         chatModeEndedAt: new Date(),
       },
@@ -443,7 +442,7 @@ const handleConversationStepService = async (
 
       analysis: {
         finalAnalysis: updatedProject.finalAnalysis,
-        riskAnalysis: updatedProject.riskAnalysis,
+        summaryAnalysis: updatedProject.summaryAnalysis,
         riskPercentage: updatedProject.riskPercentage,
       },
     };
@@ -589,8 +588,8 @@ const handleConversationStepService = async (
         aiResponse: project.finalAnalysis,
         analysis: {
           finalAnalysis: project.finalAnalysis,
-          riskAnalysis: project.riskAnalysis,
-          summary: project.summaryAnalysis,
+          summaryAnalysis: project.summaryAnalysis,
+          riskPercentage: project.riskPercentage,
         },
         newStatus: "FINAL_ANALYSIS",
         transitionReason: "FINAL_ANALYSIS_ALREADY_GENERATED",

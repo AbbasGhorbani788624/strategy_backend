@@ -56,8 +56,8 @@ const getFormForUserService = async (formId) => {
     type: form.type,
     title: form.title,
     description: form.description ?? form.info,
+    checklistTitle: form.checklistTitle,
     categories: categoryTree,
-
     categoryGroups,
   };
 };
