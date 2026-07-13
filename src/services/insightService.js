@@ -219,14 +219,3 @@ module.exports = {
   getCompanyInsightService,
 };
 
-//  console.error("========== AI API ERROR ==========");
-//     console.error("Message:", error.message);
-//     console.error("Code:", error.code);
-//     console.error("Status:", error.response?.status);
-//     console.error("Status Text:", error.response?.statusText);
-//     console.error("Response Data:", error.response?.data);
-//     console.error("Response Headers:", error.response?.headers);
-//     console.error("Request URL:", error.config?.url);
-//     console.error("Request Method:", error.config?.method);
-//     console.error("Request Data:", error.config?.data);
-//     console.error("==================================");

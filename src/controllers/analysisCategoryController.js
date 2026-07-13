@@ -4,7 +4,7 @@ const {
 
 exports.getAnalysisCategories = async (req, res, next) => {
   try {
-    const categories = await getAnalysisCategoriesService();
+    const categories = await getAnalysisCategoriesService(req.user.companyId);
 
     return res.status(200).json({
       success: true,

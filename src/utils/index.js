@@ -142,7 +142,16 @@ const normalizeProfileFields = (profileFields = []) => {
 };
 
 const buildSelectedCompanyProfile = (company, profileFields = []) => {
-  if (!company || !profileFields.length) return {};
+  const result = {};
+
+  if (company?.industry !== undefined) {
+    result.industry = company.industry;
+  }
+
+  // اگر profileFields خالی باشد فقط industry برگردانده شود
+  if (!company || !profileFields.length) {
+    return result; // حداقل industry را برمی‌گرداند
+  }
 
   const normalizedProfileFields = normalizeProfileFields(profileFields);
 
@@ -157,8 +166,6 @@ const buildSelectedCompanyProfile = (company, profileFields = []) => {
 
     return acc;
   }, {});
-
-  const result = {};
 
   for (const [model, fields] of Object.entries(grouped)) {
     const companyKey = MODEL_TO_COMPANY_KEY[model];
@@ -224,9 +231,10 @@ const getCompanyProfileDataForForm = async (companyId, profileFields = []) => {
       balanceSheets: models.includes("COMPANY_BALANCE_SHEET"),
       incomeStatements: models.includes("COMPANY_INCOME_STATEMENT"),
       resourceCapabilities: models.includes("COMPANY_RESOURCE_CAPABILITY"),
+      keySuppliers: models.includes("COMPANY_SUPPLIER"),
+      rawMaterials: models.includes("COMPANY_RAW_MATERIAL"),
     },
   });
-
   if (!company) {
     return {
       companyProfile: {},

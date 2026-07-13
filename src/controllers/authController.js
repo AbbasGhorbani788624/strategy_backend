@@ -63,6 +63,18 @@ exports.refresh = async function (req, res) {
       message: "توکن دسترسی با موفقیت رفرش شد",
     });
   } catch (err) {
+    res.clearCookie("refresh_token", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    });
+
+    res.clearCookie("access_token", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    });
+
     return errorResponse(res, 401, err.message);
   }
 };

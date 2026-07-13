@@ -110,7 +110,7 @@ const changePasseordService = async (userId, oldPassword, newPassword) => {
 
 const refreshService = async (refreshToken) => {
   if (!refreshToken) {
-    createBadRequestError("توکن refresh وجود ندارد", 404);
+  createBadRequestError("توکن refresh وجود ندارد", 401);
   }
 
   let decoded;
@@ -130,7 +130,6 @@ const refreshService = async (refreshToken) => {
     createBadRequestError("refresh token منقضی شده است", 401);
   }
 
-  // Rotation: توکن قدیمی را revoke کن
   await revokeRefreshTokenByHash(storedToken.tokenHash);
 
   const payload = { userId: decoded.userId, role: decoded.role };

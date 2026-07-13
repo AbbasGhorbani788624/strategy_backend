@@ -18,22 +18,8 @@ const syncIndustryInsightService = async (companyId) => {
       },
     });
 
-    if (!company?.industry) {
-      console.log("❌ Company or industry not found.");
-      return null;
-    }
-
     const industry = company.industry.trim();
-    const region = company.basicInfo?.region || null;
-
-    // console.log("========== AI REQUEST ==========");
-    // console.log({
-    //   url: INDUSTRY_INSIGHT_API_URL,
-    //   payload: {
-    //     industry,
-    //     region,
-    //   },
-    // });
+    const region = company.basicInfo?.region || "IRAN";
 
     const response = await axios.post(
       INDUSTRY_INSIGHT_API_URL,
@@ -62,7 +48,7 @@ const syncIndustryInsightService = async (companyId) => {
   }
 };
 
-const getLatestIndustryInsightsService = async (companyId, limit = 4) => {
+const getLatestIndustryInsightsService = async (companyId, limit = 10) => {
   try {
     const company = await prisma.company.findUnique({
       where: {

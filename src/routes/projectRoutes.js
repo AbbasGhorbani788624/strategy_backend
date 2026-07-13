@@ -16,6 +16,7 @@ const {
   getTopRatedProjectsHandler,
   getAccessibleProjectsController,
   getMostCommentedProjectsController,
+  deleteProject,
 } = require("../controllers/projectController");
 const {
   rateCommentSchema,
@@ -68,5 +69,7 @@ router.put("/:id/access", auth, projectAccessSchema, getAllProjectsAccess);
 
 //دادن امتیاز به پروژه
 router.post("/:id", auth, rateCommentSchema, giveReteAndComment);
+
+router.delete("/:id", auth, deleteProject);
 
 module.exports = router;

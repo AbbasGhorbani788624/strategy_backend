@@ -1,10 +1,5 @@
 import { ComponentLoader } from "adminjs";
 import { ValidationError } from "adminjs";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 export const questionTypeValues = [
   { value: "RADIO", label: "رادیویی" },
   { value: "CHECKBOX", label: "چک‌باکس" },
@@ -259,14 +254,3 @@ export const parseDecimalValue = (value) => {
 };
 
 export const componentLoader = new ComponentLoader();
-
-export const Components = {
-  DownloadFile: componentLoader.add(
-    "DownloadFile",
-    path.resolve(__dirname, "components", "DownloadFile.jsx"),
-  ),
-  GenerateInsight: componentLoader.add(
-    "GenerateInsight",
-    path.resolve(__dirname, "components", "GenerateInsight.jsx"),
-  ),
-};

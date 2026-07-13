@@ -298,6 +298,17 @@ const PROCUREMENT_CATEGORIES = [
   { value: "ROUTINE", label: "روتین" },
 ];
 
+const targetMarketType = [
+  {
+    value: "INDIVIDUAL",
+    label: "بازار هدف فردی",
+  },
+  {
+    value: "PRIMARY",
+    label: "بازار هدف اصلی",
+  },
+];
+
 module.exports = {
   SHAREHOLDER_TYPES,
   ORGANIZATIONAL_LEVELS,
@@ -339,4 +350,5 @@ module.exports = {
   COST_IMPACT_LEVELS,
   PURCHASE_BUDGET_SHARES,
   PROCUREMENT_CATEGORIES,
+  targetMarketType,
 };

@@ -87,19 +87,16 @@ function average(list) {
   return round(list.reduce((sum, item) => sum + item, 0) / list.length);
 }
 
-function buildCategory(category, answers, categoryScores) {
+function buildCategory(category, answers = {}, categoryScores) {
   let weightedScore = 0;
   let totalWeight = 0;
 
-  const questions = category.questions.map((question) => {
-    const answer = answers[question.id];
+  const questions = (category.questions || []).map((question) => {
+    const answer = answers[question.id] ?? null;
     const selectedOption = findSelectedOption(question, answer);
 
     let selected = null;
 
-    // ===========================
-    // RADIO
-    // ===========================
     if (question.type === "RADIO") {
       if (selectedOption) {
         selected = {
@@ -116,12 +113,7 @@ function buildCategory(category, answers, categoryScores) {
           totalWeight += question.weight;
         }
       }
-    }
-
-    // ===========================
-    // CHECKBOX
-    // ===========================
-    else if (question.type === "CHECKBOX") {
+    } else if (question.type === "CHECKBOX") {
       selected = [];
 
       let scoreSum = 0;
@@ -144,30 +136,14 @@ function buildCategory(category, answers, categoryScores) {
 
       if (question.weight != null && scoreCount > 0) {
         const averageScore = scoreSum / scoreCount;
-
         weightedScore += question.weight * averageScore;
         totalWeight += question.weight;
       }
-    }
-
-    // ===========================
-    // TEXT
-    // ===========================
-    else if (question.type === "TEXT") {
+    } else if (question.type === "TEXT") {
       selected =
-        typeof answer === "string" && answer.trim() !== ""
-          ? answer.trim()
-          : null;
-    }
-
-    // ===========================
-    // NUMBER
-    // ===========================
-    else if (question.type === "NUMBER") {
-      selected =
-        answer !== undefined && answer !== null && answer !== ""
-          ? Number(answer)
-          : null;
+        typeof answer === "string" && answer.trim() ? answer.trim() : null;
+    } else if (question.type === "NUMBER") {
+      selected = answer !== null && answer !== "" ? Number(answer) : null;
     }
 
     return {
@@ -180,7 +156,7 @@ function buildCategory(category, answers, categoryScores) {
     };
   });
 
-  const children = category.children.map((child) =>
+  const children = (category.children || []).map((child) =>
     buildCategory(child, answers, categoryScores),
   );
 

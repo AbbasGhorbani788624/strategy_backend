@@ -1,24 +1,43 @@
 const prisma = require("../prismaClient");
+const {
+  COMPANY_PROFILE_INCLUDE,
+  buildProfileStatus,
+} = require("../utils/profileStatus");
 
 const featuredAnalysisService = {
-  async findAll() {
-    const data = await prisma.featuredAnalysis.findMany({
-      select: {
-        analysisForm: {
-          select: {
-            id: true,
-            title: true,
+  async findAll(companyId) {
+    const [data, company] = await Promise.all([
+      prisma.featuredAnalysis.findMany({
+        select: {
+          analysisForm: {
+            select: {
+              id: true,
+              title: true,
+              profileFields: true,
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        orderBy: {
+          createdAt: "desc",
+        },
+      }),
 
-    return data.map((item) => item.analysisForm);
+      prisma.company.findUnique({
+        where: {
+          id: companyId,
+        },
+        include: COMPANY_PROFILE_INCLUDE,
+      }),
+    ]);
+
+    return data.map(({ analysisForm }) => ({
+      id: analysisForm.id,
+      title: analysisForm.title,
+      ...buildProfileStatus(company, analysisForm.profileFields),
+    }));
   },
 };
+
 module.exports = {
   featuredAnalysisService,
 };

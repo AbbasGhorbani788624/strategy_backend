@@ -1,5 +1,7 @@
 -- AlterTable
-ALTER TABLE `followupformquestion` MODIFY `type` ENUM('CHECKBOX', 'RADIO', 'NUMBER', 'TEXT') NOT NULL;
+ALTER TABLE `FollowUpFormQuestion`
+MODIFY `type` ENUM('CHECKBOX', 'RADIO', 'NUMBER', 'TEXT') NOT NULL;
 
 -- AlterTable
-ALTER TABLE `formquestion` MODIFY `type` ENUM('CHECKBOX', 'RADIO', 'NUMBER', 'TEXT') NOT NULL;
+ALTER TABLE `FormQuestion`
+MODIFY `type` ENUM('CHECKBOX', 'RADIO', 'NUMBER', 'TEXT') NOT NULL;

@@ -3,16 +3,10 @@ const yup = require("yup");
 const schema = yup.object().shape({
   projectId: yup
     .string()
-    .uuid(" ایدی پروژه معتبر نیست")
-    .required(" ایدی پروژه الزامی است"),
-  answers: yup
-    .object()
-    .required("answers الزامی است")
-    .test(
-      "is-not-empty",
-      "answers نباید خالی باشد",
-      (val) => val && Object.keys(val).length > 0,
-    ),
+    .uuid("ایدی پروژه معتبر نیست")
+    .required("ایدی پروژه الزامی است"),
+
+  answers: yup.object().required("answers الزامی است"),
 });
 
 exports.validateFormSubmission = async (req, res, next) => {

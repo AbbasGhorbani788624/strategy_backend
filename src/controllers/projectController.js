@@ -11,6 +11,7 @@ const {
   getTopRatedProjectsByUser,
   getAccessibleProjectsService,
   getMostCommentedProjectsService,
+  deleteProjectService,
 } = require("../services/projectService");
 const { createBadRequestError } = require("../utils");
 const { successResponse } = require("../utils/responses");
@@ -227,6 +228,23 @@ exports.getMostCommentedProjectsController = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: projects,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.deleteProject = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const userId = req.user.id;
+
+    await deleteProjectService(id, userId);
+
+    return res.status(200).json({
+      success: true,
+      message: "پروژه با موفقیت حذف شد",
     });
   } catch (error) {
     next(error);

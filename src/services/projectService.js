@@ -894,6 +894,34 @@ const getMostCommentedProjectsService = async (userId) => {
   return projects;
 };
 
+const deleteProjectService = async (projectId, userId) => {
+  const project = await prisma.project.findUnique({
+    where: {
+      id: projectId,
+    },
+    select: {
+      id: true,
+      creatorId: true,
+    },
+  });
+
+  if (!project) {
+    createBadRequestError("پروژه یافت نشد .", 404);
+  }
+
+  if (project.creatorId !== userId) {
+    createBadRequestError("شما مجوز حذف این پروژه را ندارید", 403);
+  }
+
+  await prisma.project.delete({
+    where: {
+      id: projectId,
+    },
+  });
+
+  return true;
+};
+
 module.exports = {
   getAllProjectsService,
   getProjectService,
@@ -907,4 +935,5 @@ module.exports = {
   getTopRatedProjectsByUser,
   getAccessibleProjectsService,
   getMostCommentedProjectsService,
+  deleteProjectService,
 };

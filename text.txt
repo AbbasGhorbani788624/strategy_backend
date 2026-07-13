@@ -16,6 +16,7 @@ import {
   parseOptionsText,
   questionTypeValues,
   validateQuestionOptions,
+  Components,
 } from "./component-loader.mjs";
 import {
   companyBalanceSheetActions,
@@ -985,6 +986,11 @@ const fileAttachmentResource = {
           edit: false,
           filter: false,
         },
+
+        // components: {
+        //   list: Components.DownloadFile,
+        //   show: Components.DownloadFile,
+        // },
       },
 
       originalName: {
@@ -1075,16 +1081,6 @@ const fileAttachmentResource = {
         after: async (response) => {
           if (!response.records.length) {
             return response;
-          }
-
-          for (const record of response.records) {
-            let fp = record.params.filePath;
-            if (fp && fp.includes("uploads")) {
-              const parts = fp.split(/[/\\]uploads[/\\]/);
-              if (parts.length > 1) {
-                record.params.filePath = `/uploads/${parts[1].replaceAll("\\", "/")}`;
-              }
-            }
           }
 
           const fileIds = response.records.map((record) => record.params.id);
@@ -1187,20 +1183,6 @@ const fileAttachmentResource = {
         },
       },
 
-      show: {
-        after: async (response) => {
-          let fp = response.record?.params?.filePath;
-          if (fp && fp.includes("uploads")) {
-            const parts = fp.split(/[/\\]uploads[/\\]/);
-            if (parts.length > 1) {
-              response.record.params.filePath = `/uploads/${parts[1].replaceAll("\\", "/")}`;
-            }
-          }
-
-          return response;
-        },
-      },
-
       new: {
         before: async (request, context) => {
           return prepareRequest(request, context.currentAdmin);
@@ -1230,45 +1212,6 @@ const fileAttachmentResource = {
           );
 
           return response;
-        },
-      },
-
-      downloadFile: {
-        actionType: "record",
-        icon: "Download",
-        label: "دانلود فایل",
-        component: false,
-        guard: false,
-
-        handler: async (request, response, context) => {
-          const fp = context.record.params.filePath;
-
-          if (!fp) {
-            return {
-              record: context.record.toJSON(),
-              notice: {
-                message: "فایلی برای دانلود وجود ندارد",
-                type: "error",
-              },
-            };
-          }
-
-          let relativePath = fp;
-          if (fp.includes("uploads")) {
-            const parts = fp.split(/[/\\]uploads[/\\]/);
-            if (parts.length > 1) {
-              relativePath = `/uploads/${parts[1].replaceAll("\\", "/")}`;
-            }
-          }
-
-          const host = request.headers?.host || `localhost:${PORT}`;
-          const protocol = request.headers?.["x-forwarded-proto"] || "http";
-          const absoluteUrl = `${protocol}://${host}${relativePath}`;
-
-          return {
-            record: context.record.toJSON(),
-            redirectUrl: absoluteUrl,
-          };
         },
       },
     },
@@ -2221,9 +2164,9 @@ const admin = new AdminJS({
                 });
               }
 
+              // بررسی وجود شرکت
               const companyExists = await prisma.company.findUnique({
                 where: { id: companyId },
-                select: { id: true },
               });
 
               if (!companyExists) {
@@ -2307,7 +2250,6 @@ const admin = new AdminJS({
 
               const companyExists = await prisma.company.findUnique({
                 where: { id: companyId },
-                select: { id: true },
               });
 
               if (!companyExists) {
@@ -2398,13 +2340,22 @@ const admin = new AdminJS({
           after: async (response) => {
             if (!response.records?.length) return response;
 
+            // dataText
+            response.records = response.records.map((record) => {
+              const rawData = record.params.data;
+              record.params.dataText =
+                rawData?.text || record.params["data.text"] || "";
+              return record;
+            });
+
+            // fetch اسم شرکت‌ها
             const companyIds = [
               ...new Set(
                 response.records.map((r) => r.params.company).filter(Boolean),
               ),
             ];
 
-            const companyMap = Object.create(null);
+            const companyMap = {};
 
             if (companyIds.length > 0) {
               const companies = await prisma.company.findMany({
@@ -2412,16 +2363,12 @@ const admin = new AdminJS({
                 select: { id: true, name: true },
               });
 
-              for (const c of companies) {
+              companies.forEach((c) => {
                 companyMap[c.id] = c.name;
-              }
+              });
             }
 
-            for (const record of response.records) {
-              const rawData = record.params.data;
-              record.params.dataText =
-                rawData?.text || record.params["data.text"] || "";
-
+            response.records = response.records.map((record) => {
               const companyId = record.params.company;
               const name = companyId ? (companyMap[companyId] ?? "—") : "—";
 
@@ -2432,7 +2379,8 @@ const admin = new AdminJS({
               };
 
               record.params["companyName"] = name;
-            }
+              return record;
+            });
 
             return response;
           },
@@ -2649,6 +2597,12 @@ const admin = new AdminJS({
 
       actions: {
         list: {
+          before: async (request) => {
+            console.log("QUERY");
+            console.dir(request.query, { depth: null });
+
+            return request;
+          },
           after: async (response) => {
             if (!response.records?.length) return response;
 
@@ -2810,6 +2764,11 @@ const admin = new AdminJS({
 
       filterProperties: ["project", "rater", "score", "createdAt"],
       actions: {
+        list: {
+          after: async (response) => {
+            return response;
+          },
+        },
         new: {
           handler: async (request, response, context) => {
             const { resource, h, currentAdmin } = context;
@@ -3590,6 +3549,16 @@ const admin = new AdminJS({
             }
 
             try {
+              console.log("PAYLOAD:", payload);
+              console.log({
+                analysisFormId,
+                multiAnalysisFormId,
+                parentId,
+                title,
+                order,
+                isActive,
+              });
+
               const updated = await prisma.formQuestionCategory.update({
                 where: {
                   id: record.params.id,
@@ -3764,11 +3733,9 @@ const admin = new AdminJS({
                   in: categoryIds,
                 },
               },
-              select: {
-                id: true,
-                title: true,
-                analysisForm: { select: { title: true } },
-                multiAnalysisForm: { select: { title: true } },
+              include: {
+                analysisForm: true,
+                multiAnalysisForm: true,
               },
             });
 
@@ -3795,25 +3762,27 @@ const admin = new AdminJS({
           after: async (response) => {
             if (!response.record) return response;
 
-            const categoryId = response.record.params.category;
-            if (!categoryId) return response;
-
-            const category = await prisma.formQuestionCategory.findUnique({
-              where: { id: categoryId },
-              select: {
-                title: true,
-                analysisForm: { select: { title: true } },
-                multiAnalysisForm: { select: { title: true } },
+            const question = await prisma.formQuestion.findUnique({
+              where: {
+                id: response.record.params.id,
+              },
+              include: {
+                category: {
+                  include: {
+                    analysisForm: true,
+                    multiAnalysisForm: true,
+                  },
+                },
               },
             });
 
-            if (!category) return response;
+            if (!question) return response;
 
-            response.record.params.categoryTitle = category.title ?? "—";
+            response.record.params.categoryTitle = question.category.title;
 
             response.record.params.formTitle =
-              category.analysisForm?.title ??
-              category.multiAnalysisForm?.title ??
+              question.category.analysisForm?.title ??
+              question.category.multiAnalysisForm?.title ??
               "—";
 
             return response;
@@ -5215,16 +5184,13 @@ const admin = new AdminJS({
               return response;
             }
 
-            const formId = response.record.params.form;
-
-            if (!formId) {
-              response.record.params.formTitle = "—";
-              return response;
-            }
-
             const form = await prisma.analysisForm.findUnique({
-              where: { id: formId },
-              select: { title: true },
+              where: {
+                id: response.record.params.form,
+              },
+              select: {
+                title: true,
+              },
             });
 
             response.record.params.formTitle = form?.title || "—";
@@ -5658,16 +5624,13 @@ const admin = new AdminJS({
               return response;
             }
 
-            const formId = response.record.params.multiAnalysisForm;
-
-            if (!formId) {
-              response.record.params.multiAnalysisFormTitle = "—";
-              return response;
-            }
-
             const form = await prisma.multiAnalysisForm.findUnique({
-              where: { id: formId },
-              select: { title: true },
+              where: {
+                id: response.record.params.multiAnalysisForm,
+              },
+              select: {
+                title: true,
+              },
             });
 
             response.record.params.multiAnalysisFormTitle = form?.title || "—";
@@ -7811,7 +7774,6 @@ const admin = new AdminJS({
             const promptDefinitionExists =
               await prisma.promptDefinition.findUnique({
                 where: { id: promptDefinitionId },
-                select: { id: true },
               });
 
             if (!promptDefinitionExists) {
@@ -7820,6 +7782,7 @@ const admin = new AdminJS({
               );
             }
 
+            // اگر وضعیت PUBLISHED است و publishedAt خالی است، الان را بگذار
             if (status === "PUBLISHED" && !publishedAt) {
               publishedAt = new Date();
             }
@@ -7921,7 +7884,6 @@ const admin = new AdminJS({
             const promptDefinitionExists =
               await prisma.promptDefinition.findUnique({
                 where: { id: promptDefinitionId },
-                select: { id: true },
               });
 
             if (!promptDefinitionExists) {
@@ -8226,22 +8188,21 @@ const admin = new AdminJS({
               throw new Error("content is required");
             }
 
-            const [promptVersion, segmentDefinition] = await Promise.all([
-              prisma.promptVersion.findUnique({
-                where: { id: promptVersionId },
-                select: { id: true, promptDefinitionId: true },
-              }),
-              prisma.promptSegmentDefinition.findUnique({
-                where: { id: segmentDefinitionId },
-                select: { id: true, promptDefinitionId: true },
-              }),
-            ]);
+            const promptVersion = await prisma.promptVersion.findUnique({
+              where: { id: promptVersionId },
+              include: { promptDefinition: true },
+            });
 
             if (!promptVersion) {
               throw new Error(
                 "PromptVersion not found with this promptVersionId",
               );
             }
+
+            const segmentDefinition =
+              await prisma.promptSegmentDefinition.findUnique({
+                where: { id: segmentDefinitionId },
+              });
 
             if (!segmentDefinition) {
               throw new Error(
@@ -8345,32 +8306,20 @@ const admin = new AdminJS({
               throw new Error("content is required");
             }
 
-            const [promptVersion, segmentDefinition, duplicate] =
-              await Promise.all([
-                prisma.promptVersion.findUnique({
-                  where: { id: promptVersionId },
-                  select: { id: true, promptDefinitionId: true },
-                }),
-                prisma.promptSegmentDefinition.findUnique({
-                  where: { id: segmentDefinitionId },
-                  select: { id: true, promptDefinitionId: true },
-                }),
-                prisma.promptVersionSegmentValue.findUnique({
-                  where: {
-                    promptVersionId_segmentDefinitionId: {
-                      promptVersionId,
-                      segmentDefinitionId,
-                    },
-                  },
-                  select: { id: true },
-                }),
-              ]);
+            const promptVersion = await prisma.promptVersion.findUnique({
+              where: { id: promptVersionId },
+            });
 
             if (!promptVersion) {
               throw new Error(
                 "PromptVersion not found with this promptVersionId",
               );
             }
+
+            const segmentDefinition =
+              await prisma.promptSegmentDefinition.findUnique({
+                where: { id: segmentDefinitionId },
+              });
 
             if (!segmentDefinition) {
               throw new Error(
@@ -8386,6 +8335,17 @@ const admin = new AdminJS({
                 "This segmentDefinition does not belong to the selected PromptVersion's PromptDefinition",
               );
             }
+
+            const duplicate = await prisma.promptVersionSegmentValue.findUnique(
+              {
+                where: {
+                  promptVersionId_segmentDefinitionId: {
+                    promptVersionId,
+                    segmentDefinitionId,
+                  },
+                },
+              },
+            );
 
             if (duplicate && duplicate.id !== recordId) {
               throw new Error(
@@ -8580,13 +8540,6 @@ const authenticate = async (emailOrUsername, password) => {
       OR: [{ email: emailOrUsername }, { username: emailOrUsername }],
       role: "SUPER_ADMIN",
     },
-    select: {
-      id: true,
-      email: true,
-      username: true,
-      password: true,
-      role: true,
-    },
   });
 
   if (!user) {
@@ -8609,9 +8562,6 @@ const authenticate = async (emailOrUsername, password) => {
 
 const start = async () => {
   await admin.initialize();
-  if (process.env.NODE_ENV !== "production") {
-    await admin.watch();
-  }
   const router = AdminJSExpress.buildAuthenticatedRouter(
     admin,
     {
@@ -8635,6 +8585,14 @@ const start = async () => {
     {
       uploadDir: ADMIN_UPLOAD_TMP,
     },
+  );
+
+  app.use(
+    session({
+      secret: ADMIN_SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+    }),
   );
 
   app.use(admin.options.rootPath, router);

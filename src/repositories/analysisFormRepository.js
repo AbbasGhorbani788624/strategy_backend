@@ -1,61 +1,8 @@
 const prisma = require("../prismaClient");
-
-const PROFILE_RELATIONS = {
-  COMPANY_BASIC_INFO: "basicInfo",
-  COMPANY_MANAGER: "managers",
-  REVENUE_CENTER: "revenueCenters",
-  COMPANY_SHAREHOLDER: "shareholders",
-  ORGANIZATION_UNIT: "organizationUnits",
-  COMPANY_LICENSE_CERTIFICATE: "licenseCertificates",
-  COMPANY_MEMBERSHIP: "memberships",
-  COMPANY_PRODUCT_SERVICE: "productServices",
-  COMPANY_MARKET: "markets",
-  KEY_CUSTOMER: "keyCustomers",
-  COMPANY_BALANCE_SHEET: "balanceSheets",
-  COMPANY_INCOME_STATEMENT: "incomeStatements",
-  COMPANY_RESOURCE_CAPABILITY: "resourceCapabilities",
-};
-const MODEL_TITLES = {
-  COMPANY_BASIC_INFO: "اطلاعات پایه شرکت",
-  COMPANY_MANAGER: "مدیران شرکت",
-  REVENUE_CENTER: "مراکز درآمد",
-  COMPANY_SHAREHOLDER: "سهامداران",
-  ORGANIZATION_UNIT: "چارت سازمانی",
-  COMPANY_LICENSE_CERTIFICATE: "مجوزها و گواهینامه‌ها",
-  COMPANY_MEMBERSHIP: "عضویت‌ها",
-  COMPANY_PRODUCT_SERVICE: "محصولات و خدمات",
-  COMPANY_MARKET: "بازارها",
-  KEY_CUSTOMER: "مشتریان کلیدی",
-  COMPANY_BALANCE_SHEET: "ترازنامه",
-  COMPANY_INCOME_STATEMENT: "صورت سود و زیان",
-  COMPANY_RESOURCE_CAPABILITY: "منابع و قابلیت‌ها",
-};
-
-const isProfileFieldCompleted = (company, profileFieldKey) => {
-  const [entity, field] = profileFieldKey.split(".");
-
-  const relation = PROFILE_RELATIONS[entity];
-
-  if (!relation) return false;
-
-  const value = company?.[relation];
-
-  if (!value) return false;
-
-  // One To One
-  if (!Array.isArray(value)) {
-    return (
-      value[field] !== null && value[field] !== undefined && value[field] !== ""
-    );
-  }
-
-  // One To Many
-  return value.some((item) => {
-    const fieldValue = item[field];
-
-    return fieldValue !== null && fieldValue !== undefined && fieldValue !== "";
-  });
-};
+const {
+  buildProfileStatus,
+  COMPANY_PROFILE_INCLUDE,
+} = require("../utils/profileStatus");
 
 const deleteFormRepo = async (id) => {
   return prisma.$transaction(async (tx) => {
@@ -215,8 +162,12 @@ const getFormById = async (id) => {
 const getSingleForms = async (companyId) => {
   const [forms, company] = await Promise.all([
     prisma.analysisForm.findMany({
-      where: { isActive: true },
-      orderBy: { order: "asc" },
+      where: {
+        isActive: true,
+      },
+      orderBy: {
+        order: "asc",
+      },
       include: {
         category: {
           select: {
@@ -247,55 +198,23 @@ const getSingleForms = async (companyId) => {
     }),
 
     prisma.company.findUnique({
-      where: { id: companyId },
-      include: {
-        basicInfo: true,
-        managers: true,
-        revenueCenters: true,
-        shareholders: true,
-        organizationUnits: true,
-        licenseCertificates: true,
-        memberships: true,
-        productServices: true,
-        markets: true,
-        keyCustomers: true,
-        balanceSheets: true,
-        incomeStatements: true,
-        resourceCapabilities: true,
+      where: {
+        id: companyId,
       },
+      include: COMPANY_PROFILE_INCLUDE,
     }),
   ]);
 
-  const mappedForms = forms.map((form) => {
-    const missingModels = new Set();
-
-    for (const field of form.profileFields) {
-      const completed = isProfileFieldCompleted(company, field.profileFieldKey);
-
-      if (!completed) {
-        const [model] = field.profileFieldKey.split(".");
-
-        missingModels.add(
-          JSON.stringify({
-            key: model,
-            title: MODEL_TITLES[model] || model,
-          }),
-        );
-      }
-    }
-
-    return {
-      id: form.id,
-      title: form.title,
-      order: form.order,
-      isActive: form.isActive,
-      goals: form.goals,
-      hasForm: form.categories.some((c) => c._count.questions > 0),
-      disabled: missingModels.size > 0,
-      missingModels: [...missingModels].map((item) => JSON.parse(item)),
-      category: form.category,
-    };
-  });
+  const mappedForms = forms.map((form) => ({
+    id: form.id,
+    title: form.title,
+    order: form.order,
+    isActive: form.isActive,
+    goals: form.goals,
+    hasForm: form.categories.some((c) => c._count.questions > 0),
+    ...buildProfileStatus(company, form.profileFields),
+    category: form.category,
+  }));
 
   const groupedMap = new Map();
 
@@ -370,7 +289,6 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
   });
 
   if (!multiForms.length) return [];
-  console.log(userId?.userId);
 
   const completedProjects = await prisma.project.findMany({
     where: {

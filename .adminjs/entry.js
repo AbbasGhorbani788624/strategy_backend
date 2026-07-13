@@ -1,8 +1,4 @@
 AdminJS.UserComponents = {}
-import DownloadFile from '../src/components/DownloadFile'
-AdminJS.UserComponents.DownloadFile = DownloadFile
-import GenerateInsight from '../src/components/GenerateInsight'
-AdminJS.UserComponents.GenerateInsight = GenerateInsight
 import UploadEditComponent from '../node_modules/@adminjs/upload/build/features/upload-file/components/UploadEditComponent'
 AdminJS.UserComponents.UploadEditComponent = UploadEditComponent
 import UploadListComponent from '../node_modules/@adminjs/upload/build/features/upload-file/components/UploadListComponent'

@@ -44,7 +44,6 @@ enum QuestionType {
   RADIO
   NUMBER
   TEXT
-
 }
 
 enum FollowUpStatus {
@@ -77,6 +76,8 @@ enum CompanyDataModel {
   COMPANY_BALANCE_SHEET
   COMPANY_INCOME_STATEMENT
   COMPANY_RESOURCE_CAPABILITY
+  COMPANY_SUPPLIER
+  COMPANY_RAW_MATERIAL
 }
 
 enum Region {
@@ -352,18 +353,21 @@ model ChatMessage {
 model AnalysisCategory {
   id          String              @id @default(uuid())
   title       String
-  description String?
+  description String?              @db.Text
   image       String?
+  order       Int?                 @default(0)
   forms       AnalysisForm[]
   multiForms  MultiAnalysisForm[]
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
+
+  @@index([order])
 }
 
 model AnalysisForm {
   id                      String                       @id @default(uuid())
   title                   String
-  info                    String?
+  info                    String?                     @db.Text
   order                   Int?
   isActive                Boolean                      @default(true)
   categoryId              String?
@@ -604,7 +608,7 @@ model MultiAnalysisProjectSource {
 model MultiAnalysisForm {
   id             String            @id @default(uuid())
   title          String
-  description    String?
+  description    String?           @db.Text
   isActive       Boolean           @default(true)
   order          Int?
   checklistTitle String?
@@ -799,6 +803,7 @@ model Company {
 
   name     String
   industry String?
+  chatMessageLimit Int @default(10)
 
   members             User[]                      @relation("CompanyMembers")
   profileViewAccesses ProfileViewAccess[]

@@ -6,5 +6,6 @@
 
 */
 -- AlterTable
-ALTER TABLE `industryinsight` DROP COLUMN `insightText`,
-    ADD COLUMN `insightData` JSON NOT NULL;
+ALTER TABLE `IndustryInsight`
+DROP COLUMN `insightText`,
+ADD COLUMN `insightData` JSON NOT NULL;

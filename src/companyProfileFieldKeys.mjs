@@ -3,17 +3,19 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "brandTitle", label: "عنوان برند" },
     { value: "knownAs", label: "نام/برند شناخته شده شرکت" },
     { value: "nationalId", label: "شناسه ملی" },
-    { value: "companyType", label: "نوع شرکت" },
-    { value: "establishmentYear", label: "سال تاسیس" },
-    { value: "commercialActivityStartYear", label: "سال شروع فعالیت تجاری" },
-    { value: "isListed", label: "بورسی بودن" },
+    { value: "isPublicCompany", label: "شرکت بورسی" },
     { value: "isHolding", label: "هولدینگ بودن" },
     { value: "isHoldingSubsidiary", label: "زیرمجموعه هولدینگ بودن" },
+    { value: "establishmentYear", label: "سال تاسیس" },
+    { value: "commercialActivityStartYear", label: "سال شروع فعالیت تجاری" },
     { value: "parentCompanyName", label: "نام شرکت مادر" },
     { value: "totalPersonnelCount", label: "تعداد کل پرسنل" },
     { value: "operationalPersonnelCount", label: "تعداد پرسنل عملیاتی" },
     { value: "phoneNumber", label: "شماره تماس" },
     { value: "website", label: "وبسایت" },
+    { value: "vision", label: "چشم‌انداز" },
+    { value: "objectives", label: "اهداف" },
+    { value: "region", label: "منطقه" },
   ],
 
   COMPANY_MANAGER: [
@@ -24,6 +26,7 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "companyWorkExperience", label: "سابقه کار در شرکت" },
     { value: "totalWorkExperience", label: "کل سابقه کاری" },
     { value: "resumeFileId", label: "شناسه فایل رزومه" },
+    { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 
   REVENUE_CENTER: [
@@ -35,6 +38,7 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
       label: "برآورد تقریبی درآمد سال گذشته (ریال)",
     },
     { value: "personnelCount", label: "تعداد پرسنل" },
+    { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 
   COMPANY_SHAREHOLDER: [
@@ -49,6 +53,7 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "unitName", label: "نام واحد" },
     { value: "structureLevel", label: "سطح ساختار" },
     { value: "isRevenueCenter", label: "مرکز درآمد بودن" },
+    { value: "parentUnitName", label: "نام واحد بالادستی" },
     { value: "managerName", label: "نام مدیر" },
     { value: "employeeCount", label: "تعداد کارکنان" },
     { value: "structureFileId", label: "شناسه فایل ساختار" },
@@ -78,6 +83,7 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "startYear", label: "سال شروع" },
     { value: "marketPosition", label: "جایگاه بازار" },
     { value: "isExported", label: "صادراتی بودن" },
+    { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 
   COMPANY_MARKET: [
@@ -86,8 +92,9 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "marketSharePercent", label: "درصد سهم بازار" },
     { value: "marketPenetrationLevel", label: "سطح نفوذ در بازار" },
     { value: "yearsInMarket", label: "سال‌های حضور در بازار" },
-    { value: "relatedProductService", label: "محصول / خدمت مرتبط" },
     { value: "targetMarketType", label: "نوع بازار هدف" },
+    { value: "relatedProductService", label: "محصول / خدمت مرتبط" },
+    { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 
   KEY_CUSTOMER: [
@@ -97,6 +104,7 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "revenueImpactLevel", label: "سطح اثرگذاری بر درآمد" },
     { value: "loyaltyLevel", label: "سطح وفاداری" },
     { value: "walletShareLevel", label: "سهم از کیف پول مشتری" },
+    { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 
   COMPANY_BALANCE_SHEET: [
@@ -104,6 +112,7 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "title", label: "عنوان" },
     { value: "balanceFileId", label: "شناسه فایل ترازنامه" },
     { value: "description", label: "توضیحات" },
+    { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 
   COMPANY_INCOME_STATEMENT: [
@@ -111,6 +120,7 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "title", label: "عنوان" },
     { value: "incomeFileId", label: "شناسه فایل صورت سود و زیان" },
     { value: "description", label: "توضیحات" },
+    { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 
   COMPANY_RESOURCE_CAPABILITY: [
@@ -119,6 +129,7 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "importanceLevel", label: "سطح اهمیت" },
     { value: "rarityLevel", label: "سطح کمیابی" },
     { value: "inimitabilityLevel", label: "سطح تقلیدناپذیری" },
+    { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 
   COMPANY_SUPPLIER: [
@@ -126,6 +137,8 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "productOrService", label: "محصول یا خدمت" },
     { value: "bargainingPower", label: "قدرت چانه‌زنی" },
     { value: "supplierMarket", label: "بازار تامین کننده" },
+    { value: "description", label: "توضیحات" },
+    { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 
   COMPANY_RAW_MATERIAL: [
@@ -133,9 +146,12 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "costImpactLevel", label: "تاثیر دربهای تمام شده" },
     { value: "purchaseBudgetShare", label: "سهم از بودجه خرید" },
     { value: "category", label: "دسته‌بندی" },
+    { value: "description", label: "توضیحات" },
+    { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 };
 
+// ساخت لیست کامل گزینه‌ها برای Select / Dropdown
 export const COMPANY_PROFILE_FIELD_OPTIONS = Object.entries(
   COMPANY_PROFILE_FIELDS_BY_MODEL,
 ).flatMap(([model, fields]) =>

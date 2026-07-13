@@ -19,15 +19,18 @@ const IndustryInsightRoutes = require("./routes/IndustryInsightRoutes");
 const featuredanalysisRoutes = require("./routes/featuredanalysisRoutes");
 const analysiscategories = require("./routes/analysisCategoriesRoutes");
 const bookmarkRoutes = require("./routes/bookmarkRoutes");
+const chatRoutes = require("./routes/chat");
 
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000,
-  max: 100,
-  message: "زیادی تلاش کردی! لطفاً بعداً امتحان کن.",
+  max: 200,
+  message: {
+    message:
+      "تعداد درخواست‌ها بیش از حد مجاز است. لطفاً چند دقیقه بعد دوباره تلاش کنید.",
+  },
   standardHeaders: true,
   legacyHeaders: false,
 });
-
 const app = express();
 
 const allowedOrigins = [
@@ -78,7 +81,7 @@ app.use("/api/industryinsight", IndustryInsightRoutes);
 app.use("/api/featuredanalysis", featuredanalysisRoutes);
 app.use("/api/analysis-categories", analysiscategories);
 app.use("/api/bookmark", bookmarkRoutes);
-
+app.use("/api/chat", chatRoutes);
 app.use((req, res) => {
   console.log("This path is not found:", req.path);
   return res.status(404).json({

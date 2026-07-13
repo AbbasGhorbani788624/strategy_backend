@@ -53,6 +53,7 @@ function createCategoryInclude(depth = 4) {
         : undefined,
   };
 }
+
 const createFormInclude = () => ({
   categoryGroups: {
     orderBy: {
@@ -135,7 +136,10 @@ const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {
       headers: { "Content-Type": "application/json" },
     });
 
-    console.log(JSON.stringify(response.data, null, 2));
+    // console.log(
+    //   "analyze request response =>",
+    //   JSON.stringify(response.data, null, 2),
+    // );
 
     return response.data;
   } catch (error) {
@@ -186,23 +190,6 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
 
   if (invalidAnswerKeys.length > 0) {
     createBadRequestError("برخی پاسخ‌های ارسالی معتبر نیستند");
-  }
-
-  const unansweredRequiredQuestions = questions.filter((question) => {
-    if (!question.required) return false;
-
-    const value = answers[question.id];
-
-    return (
-      value === undefined ||
-      value === null ||
-      (typeof value === "string" && value.trim() === "") ||
-      (Array.isArray(value) && value.length === 0)
-    );
-  });
-
-  if (unansweredRequiredQuestions.length > 0) {
-    createBadRequestError("پاسخ به همه سوالات اجباری الزامی است");
   }
 
   const formattedResponses = buildFormattedResponses(form, answers);
@@ -400,15 +387,12 @@ const handleConversationStepService = async (
     let parsedOutput = {};
 
     try {
-      parsedOutput =
-        typeof aiResponse?.final_output === "string"
-          ? JSON.parse(aiResponse.final_output)
-          : aiResponse?.final_output || {};
+      parsedOutput = aiResponse;
     } catch {
       parsedOutput = {};
     }
 
-    const finalAnalysis = parsedOutput.analyze_output || null;
+    const finalAnalysis = parsedOutput.final_output || null;
     const summaryAnalysis = parsedOutput.insight_summary || null;
 
     const riskPercentage =
