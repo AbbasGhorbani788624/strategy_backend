@@ -1,5 +1,7 @@
 -- AlterTable
-ALTER TABLE `analysisform` MODIFY `info` TEXT NULL;
+ALTER TABLE `AnalysisForm`
+MODIFY `info` TEXT NULL;
 
 -- AlterTable
-ALTER TABLE `multianalysisform` MODIFY `description` TEXT NULL;
+ALTER TABLE `MultiAnalysisForm`
+MODIFY `description` TEXT NULL;

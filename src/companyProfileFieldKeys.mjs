@@ -149,6 +149,12 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "description", label: "توضیحات" },
     { value: "sortOrder", label: "ترتیب نمایش" },
   ],
+
+  COMPANY_ADMIN_DATA: [
+    { value: "financeInformation", label: "اطلاعات مالی شرکت" },
+    { value: "externalInformation", label: "اطلاعات خارجی شرکت" },
+    { value: "internalInformation", label: "اطلاعات داخلی شرکت" },
+  ],
 };
 
 // ساخت لیست کامل گزینه‌ها برای Select / Dropdown

@@ -1,18 +1,28 @@
+
+
+
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
 import bcrypt from "bcrypt";
-import { actions, ValidationError } from "adminjs";
+import { actions, ValidationError, flat, ListAction, Filter } from "adminjs";
 import AdminJS from "adminjs";
 import AdminJSExpress from "@adminjs/express";
-import { Database, Resource, getModelByName } from "@adminjs/prisma";
+import {
+  Database,
+  Resource,
+  getModelByName,
+  convertFilter,
+} from "@adminjs/prisma";
 import { PrismaClient } from "@prisma/client";
 import {
+  buildFollowUpResponsesText,
   buildOptionsTextFromRecord,
   componentLoader,
   fillOptionsTextAfterLoad,
   parseBooleanValue,
   parseIntegerValue,
+  parseJsonText,
   parseOptionsText,
   questionTypeValues,
   validateQuestionOptions,
@@ -97,7 +107,67 @@ AdminJS.registerAdapter({
 
 const prisma = new PrismaClient();
 
+const throwRecordNotFound = () => {
+  throw new ValidationError({
+    id: { message: "رکورد پیدا نشد." },
+  });
+};
+
+const buildRecordJson = (resource, data, currentAdmin) =>
+  resource.build(data).toJSON(currentAdmin);
+
+const runAfterSaveSideEffect = async (label, callback) => {
+  try {
+    await callback();
+  } catch (error) {
+    console.error(`${label}:`, error);
+  }
+};
+
+const throwFieldValidation = (field, message) => {
+  throw new ValidationError({ [field]: { message } });
+};
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+async function applyFormQuestionOptionQuestionFilter(request) {
+  const data = flat.unflatten(request.query ?? {});
+  const filters = data.filters ?? {};
+  const questionValue = filters.question;
+
+  if (typeof questionValue !== "string" || !questionValue.trim()) {
+    return request;
+  }
+
+  const text = questionValue.trim();
+  if (UUID_REGEX.test(text)) {
+    return request;
+  }
+
+  const questions = await prisma.formQuestion.findMany({
+    where: { label: { contains: text } },
+    select: { id: true },
+  });
+
+  const newFilters = { ...filters };
+  delete newFilters.question;
+
+  if (questions.length === 0) {
+    newFilters.questionId = "00000000-0000-4000-8000-000000000000";
+  } else if (questions.length === 1) {
+    newFilters.questionId = questions[0].id;
+  } else {
+    request._formQuestionOptionQuestionIds = questions.map((q) => q.id);
+  }
+
+  request.query = flat.flatten({ ...data, filters: newFilters });
+  return request;
+}
+
 const app = express();
+app.set("trust proxy", 1);
+
 
 const PORT = Number(process.env.ADMIN_PORT || 3000);
 const ADMIN_ROOT_PATH = process.env.ADMIN_ROOT_PATH || "/admin";
@@ -228,6 +298,74 @@ function validateAdminProfileFieldPayload(request) {
     });
   }
 }
+
+const enrichFollowUpRequestRecord = async (recordJson) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const recordId = recordJson.params.id;
+
+  if (recordId) {
+    const dbRecord = await prisma.followUpRequest.findUnique({
+      where: {
+        id: String(recordId),
+      },
+      include: {
+        form: {
+          include: {
+            questions: {
+              orderBy: {
+                order: "asc",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (dbRecord) {
+      recordJson.params.extraDescription = dbRecord.extraDescription ?? "";
+      recordJson.params.responsesText = buildFollowUpResponsesText(
+        dbRecord.responses,
+        dbRecord.form?.questions ?? [],
+      );
+
+      return recordJson;
+    }
+  }
+
+  const responses =
+    flat.get(recordJson.params, "responses") ?? recordJson.params.responses;
+
+  const formId = recordJson.params.formId || recordJson.params.form;
+
+  let questions = [];
+
+  if (formId) {
+    const form = await prisma.followUpForm.findUnique({
+      where: {
+        id: String(formId),
+      },
+      include: {
+        questions: {
+          orderBy: {
+            order: "asc",
+          },
+        },
+      },
+    });
+
+    questions = form?.questions ?? [];
+  }
+
+  recordJson.params.responsesText = buildFollowUpResponsesText(
+    responses,
+    questions,
+  );
+
+  return recordJson;
+};
 
 const buildOptionsFromParams = (params) => {
   const options = [];
@@ -449,6 +587,504 @@ export const userCompetencyResource = prismaResource("UserCompetency", {
 
   actions: {
     ...userCompetencyActions,
+  },
+});
+
+const formatJsonForDisplay = (value) => {
+  if (value == null || value === "") {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2);
+    } catch {
+      return value;
+    }
+  }
+
+  return JSON.stringify(value, null, 2);
+};
+
+const getCompanyIdFromRecordParams = (params) =>
+  params?.companyId || params?.company || null;
+
+const enrichRecordsWithCompanyName = async (records) => {
+  if (!records?.length) {
+    return;
+  }
+
+  const companyIds = [
+    ...new Set(
+      records
+        .map((record) => getCompanyIdFromRecordParams(record.params))
+        .filter(Boolean),
+    ),
+  ];
+
+  const companyMap = Object.create(null);
+
+  if (companyIds.length > 0) {
+    const companies = await prisma.company.findMany({
+      where: { id: { in: companyIds } },
+      select: { id: true, name: true },
+    });
+
+    for (const company of companies) {
+      companyMap[company.id] = company.name;
+    }
+  }
+
+  for (const record of records) {
+    const companyId = getCompanyIdFromRecordParams(record.params);
+    const name = companyId ? (companyMap[companyId] ?? "—") : "—";
+
+    record.populated = record.populated ?? {};
+    record.populated.companyId = {
+      params: { id: companyId, name },
+      title: name,
+    };
+
+    record.params.companyName = name;
+  }
+};
+
+const enrichIndustryInsightRecords = async (records) => {
+  if (!records?.length) {
+    return;
+  }
+
+  const industryNames = [
+    ...new Set(
+      records
+        .map((record) => record.params.industryName?.trim())
+        .filter(Boolean),
+    ),
+  ];
+
+  const companiesByIndustry = Object.create(null);
+
+  if (industryNames.length > 0) {
+    const companies = await prisma.company.findMany({
+      where: {
+        industry: { in: industryNames },
+      },
+      select: { name: true, industry: true },
+      orderBy: { name: "asc" },
+    });
+
+    for (const company of companies) {
+      const key = company.industry?.trim();
+      if (!key) {
+        continue;
+      }
+
+      (companiesByIndustry[key] ??= []).push(company.name);
+    }
+  }
+
+  for (const record of records) {
+    const industry = record.params.industryName?.trim();
+    const names = industry ? (companiesByIndustry[industry] ?? []) : [];
+
+    record.params.relatedCompanies = names.join("، ") || "—";
+    record.params.insightDataText = formatJsonForDisplay(
+      record.params.insightData,
+    );
+  }
+};
+
+const companyManagementNavigation = {
+  name: "مدیریت شرکت‌ها",
+  icon: "Building",
+};
+
+export const companyInsightResource = prismaResource("CompanyInsight", {
+  navigation: companyManagementNavigation,
+
+  properties: {
+    companyId: {
+      reference: "Company",
+      label: "شرکت",
+      isVisible: {
+        list: false,
+        filter: true,
+        show: true,
+        edit: false,
+      },
+    },
+
+    company: {
+      reference: "Company",
+      isVisible: {
+        list: false,
+        filter: true,
+        show: false,
+        edit: false,
+      },
+    },
+
+    companyName: {
+      type: "string",
+      isVirtual: true,
+      label: "نام شرکت",
+      isVisible: {
+        list: true,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    insightText: {
+      type: "textarea",
+      label: "متن تحلیل",
+      props: {
+        rows: 15,
+      },
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    suggestedAnalysesText: {
+      type: "textarea",
+      isVirtual: true,
+      label: "تحلیل‌های پیشنهادی",
+      props: {
+        rows: 15,
+      },
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    suggestedAnalyses: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: false,
+        edit: false,
+      },
+    },
+
+    generatedAt: {
+      label: "تاریخ تولید",
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    createdAt: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: false,
+      },
+    },
+
+    updatedAt: {
+      isVisible: {
+        list: false,
+        filter: true,
+        show: true,
+        edit: false,
+      },
+    },
+  },
+
+  listProperties: ["id", "companyName", "generatedAt", "updatedAt"],
+  showProperties: [
+    "id",
+    "companyName",
+    "insightText",
+    "suggestedAnalysesText",
+    "generatedAt",
+    "createdAt",
+    "updatedAt",
+  ],
+  filterProperties: ["company", "generatedAt", "createdAt"],
+  editProperties: [
+    "id",
+    "companyName",
+    "insightText",
+    "suggestedAnalysesText",
+    "generatedAt",
+    "createdAt",
+    "updatedAt",
+  ],
+
+  actions: {
+    new: {
+      isAccessible: false,
+    },
+    edit: {
+      before: async (request) => {
+        if (request.method === "post") {
+          const parsedAnalyses = parseJsonText(
+            request.payload?.suggestedAnalysesText,
+            "suggestedAnalysesText",
+          );
+
+          if (parsedAnalyses !== undefined) {
+            request.payload.suggestedAnalyses = parsedAnalyses;
+          }
+
+          delete request.payload.suggestedAnalysesText;
+          delete request.payload.companyName;
+        }
+
+        return request;
+      },
+
+      after: async (response, request) => {
+        if (request.method === "get" && response.record) {
+          await enrichRecordsWithCompanyName([response.record]);
+
+          response.record.params.suggestedAnalysesText = formatJsonForDisplay(
+            response.record.params.suggestedAnalyses,
+          );
+        }
+
+        return response;
+      },
+    },
+    regenerate: {
+      actionType: "record",
+      icon: "RefreshCw",
+      label: "تولید مجدد تحلیل",
+      component: false,
+      handler: async (request, response, context) => {
+        const companyId = getCompanyIdFromRecordParams(context.record.params);
+
+        if (!companyId) {
+          return {
+            record: context.record.toJSON(),
+            notice: {
+              message: "شرکت مرتبط یافت نشد",
+              type: "error",
+            },
+          };
+        }
+
+        await syncCompanyInsightService(companyId);
+
+        return {
+          record: context.record.toJSON(),
+          notice: {
+            message: "تحلیل شرکت با موفقیت بروزرسانی شد",
+            type: "success",
+          },
+          redirectUrl: context.h.recordActionUrl({
+            resourceId: "CompanyInsight",
+            recordId: context.record.id(),
+            actionName: "show",
+          }),
+        };
+      },
+    },
+    list: {
+      after: async (response) => {
+        await enrichRecordsWithCompanyName(response.records);
+        return response;
+      },
+    },
+    show: {
+      after: async (response) => {
+        if (!response.record) {
+          return response;
+        }
+
+        await enrichRecordsWithCompanyName([response.record]);
+
+        response.record.params.suggestedAnalysesText = formatJsonForDisplay(
+          response.record.params.suggestedAnalyses,
+        );
+
+        return response;
+      },
+    },
+  },
+});
+
+export const industryInsightResource = prismaResource("IndustryInsight", {
+  navigation: companyManagementNavigation,
+
+  properties: {
+    industryName: {
+      isTitle: true,
+      label: "صنعت",
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    title: {
+      label: "عنوان",
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    relatedCompanies: {
+      type: "string",
+      isVirtual: true,
+      label: "شرکت‌های مرتبط",
+      isVisible: {
+        list: true,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    insightDataText: {
+      type: "textarea",
+      isVirtual: true,
+      label: "داده تحلیل",
+      props: {
+        rows: 20,
+      },
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    insightData: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: false,
+        edit: false,
+      },
+    },
+
+    source: {
+      label: "منبع",
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    fetchedAt: {
+      label: "تاریخ دریافت",
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    createdAt: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: false,
+      },
+    },
+  },
+
+  listProperties: [
+    "id",
+    "industryName",
+    "title",
+    "relatedCompanies",
+    "fetchedAt",
+    "createdAt",
+  ],
+  showProperties: [
+    "id",
+    "industryName",
+    "title",
+    "relatedCompanies",
+    "insightDataText",
+    "source",
+    "fetchedAt",
+    "createdAt",
+  ],
+  filterProperties: ["industryName", "title", "fetchedAt", "createdAt"],
+  editProperties: [
+    "id",
+    "industryName",
+    "title",
+    "relatedCompanies",
+    "insightDataText",
+    "source",
+    "fetchedAt",
+    "createdAt",
+  ],
+
+  actions: {
+    new: {
+      isAccessible: false,
+    },
+    edit: {
+      before: async (request) => {
+        if (request.method === "post") {
+          const parsedInsightData = parseJsonText(
+            request.payload?.insightDataText,
+            "insightDataText",
+          );
+
+          if (parsedInsightData !== undefined) {
+            request.payload.insightData = parsedInsightData;
+          }
+
+          delete request.payload.insightDataText;
+          delete request.payload.relatedCompanies;
+        }
+
+        return request;
+      },
+
+      after: async (response, request) => {
+        if (request.method === "get" && response.record) {
+          await enrichIndustryInsightRecords([response.record]);
+        }
+
+        return response;
+      },
+    },
+    list: {
+      after: async (response) => {
+        await enrichIndustryInsightRecords(response.records);
+        return response;
+      },
+    },
+    show: {
+      after: async (response) => {
+        if (!response.record) {
+          return response;
+        }
+
+        await enrichIndustryInsightRecords([response.record]);
+        return response;
+      },
+    },
   },
 });
 
@@ -1207,10 +1843,8 @@ const fileAttachmentResource = {
         },
 
         after: async (response, request, context) => {
-          await syncFileAttachment(
-            response.record,
-            request,
-            context.currentAdmin,
+          await runAfterSaveSideEffect("FILE_ATTACHMENT_SYNC", () =>
+            syncFileAttachment(response.record, request, context.currentAdmin),
           );
 
           return response;
@@ -1223,10 +1857,8 @@ const fileAttachmentResource = {
         },
 
         after: async (response, request, context) => {
-          await syncFileAttachment(
-            response.record,
-            request,
-            context.currentAdmin,
+          await runAfterSaveSideEffect("FILE_ATTACHMENT_SYNC", () =>
+            syncFileAttachment(response.record, request, context.currentAdmin),
           );
 
           return response;
@@ -1381,15 +2013,31 @@ const admin = new AdminJS({
         name: "مدیریت شرکت‌ها",
         icon: "Building",
       },
+
       properties: {
         name: { isTitle: true },
+
         userLimit: {
           type: "number",
           help: "حداکثر تعداد کاربران مجاز برای این شرکت",
         },
+
+        chatMessageLimit: {
+          type: "number",
+          help: "حداکثر تعداد پیام‌های مجاز چت AI برای این شرکت",
+        },
       },
-      listProperties: ["id", "name", "industry", "userLimit", "createdAt"],
-      editProperties: ["name", "industry", "userLimit"],
+
+      listProperties: [
+        "id",
+        "name",
+        "industry",
+        "userLimit",
+        "chatMessageLimit",
+        "createdAt",
+      ],
+
+      editProperties: ["name", "industry", "userLimit", "chatMessageLimit"],
 
       actions: {
         generateInsight: {
@@ -1416,6 +2064,7 @@ const admin = new AdminJS({
             };
           },
         },
+
         generateIndustryInsight: {
           actionType: "record",
           icon: "Activity",
@@ -1460,6 +2109,8 @@ const admin = new AdminJS({
     companyResourceCapabilityResource,
     companySupplierResource,
     companyRawMaterialResource,
+    companyInsightResource,
+    industryInsightResource,
     fileAttachmentResource,
     prismaResource("ProjectComment", {
       navigation: {
@@ -1938,10 +2589,8 @@ const admin = new AdminJS({
                 data,
               });
 
-              const record = await resource.findOne(created.id);
-
               return {
-                record: record?.toJSON(currentAdmin),
+                record: buildRecordJson(resource, created, currentAdmin),
                 notice: {
                   message: "کاربر با موفقیت ایجاد شد.",
                   type: "success",
@@ -1974,7 +2623,7 @@ const admin = new AdminJS({
             const { record, resource, h, currentAdmin } = context;
 
             if (!record) {
-              throw new Error("Record not found");
+              throwRecordNotFound();
             }
 
             if (request.method === "get") {
@@ -2055,10 +2704,8 @@ const admin = new AdminJS({
                 data,
               });
 
-              const refreshed = await resource.findOne(updated.id);
-
               return {
-                record: refreshed?.toJSON(currentAdmin),
+                record: buildRecordJson(resource, updated, currentAdmin),
                 notice: {
                   message: "کاربر با موفقیت ویرایش شد.",
                   type: "success",
@@ -2087,7 +2734,48 @@ const admin = new AdminJS({
         },
       },
     }),
-    prismaResource("CompanyAdminData", {
+    (() => {
+      const mapCompanyAdminDataToVirtualFields = (rawData, recordParams = {}) => {
+        let parsed = rawData;
+
+        if (typeof parsed === "string" && parsed.trim()) {
+          try {
+            parsed = JSON.parse(parsed);
+          } catch {
+            parsed = {};
+          }
+        }
+
+        const data =
+          parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? parsed
+            : {};
+
+        const legacyText = data.text || recordParams["data.text"] || "";
+
+        return {
+          financeInformationText:
+            data.financeInformation ||
+            recordParams["data.financeInformation"] ||
+            "",
+          externalInformationText:
+            data.externalInformation ||
+            recordParams["data.externalInformation"] ||
+            "",
+          internalInformationText:
+            data.internalInformation ||
+            recordParams["data.internalInformation"] ||
+            legacyText,
+        };
+      };
+
+      const buildCompanyAdminDataFromPayload = (payload) => ({
+        financeInformation: String(payload?.financeInformationText || ""),
+        externalInformation: String(payload?.externalInformationText || ""),
+        internalInformation: String(payload?.internalInformationText || ""),
+      });
+
+      return prismaResource("CompanyAdminData", {
       navigation: {
         name: "مدیریت کاربران",
         icon: "Database",
@@ -2113,9 +2801,11 @@ const admin = new AdminJS({
           },
         },
 
-        dataText: {
+        financeInformationText: {
           type: "textarea",
+          isVirtual: true,
           position: 2,
+          label: "اطلاعات مالی شرکت",
           isVisible: {
             list: false,
             filter: false,
@@ -2123,9 +2813,40 @@ const admin = new AdminJS({
             edit: true,
           },
           props: {
-            rows: 20,
+            rows: 10,
           },
-          description: "متن ساده را وارد کنید",
+        },
+
+        externalInformationText: {
+          type: "textarea",
+          isVirtual: true,
+          position: 3,
+          label: "اطلاعات خارجی شرکت",
+          isVisible: {
+            list: false,
+            filter: false,
+            show: true,
+            edit: true,
+          },
+          props: {
+            rows: 10,
+          },
+        },
+
+        internalInformationText: {
+          type: "textarea",
+          isVirtual: true,
+          position: 4,
+          label: "اطلاعات داخلی شرکت",
+          isVisible: {
+            list: false,
+            filter: false,
+            show: true,
+            edit: true,
+          },
+          props: {
+            rows: 10,
+          },
         },
 
         data: {
@@ -2190,11 +2911,18 @@ const admin = new AdminJS({
       },
       filterProperties: ["company", "createdAt"],
       listProperties: ["id", "companyName", "createdAt"],
-      editProperties: ["companyId", "dataText"],
+      editProperties: [
+        "companyId",
+        "financeInformationText",
+        "externalInformationText",
+        "internalInformationText",
+      ],
       showProperties: [
         "id",
         "companyName",
-        "dataText",
+        "financeInformationText",
+        "externalInformationText",
+        "internalInformationText",
         "createdAt",
         "updatedAt",
       ],
@@ -2211,7 +2939,6 @@ const admin = new AdminJS({
 
             try {
               const companyId = String(request.payload?.companyId || "").trim();
-              const dataText = String(request.payload?.dataText || "");
 
               if (!companyId) {
                 throw new ValidationError({
@@ -2234,18 +2961,18 @@ const admin = new AdminJS({
                 });
               }
 
+              const adminData = buildCompanyAdminDataFromPayload(request.payload);
+
               const created = await prisma.companyAdminData.create({
                 data: {
                   companyId,
-                  data: {
-                    text: dataText,
-                  },
+                  data: adminData,
                 },
               });
 
               const record = resource.build({
                 ...created,
-                dataText: created?.data?.text || "",
+                ...mapCompanyAdminDataToVirtualFields(created?.data),
               });
 
               return {
@@ -2279,23 +3006,32 @@ const admin = new AdminJS({
             const { record, resource, currentAdmin, h } = context;
 
             if (!record) {
-              throw new Error("رکورد پیدا نشد");
+              throwRecordNotFound();
             }
 
             if (request.method !== "post") {
-              const raw = record.params?.data;
+              const dbRecord = await prisma.companyAdminData.findUnique({
+                where: { id: record.params.id },
+                select: { data: true },
+              });
 
-              record.params.dataText =
-                raw?.text || record.params["data.text"] || "";
+              const virtualFields = mapCompanyAdminDataToVirtualFields(
+                dbRecord?.data ?? record.params?.data,
+                record.params,
+              );
+
+              const editRecord = resource.build({
+                ...record.params,
+                ...virtualFields,
+              });
 
               return {
-                record: record.toJSON(currentAdmin),
+                record: editRecord.toJSON(currentAdmin),
               };
             }
 
             try {
               const companyId = String(request.payload?.companyId || "").trim();
-              const dataText = String(request.payload?.dataText || "");
 
               if (!companyId) {
                 throw new ValidationError({
@@ -2318,21 +3054,21 @@ const admin = new AdminJS({
                 });
               }
 
+              const adminData = buildCompanyAdminDataFromPayload(request.payload);
+
               const updated = await prisma.companyAdminData.update({
                 where: {
                   id: record.params.id,
                 },
                 data: {
                   companyId,
-                  data: {
-                    text: dataText,
-                  },
+                  data: adminData,
                 },
               });
 
               const updatedRecord = resource.build({
                 ...updated,
-                dataText: updated?.data?.text || "",
+                ...mapCompanyAdminDataToVirtualFields(updated?.data),
               });
 
               return {
@@ -2387,8 +3123,10 @@ const admin = new AdminJS({
 
             const rawData = response.record.params.data;
 
-            response.record.params.dataText =
-              rawData?.text || response.record.params["data.text"] || "";
+            Object.assign(
+              response.record.params,
+              mapCompanyAdminDataToVirtualFields(rawData, response.record.params),
+            );
 
             return response;
           },
@@ -2419,8 +3157,10 @@ const admin = new AdminJS({
 
             for (const record of response.records) {
               const rawData = record.params.data;
-              record.params.dataText =
-                rawData?.text || record.params["data.text"] || "";
+              Object.assign(
+                record.params,
+                mapCompanyAdminDataToVirtualFields(rawData, record.params),
+              );
 
               const companyId = record.params.company;
               const name = companyId ? (companyMap[companyId] ?? "—") : "—";
@@ -2438,7 +3178,8 @@ const admin = new AdminJS({
           },
         },
       },
-    }),
+    });
+    })(),
     prismaResource("ProfileViewAccess", {
       navigation: {
         name: "دسترسی‌ها",
@@ -2878,10 +3619,8 @@ const admin = new AdminJS({
                 return history;
               });
 
-              const record = await resource.findOne(createdHistory.id);
-
               return {
-                record: record?.toJSON(currentAdmin),
+                record: buildRecordJson(resource, createdHistory, currentAdmin),
                 notice: {
                   message: "امتیاز با موفقیت ثبت و آمار پروژه بروزرسانی شد.",
                   type: "success",
@@ -2904,7 +3643,7 @@ const admin = new AdminJS({
           handler: async (request, response, context) => {
             const { record, resource, h, currentAdmin } = context;
 
-            if (!record) throw new Error("رکورد پیدا نشد.");
+            if (!record) throwRecordNotFound();
 
             if (request.method === "get") {
               return {
@@ -2927,8 +3666,8 @@ const admin = new AdminJS({
             }
 
             try {
-              await prisma.$transaction(async (tx) => {
-                await tx.projectRatingHistory.update({
+              const updated = await prisma.$transaction(async (tx) => {
+                const history = await tx.projectRatingHistory.update({
                   where: { id: record.id() },
                   data: {
                     score: numericScore,
@@ -2950,12 +3689,12 @@ const admin = new AdminJS({
                     hasRating: (stats._count.score || 0) > 0,
                   },
                 });
+
+                return history;
               });
 
-              const refreshed = await resource.findOne(record.id());
-
               return {
-                record: refreshed?.toJSON(currentAdmin),
+                record: buildRecordJson(resource, updated, currentAdmin),
                 notice: {
                   message: "ویرایش با موفقیت انجام شد.",
                   type: "success",
@@ -3488,9 +4227,7 @@ const admin = new AdminJS({
             });
 
             return {
-              record: await resource
-                .findOne(created.id)
-                .then((r) => r.toJSON(currentAdmin)),
+              record: buildRecordJson(resource, created, currentAdmin),
               notice: {
                 message: "دسته‌بندی با موفقیت ایجاد شد.",
                 type: "success",
@@ -3607,12 +4344,8 @@ const admin = new AdminJS({
                 },
               });
 
-              console.log("UPDATED:", updated);
-
-              const updatedRecord = await resource.findOne(record.params.id);
-
               return {
-                record: updatedRecord?.toJSON(currentAdmin),
+                record: buildRecordJson(resource, updated, currentAdmin),
                 notice: {
                   message: "دسته‌بندی با موفقیت ویرایش شد.",
                   type: "success",
@@ -3927,9 +4660,7 @@ const admin = new AdminJS({
             });
 
             return {
-              record: (await resource.findOne(created.id))?.toJSON(
-                currentAdmin,
-              ),
+              record: buildRecordJson(resource, created, currentAdmin),
               notice: {
                 message: "سوال با موفقیت ایجاد شد.",
                 type: "success",
@@ -4014,7 +4745,7 @@ const admin = new AdminJS({
               }
             }
 
-            await prisma.formQuestion.update({
+            const updated = await prisma.formQuestion.update({
               where: { id: record.params.id },
               data: {
                 label,
@@ -4027,10 +4758,8 @@ const admin = new AdminJS({
               },
             });
 
-            const updatedRecord = await resource.findOne(record.params.id);
-
             return {
-              record: updatedRecord?.toJSON(currentAdmin),
+              record: buildRecordJson(resource, updated, currentAdmin),
               notice: { message: "سوال با موفقیت ویرایش شد.", type: "success" },
               redirectUrl: h.recordActionUrl({
                 resourceId: resource.id(),
@@ -4058,7 +4787,7 @@ const admin = new AdminJS({
           isRequired: true,
           isVisible: {
             list: false,
-            filter: true,
+            filter: false,
             show: true,
             edit: true,
           },
@@ -4066,7 +4795,8 @@ const admin = new AdminJS({
 
         question: {
           reference: "FormQuestion",
-          isVisible: { list: false, filter: false, show: false, edit: false },
+          label: "سوال",
+          isVisible: { list: false, filter: true, show: false, edit: false },
         },
 
         label: {
@@ -4114,7 +4844,7 @@ const admin = new AdminJS({
         "order",
       ],
 
-      filterProperties: ["questionId", "label", "score"],
+      filterProperties: ["question", "label", "score"],
 
       showProperties: [
         "id",
@@ -4131,6 +4861,83 @@ const admin = new AdminJS({
 
       actions: {
         list: {
+          before: applyFormQuestionOptionQuestionFilter,
+          handler: async (request, response, context) => {
+            const questionIds = request._formQuestionOptionQuestionIds;
+            if (!questionIds?.length) {
+              return ListAction.handler(request, response, context);
+            }
+
+            const { query } = request;
+            const {
+              sortBy,
+              direction,
+              filters = {},
+              page,
+              perPage: perPageRaw,
+            } = flat.unflatten(query || {});
+            const { resource, _admin, currentAdmin } = context;
+
+            const perPage = perPageRaw
+              ? Math.min(+perPageRaw, 500)
+              : (_admin.options.settings?.defaultPerPage ?? 10);
+            const pageNum = Number(page) || 1;
+
+            const listProperties = resource.decorate().getListProperties();
+            const firstProperty = listProperties.find((p) => p.isSortable());
+            let sort;
+            if (firstProperty) {
+              const { default: sortSetter } =
+                await import("adminjs/lib/backend/services/sort-setter/sort-setter.js");
+              sort = sortSetter(
+                { sortBy, direction },
+                firstProperty.name(),
+                resource.decorate().options,
+              );
+            }
+
+            const filter = await new Filter(filters, resource).populate(
+              context,
+            );
+            const baseResource = resource.decorate().resource;
+            const where = {
+              ...convertFilter(
+                getModelByName("FormQuestionOption").fields,
+                filter,
+              ),
+              questionId: { in: questionIds },
+            };
+
+            const orderBy = baseResource.buildSortBy(sort);
+            const [results, total] = await Promise.all([
+              prisma.formQuestionOption.findMany({
+                where,
+                skip: (pageNum - 1) * perPage,
+                take: perPage,
+                orderBy,
+              }),
+              prisma.formQuestionOption.count({ where }),
+            ]);
+
+            const { default: populator } =
+              await import("adminjs/lib/backend/utils/populator/populator.js");
+            const records = results.map((result) =>
+              baseResource.build(baseResource.prepareReturnValues(result)),
+            );
+            const populatedRecords = await populator(records, context);
+            context.records = populatedRecords;
+
+            return {
+              meta: {
+                total,
+                perPage,
+                page: pageNum,
+                direction: sort?.direction,
+                sortBy: sort?.sortBy,
+              },
+              records: populatedRecords.map((r) => r.toJSON(currentAdmin)),
+            };
+          },
           after: async (response) => {
             if (!response.records?.length) return response;
 
@@ -4260,10 +5067,8 @@ const admin = new AdminJS({
               },
             });
 
-            const record = await resource.findOne(created.id);
-
             return {
-              record: record?.toJSON(currentAdmin),
+              record: buildRecordJson(resource, created, currentAdmin),
               notice: { message: "گزینه با موفقیت ایجاد شد.", type: "success" },
               redirectUrl: h.recordActionUrl({
                 resourceId: resource.id(),
@@ -4332,7 +5137,7 @@ const admin = new AdminJS({
 
             if (Object.keys(errors).length) throw new ValidationError(errors);
 
-            await prisma.formQuestionOption.update({
+            const updated = await prisma.formQuestionOption.update({
               where: { id: record.params.id },
               data: {
                 label,
@@ -4343,10 +5148,8 @@ const admin = new AdminJS({
               },
             });
 
-            const updatedRecord = await resource.findOne(record.params.id);
-
             return {
-              record: updatedRecord?.toJSON(currentAdmin),
+              record: buildRecordJson(resource, updated, currentAdmin),
               notice: {
                 message: "گزینه با موفقیت ویرایش شد.",
                 type: "success",
@@ -4560,10 +5363,8 @@ const admin = new AdminJS({
               },
             });
 
-            const record = await resource.findOne(created.id);
-
             return {
-              record: record?.toJSON(currentAdmin),
+              record: buildRecordJson(resource, created, currentAdmin),
               notice: {
                 message: "گروه دسته‌بندی با موفقیت ایجاد شد.",
                 type: "success",
@@ -4615,7 +5416,7 @@ const admin = new AdminJS({
 
             if (Object.keys(errors).length) throw new ValidationError(errors);
 
-            await prisma.formCategoryGroup.update({
+            const updated = await prisma.formCategoryGroup.update({
               where: { id: record.params.id },
               data: {
                 title,
@@ -4629,10 +5430,8 @@ const admin = new AdminJS({
               },
             });
 
-            const updatedRecord = await resource.findOne(record.params.id);
-
             return {
-              record: updatedRecord?.toJSON(currentAdmin),
+              record: buildRecordJson(resource, updated, currentAdmin),
               notice: {
                 message: "گروه دسته‌بندی با موفقیت ویرایش شد.",
                 type: "success",
@@ -4859,10 +5658,8 @@ const admin = new AdminJS({
               },
             });
 
-            const record = await resource.findOne(created.id);
-
             return {
-              record: record?.toJSON(currentAdmin),
+              record: buildRecordJson(resource, created, currentAdmin),
               notice: {
                 message: "دسته‌بندی با موفقیت به گروه اضافه شد.",
                 type: "success",
@@ -4948,7 +5745,7 @@ const admin = new AdminJS({
               });
             }
 
-            await prisma.formCategoryGroupItem.update({
+            const updated = await prisma.formCategoryGroupItem.update({
               where: { id: record.params.id },
               data: {
                 group: { connect: { id: groupId } },
@@ -4956,10 +5753,8 @@ const admin = new AdminJS({
               },
             });
 
-            const updatedRecord = await resource.findOne(record.params.id);
-
             return {
-              record: updatedRecord?.toJSON(currentAdmin),
+              record: buildRecordJson(resource, updated, currentAdmin),
               notice: {
                 message: "رکورد با موفقیت ویرایش شد.",
                 type: "success",
@@ -5274,10 +6069,8 @@ const admin = new AdminJS({
                 },
               });
 
-              const record = await resource.findOne(created.id);
-
               return {
-                record: record?.toJSON(currentAdmin),
+                record: buildRecordJson(resource, created, currentAdmin),
                 notice: {
                   message: "رکورد با موفقیت ایجاد شد",
                   type: "success",
@@ -5304,7 +6097,7 @@ const admin = new AdminJS({
             const { record, resource, h, currentAdmin } = context;
 
             if (!record) {
-              throw new Error("Record not found");
+              throwRecordNotFound();
             }
 
             if (request.method === "get") {
@@ -5347,10 +6140,8 @@ const admin = new AdminJS({
                 },
               });
 
-              const refreshed = await resource.findOne(updated.id);
-
               return {
-                record: refreshed?.toJSON(currentAdmin),
+                record: buildRecordJson(resource, updated, currentAdmin),
                 notice: {
                   message: "رکورد با موفقیت ویرایش شد",
                   type: "success",
@@ -5724,10 +6515,8 @@ const admin = new AdminJS({
                 },
               });
 
-              const record = await resource.findOne(created.id);
-
               return {
-                record: record?.toJSON(currentAdmin),
+                record: buildRecordJson(resource, created, currentAdmin),
 
                 notice: {
                   message: "هدف تحلیل چندگانه با موفقیت ایجاد شد.",
@@ -5761,7 +6550,7 @@ const admin = new AdminJS({
             const { record, resource, h, currentAdmin } = context;
 
             if (!record) {
-              throw new Error("Record not found");
+              throwRecordNotFound();
             }
 
             if (request.method === "get") {
@@ -5814,10 +6603,8 @@ const admin = new AdminJS({
                 },
               });
 
-              const refreshed = await resource.findOne(updated.id);
-
               return {
-                record: refreshed?.toJSON(currentAdmin),
+                record: buildRecordJson(resource, updated, currentAdmin),
 
                 notice: {
                   message: "هدف تحلیل چندگانه با موفقیت ویرایش شد.",
@@ -5972,11 +6759,8 @@ const admin = new AdminJS({
               data,
             });
 
-            const record = await resource.findOne(created.id);
-            const recordJson = record?.toJSON(currentAdmin);
-
             return {
-              record: recordJson,
+              record: buildRecordJson(resource, created, currentAdmin),
               notice: {
                 message: "فرم پیگیری با موفقیت ایجاد شد.",
                 type: "success",
@@ -5995,7 +6779,7 @@ const admin = new AdminJS({
             const { record, resource, h, currentAdmin } = context;
 
             if (!record) {
-              throw new Error("Record not found");
+              throwRecordNotFound();
             }
 
             if (request.method === "get") {
@@ -6052,11 +6836,8 @@ const admin = new AdminJS({
               data,
             });
 
-            const refreshed = await resource.findOne(updated.id);
-            const refreshedJson = refreshed?.toJSON(currentAdmin);
-
             return {
-              record: refreshedJson,
+              record: buildRecordJson(resource, updated, currentAdmin),
               notice: {
                 message: "فرم پیگیری با موفقیت ویرایش شد.",
                 type: "success",
@@ -6282,13 +7063,12 @@ const admin = new AdminJS({
               data,
             });
 
-            const record = await resource.findOne(created.id);
-            const recordJson = record?.toJSON(currentAdmin);
+            const recordJson = buildOptionsTextFromRecord(
+              buildRecordJson(resource, created, currentAdmin),
+            );
 
             return {
-              record: recordJson
-                ? buildOptionsTextFromRecord(recordJson)
-                : null,
+              record: recordJson,
               notice: {
                 message: "سوال فرم پیگیری با موفقیت ایجاد شد.",
                 type: "success",
@@ -6427,18 +7207,50 @@ const admin = new AdminJS({
           isVisible: {
             list: false,
             filter: true,
-            show: false,
-            edit: false,
+            show: true,
+            edit: true,
+          },
+        },
+
+        extraDescription: {
+          type: "textarea",
+          label: "توضیحات تکمیلی کاربر",
+          props: {
+            rows: 6,
+          },
+          isDisabled: true,
+          isVisible: {
+            list: false,
+            filter: false,
+            show: true,
+            edit: true,
           },
         },
 
         responses: {
           type: "mixed",
-          isVisible: { list: false, filter: false, show: true, edit: false },
+          isVisible: { list: false, filter: false, show: false, edit: false },
+        },
+
+        responsesText: {
+          type: "textarea",
+          label: "پاسخ‌های فرم",
+          position: 7,
+          props: {
+            rows: 12,
+          },
+          isDisabled: true,
+          isVisible: {
+            list: false,
+            filter: false,
+            show: true,
+            edit: true,
+          },
         },
 
         adminAnswer: {
           type: "textarea",
+          label: "پاسخ ادمین",
           isVisible: { list: false, filter: false, show: true, edit: true },
           props: {
             rows: 10,
@@ -6477,25 +7289,45 @@ const admin = new AdminJS({
         "projectId",
         "project",
         "userId",
+        "user",
         "formId",
-        "responses",
+        "form",
+        "extraDescription",
+        "responsesText",
         "adminAnswer",
         "answeredAt",
         "answeredById",
         "createdAt",
       ],
 
-      editProperties: ["adminAnswer"], // فقط پاسخ
+      editProperties: ["extraDescription", "responsesText", "adminAnswer"],
 
       actions: {
+        show: {
+          after: async (response) => {
+            if (!response.record) {
+              return response;
+            }
+
+            const recordJson = { params: response.record.params };
+            await enrichFollowUpRequestRecord(recordJson);
+            response.record.params = recordJson.params;
+
+            return response;
+          },
+        },
+
         edit: {
           handler: async (request, response, context) => {
             const { record, resource, h, currentAdmin } = context;
-            if (!record) throw new Error("Record not found");
+            if (!record) throwRecordNotFound();
 
             if (request.method === "get") {
+              const recordJson = record.toJSON(currentAdmin);
+              await enrichFollowUpRequestRecord(recordJson);
+
               return {
-                record: record.toJSON(currentAdmin),
+                record: recordJson,
                 resource: resource.decorate().toJSON(currentAdmin),
               };
             }
@@ -6510,23 +7342,18 @@ const admin = new AdminJS({
               });
             }
 
-            try {
-              // 1. به‌روزرسانی درخواست پیگیری
-              const updated = await prisma.followUpRequest.update({
-                where: { id: recordId },
-                data: {
-                  adminAnswer,
-                  status: "ANSWERED",
-                  answeredAt: new Date(),
-                  answeredById: currentAdmin.id,
-                },
-                include: {
-                  user: true,
-                  project: true,
-                },
-              });
+            const updated = await prisma.followUpRequest.update({
+              where: { id: recordId },
+              data: {
+                adminAnswer,
+                status: "ANSWERED",
+                answeredAt: new Date(),
+                answeredById: currentAdmin.id,
+              },
+            });
 
-              await prisma.notification.create({
+            void prisma.notification
+              .create({
                 data: {
                   userId: updated.userId,
                   type: "FOLLOW_UP_ANSWERED",
@@ -6535,29 +7362,24 @@ const admin = new AdminJS({
                   referenceId: updated.id,
                   referenceType: "FollowUpRequest",
                 },
+              })
+              .catch((error) => {
+                console.error("FOLLOWUP_NOTIFICATION_ERROR:", error);
               });
 
-              const refreshed = await resource.findOne(updated.id);
-
-              return {
-                record: refreshed?.toJSON(currentAdmin),
-                notice: {
-                  message:
-                    "✅ پاسخ با موفقیت ثبت شد و وضعیت به 'پاسخ داده شده' تغییر کرد.",
-                  type: "success",
-                },
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource.id(),
-                  recordId: updated.id,
-                  actionName: "show",
-                }),
-              };
-            } catch (error) {
-              console.error("FOLLOWUP_ANSWER_ERROR:", error);
-              throw new ValidationError({
-                adminAnswer: { message: "خطا در ثبت پاسخ. دوباره تلاش کنید." },
-              });
-            }
+            return {
+              record: buildRecordJson(resource, updated, currentAdmin),
+              notice: {
+                message:
+                  "✅ پاسخ با موفقیت ثبت شد و وضعیت به 'پاسخ داده شده' تغییر کرد.",
+                type: "success",
+              },
+              redirectUrl: h.recordActionUrl({
+                resourceId: resource.id(),
+                recordId: updated.id,
+                actionName: "show",
+              }),
+            };
           },
         },
       },
@@ -6981,7 +7803,7 @@ const admin = new AdminJS({
               : null;
 
             if (!ownerType) {
-              throw new Error("ownerType is required");
+              throwFieldValidation("ownerType", "نوع مالک الزامی است.");
             }
 
             const data = {
@@ -6990,8 +7812,9 @@ const admin = new AdminJS({
 
             if (ownerType === "ANALYSIS_FORM") {
               if (!analysisFormId) {
-                throw new Error(
-                  "analysisFormId is required when ownerType is ANALYSIS_FORM",
+                throwFieldValidation(
+                  "analysisFormId",
+                  "انتخاب فرم تحلیل الزامی است.",
                 );
               }
 
@@ -7001,8 +7824,9 @@ const admin = new AdminJS({
               });
 
               if (!analysisFormExists) {
-                throw new Error(
-                  "AnalysisForm not found with this analysisFormId",
+                throwFieldValidation(
+                  "analysisFormId",
+                  "فرم تحلیل انتخاب‌شده یافت نشد.",
                 );
               }
 
@@ -7018,8 +7842,9 @@ const admin = new AdminJS({
               };
             } else if (ownerType === "MULTI_ANALYSIS_FORM") {
               if (!multiAnalysisFormId) {
-                throw new Error(
-                  "multiAnalysisFormId is required when ownerType is MULTI_ANALYSIS_FORM",
+                throwFieldValidation(
+                  "multiAnalysisFormId",
+                  "انتخاب فرم تحلیل چندگانه الزامی است.",
                 );
               }
 
@@ -7030,8 +7855,9 @@ const admin = new AdminJS({
                 });
 
               if (!multiAnalysisFormExists) {
-                throw new Error(
-                  "MultiAnalysisForm not found with this multiAnalysisFormId",
+                throwFieldValidation(
+                  "multiAnalysisFormId",
+                  "فرم تحلیل چندگانه انتخاب‌شده یافت نشد.",
                 );
               }
 
@@ -7046,7 +7872,7 @@ const admin = new AdminJS({
                 },
               };
             } else {
-              throw new Error("Invalid ownerType");
+              throwFieldValidation("ownerType", "نوع مالک معتبر نیست.");
             }
 
             const created = await prisma.promptDefinition.create({
@@ -7075,7 +7901,7 @@ const admin = new AdminJS({
             const { record, resource, h, currentAdmin } = context;
 
             if (!record) {
-              throw new Error("Record not found");
+              throwRecordNotFound();
             }
 
             const recordId = record.params.id;
@@ -7100,7 +7926,7 @@ const admin = new AdminJS({
               : null;
 
             if (!ownerType) {
-              throw new Error("ownerType is required");
+              throwFieldValidation("ownerType", "نوع مالک الزامی است.");
             }
 
             const data = {
@@ -7109,8 +7935,9 @@ const admin = new AdminJS({
 
             if (ownerType === "ANALYSIS_FORM") {
               if (!analysisFormId) {
-                throw new Error(
-                  "analysisFormId is required when ownerType is ANALYSIS_FORM",
+                throwFieldValidation(
+                  "analysisFormId",
+                  "انتخاب فرم تحلیل الزامی است.",
                 );
               }
 
@@ -7120,8 +7947,9 @@ const admin = new AdminJS({
               });
 
               if (!analysisFormExists) {
-                throw new Error(
-                  "AnalysisForm not found with this analysisFormId",
+                throwFieldValidation(
+                  "analysisFormId",
+                  "فرم تحلیل انتخاب‌شده یافت نشد.",
                 );
               }
 
@@ -7140,8 +7968,9 @@ const admin = new AdminJS({
               };
             } else if (ownerType === "MULTI_ANALYSIS_FORM") {
               if (!multiAnalysisFormId) {
-                throw new Error(
-                  "multiAnalysisFormId is required when ownerType is MULTI_ANALYSIS_FORM",
+                throwFieldValidation(
+                  "multiAnalysisFormId",
+                  "انتخاب فرم تحلیل چندگانه الزامی است.",
                 );
               }
 
@@ -7152,8 +7981,9 @@ const admin = new AdminJS({
                 });
 
               if (!multiAnalysisFormExists) {
-                throw new Error(
-                  "MultiAnalysisForm not found with this multiAnalysisFormId",
+                throwFieldValidation(
+                  "multiAnalysisFormId",
+                  "فرم تحلیل چندگانه انتخاب‌شده یافت نشد.",
                 );
               }
 
@@ -7171,7 +8001,7 @@ const admin = new AdminJS({
                 disconnect: true,
               };
             } else {
-              throw new Error("Invalid ownerType");
+              throwFieldValidation("ownerType", "نوع مالک معتبر نیست.");
             }
 
             const updated = await prisma.promptDefinition.update({
@@ -7421,19 +8251,22 @@ const admin = new AdminJS({
                 : payload.isRequired === "true";
 
             if (!promptDefinitionId) {
-              throw new Error("promptDefinitionId is required");
+              throwFieldValidation(
+                "promptDefinitionId",
+                "انتخاب پرامپت الزامی است.",
+              );
             }
 
             if (!key) {
-              throw new Error("key is required");
+              throwFieldValidation("key", "کلید بخش الزامی است.");
             }
 
             if (!label) {
-              throw new Error("label is required");
+              throwFieldValidation("label", "عنوان بخش الزامی است.");
             }
 
             if (sortOrder !== null && Number.isNaN(sortOrder)) {
-              throw new Error("sortOrder must be a valid number");
+              throwFieldValidation("sortOrder", "ترتیب باید عدد معتبر باشد.");
             }
 
             const promptDefinitionExists =
@@ -7442,7 +8275,10 @@ const admin = new AdminJS({
               });
 
             if (!promptDefinitionExists) {
-              throw new Error("PromptDefinition not found with this id");
+              throwFieldValidation(
+                "promptDefinitionId",
+                "پرامپت انتخاب‌شده یافت نشد.",
+              );
             }
 
             const data = {
@@ -7482,7 +8318,7 @@ const admin = new AdminJS({
             const { record, resource, h, currentAdmin } = context;
 
             if (!record) {
-              throw new Error("Record not found");
+              throwRecordNotFound();
             }
 
             const recordId = record.params.id;
@@ -7518,19 +8354,22 @@ const admin = new AdminJS({
                 : payload.isRequired === "true";
 
             if (!promptDefinitionId) {
-              throw new Error("promptDefinitionId is required");
+              throwFieldValidation(
+                "promptDefinitionId",
+                "انتخاب پرامپت الزامی است.",
+              );
             }
 
             if (!key) {
-              throw new Error("key is required");
+              throwFieldValidation("key", "کلید بخش الزامی است.");
             }
 
             if (!label) {
-              throw new Error("label is required");
+              throwFieldValidation("label", "عنوان بخش الزامی است.");
             }
 
             if (sortOrder !== null && Number.isNaN(sortOrder)) {
-              throw new Error("sortOrder must be a valid number");
+              throwFieldValidation("sortOrder", "ترتیب باید عدد معتبر باشد.");
             }
 
             const promptDefinitionExists =
@@ -7539,7 +8378,10 @@ const admin = new AdminJS({
               });
 
             if (!promptDefinitionExists) {
-              throw new Error("PromptDefinition not found with this id");
+              throwFieldValidation(
+                "promptDefinitionId",
+                "پرامپت انتخاب‌شده یافت نشد.",
+              );
             }
 
             const data = {
@@ -7787,25 +8629,29 @@ const admin = new AdminJS({
                 : null;
 
             if (!promptDefinitionId) {
-              throw new Error("promptDefinitionId is required");
+              throwFieldValidation(
+                "promptDefinitionId",
+                "انتخاب پرامپت الزامی است.",
+              );
             }
 
             if (versionNumber === null || Number.isNaN(versionNumber)) {
-              throw new Error(
-                "versionNumber is required and must be a valid number",
+              throwFieldValidation(
+                "versionNumber",
+                "شماره نسخه الزامی است و باید عدد معتبر باشد.",
               );
             }
 
             if (!versionKey) {
-              throw new Error("versionKey is required");
+              throwFieldValidation("versionKey", "کلید نسخه الزامی است.");
             }
 
             if (!status) {
-              throw new Error("status is required");
+              throwFieldValidation("status", "وضعیت الزامی است.");
             }
 
             if (publishedAt && Number.isNaN(publishedAt.getTime())) {
-              throw new Error("publishedAt is not a valid date");
+              throwFieldValidation("publishedAt", "تاریخ انتشار معتبر نیست.");
             }
 
             const promptDefinitionExists =
@@ -7815,8 +8661,9 @@ const admin = new AdminJS({
               });
 
             if (!promptDefinitionExists) {
-              throw new Error(
-                "PromptDefinition not found with this promptDefinitionId",
+              throwFieldValidation(
+                "promptDefinitionId",
+                "پرامپت انتخاب‌شده یافت نشد.",
               );
             }
 
@@ -7860,7 +8707,7 @@ const admin = new AdminJS({
             const { record, resource, h, currentAdmin } = context;
 
             if (!record) {
-              throw new Error("Record not found");
+              throwRecordNotFound();
             }
 
             const recordId = record.params.id;
@@ -7897,25 +8744,29 @@ const admin = new AdminJS({
                 : null;
 
             if (!promptDefinitionId) {
-              throw new Error("promptDefinitionId is required");
+              throwFieldValidation(
+                "promptDefinitionId",
+                "انتخاب پرامپت الزامی است.",
+              );
             }
 
             if (versionNumber === null || Number.isNaN(versionNumber)) {
-              throw new Error(
-                "versionNumber is required and must be a valid number",
+              throwFieldValidation(
+                "versionNumber",
+                "شماره نسخه الزامی است و باید عدد معتبر باشد.",
               );
             }
 
             if (!versionKey) {
-              throw new Error("versionKey is required");
+              throwFieldValidation("versionKey", "کلید نسخه الزامی است.");
             }
 
             if (!status) {
-              throw new Error("status is required");
+              throwFieldValidation("status", "وضعیت الزامی است.");
             }
 
             if (publishedAt && Number.isNaN(publishedAt.getTime())) {
-              throw new Error("publishedAt is not a valid date");
+              throwFieldValidation("publishedAt", "تاریخ انتشار معتبر نیست.");
             }
 
             const promptDefinitionExists =
@@ -7925,8 +8776,9 @@ const admin = new AdminJS({
               });
 
             if (!promptDefinitionExists) {
-              throw new Error(
-                "PromptDefinition not found with this promptDefinitionId",
+              throwFieldValidation(
+                "promptDefinitionId",
+                "پرامپت انتخاب‌شده یافت نشد.",
               );
             }
 
@@ -8215,15 +9067,21 @@ const admin = new AdminJS({
               : "";
 
             if (!promptVersionId) {
-              throw new Error("promptVersionId is required");
+              throwFieldValidation(
+                "promptVersionId",
+                "انتخاب نسخه پرامپت الزامی است.",
+              );
             }
 
             if (!segmentDefinitionId) {
-              throw new Error("segmentDefinitionId is required");
+              throwFieldValidation(
+                "segmentDefinitionId",
+                "انتخاب بخش پرامپت الزامی است.",
+              );
             }
 
             if (!content) {
-              throw new Error("content is required");
+              throwFieldValidation("content", "محتوا الزامی است.");
             }
 
             const [promptVersion, segmentDefinition] = await Promise.all([
@@ -8238,14 +9096,16 @@ const admin = new AdminJS({
             ]);
 
             if (!promptVersion) {
-              throw new Error(
-                "PromptVersion not found with this promptVersionId",
+              throwFieldValidation(
+                "promptVersionId",
+                "نسخه پرامپت انتخاب‌شده یافت نشد.",
               );
             }
 
             if (!segmentDefinition) {
-              throw new Error(
-                "PromptSegmentDefinition not found with this segmentDefinitionId",
+              throwFieldValidation(
+                "segmentDefinitionId",
+                "بخش پرامپت انتخاب‌شده یافت نشد.",
               );
             }
 
@@ -8253,8 +9113,9 @@ const admin = new AdminJS({
               segmentDefinition.promptDefinitionId !==
               promptVersion.promptDefinitionId
             ) {
-              throw new Error(
-                "This segmentDefinition does not belong to the selected PromptVersion's PromptDefinition",
+              throwFieldValidation(
+                "segmentDefinitionId",
+                "بخش پرامپت متعلق به همان تعریف پرامپت نسخه انتخاب‌شده نیست.",
               );
             }
 
@@ -8270,8 +9131,9 @@ const admin = new AdminJS({
             );
 
             if (duplicate) {
-              throw new Error(
-                "A value already exists for this promptVersionId and segmentDefinitionId",
+              throwFieldValidation(
+                "segmentDefinitionId",
+                "برای این نسخه و بخش قبلاً مقداری ثبت شده است.",
               );
             }
 
@@ -8305,7 +9167,7 @@ const admin = new AdminJS({
             const { record, resource, h, currentAdmin } = context;
 
             if (!record) {
-              throw new Error("Record not found");
+              throwRecordNotFound();
             }
 
             const recordId = record.params.id;
@@ -8334,15 +9196,21 @@ const admin = new AdminJS({
               : "";
 
             if (!promptVersionId) {
-              throw new Error("promptVersionId is required");
+              throwFieldValidation(
+                "promptVersionId",
+                "انتخاب نسخه پرامپت الزامی است.",
+              );
             }
 
             if (!segmentDefinitionId) {
-              throw new Error("segmentDefinitionId is required");
+              throwFieldValidation(
+                "segmentDefinitionId",
+                "انتخاب بخش پرامپت الزامی است.",
+              );
             }
 
             if (!content) {
-              throw new Error("content is required");
+              throwFieldValidation("content", "محتوا الزامی است.");
             }
 
             const [promptVersion, segmentDefinition, duplicate] =
@@ -8367,14 +9235,16 @@ const admin = new AdminJS({
               ]);
 
             if (!promptVersion) {
-              throw new Error(
-                "PromptVersion not found with this promptVersionId",
+              throwFieldValidation(
+                "promptVersionId",
+                "نسخه پرامپت انتخاب‌شده یافت نشد.",
               );
             }
 
             if (!segmentDefinition) {
-              throw new Error(
-                "PromptSegmentDefinition not found with this segmentDefinitionId",
+              throwFieldValidation(
+                "segmentDefinitionId",
+                "بخش پرامپت انتخاب‌شده یافت نشد.",
               );
             }
 
@@ -8382,14 +9252,16 @@ const admin = new AdminJS({
               segmentDefinition.promptDefinitionId !==
               promptVersion.promptDefinitionId
             ) {
-              throw new Error(
-                "This segmentDefinition does not belong to the selected PromptVersion's PromptDefinition",
+              throwFieldValidation(
+                "segmentDefinitionId",
+                "بخش پرامپت متعلق به همان تعریف پرامپت نسخه انتخاب‌شده نیست.",
               );
             }
 
             if (duplicate && duplicate.id !== recordId) {
-              throw new Error(
-                "A value already exists for this promptVersionId and segmentDefinitionId",
+              throwFieldValidation(
+                "segmentDefinitionId",
+                "برای این نسخه و بخش قبلاً مقداری ثبت شده است.",
               );
             }
 
@@ -8626,8 +9498,7 @@ const start = async () => {
       saveUninitialized: false,
       cookie: {
         httpOnly: true,
-        // secure: process.env.NODE_ENV === "production",
-        secure: false,
+         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         maxAge: 1000 * 60 * 60 * 8,
       },

@@ -1,8 +1,12 @@
 const prisma = require("../prismaClient");
-const { createBadRequestError } = require("../utils");
+const {
+  createBadRequestError,
+  buildCompanyAdminDataForPrompt,
+} = require("../utils");
 const axios = require("axios");
 
-const AI_INSIGHT_API_URL = "http://185.237.85.53:8080/insights";
+
+const AI_INSIGHT_API_URL = "185.237.85.53:8080/insights";
 
 const callAIInsightAPI = async (payload) => {
   try {
@@ -129,7 +133,7 @@ const syncCompanyInsightService = async (companyId, userId = null) => {
 
   const aiPayload = {
     company: companyData,
-    Additional_company_information: companyAdminData?.data ?? null,
+    ...buildCompanyAdminDataForPrompt(companyAdminData?.data),
   };
 
   const aiResponse = await callAIInsightAPI(aiPayload);
@@ -218,4 +222,3 @@ module.exports = {
   syncCompanyInsightService,
   getCompanyInsightService,
 };
-

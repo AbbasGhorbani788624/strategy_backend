@@ -4,6 +4,7 @@ const {
   verifyToken,
   comparePassword,
   hashPassword,
+  
 } = require("../utils/auth");
 
 const {
@@ -15,6 +16,8 @@ const {
   revokeRefreshToken,
   revokeRefreshTokenByHash,
   changePassword,
+    deleteAllRefreshTokensByUserId,
+deleteRefreshTokenByHash
 } = require("../repositories/userRepository");
 const { createBadRequestError } = require("../utils");
 const {
@@ -41,8 +44,7 @@ const loginService = async (username, password) => {
   const refreshToken = signRefreshToken(payload);
 
   //  revoke توکن‌های قبلی
-  await revokeAllRefreshTokensByUserId(user.id);
-
+  await deleteAllRefreshTokensByUserId(user.id);
   // ذخیره refresh جدید
   await createRefreshToken(user.id, refreshToken);
 
@@ -104,8 +106,8 @@ const getMeService = async (userId) => {
 };
 
 const changePasseordService = async (userId, oldPassword, newPassword) => {
-  await revokeAllRefreshTokensByUserId(userId);
-  await changePassword(userId, oldPassword, newPassword);
+await deleteAllRefreshTokensByUserId(userId);
+await changePassword(userId, oldPassword, newPassword);
 };
 
 const refreshService = async (refreshToken) => {
@@ -130,8 +132,7 @@ const refreshService = async (refreshToken) => {
     createBadRequestError("refresh token منقضی شده است", 401);
   }
 
-  await revokeRefreshTokenByHash(storedToken.tokenHash);
-
+await deleteRefreshTokenByHash(storedToken.tokenHash);
   const payload = { userId: decoded.userId, role: decoded.role };
   const newAccessToken = signAccessToken(payload);
   const newRefreshToken = signRefreshToken(payload);

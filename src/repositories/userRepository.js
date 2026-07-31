@@ -138,9 +138,25 @@ const changePassword = async (userId, oldPassword, newPassword) => {
 };
 
 const deleteUser = async (userId) => {
-  await revokeAllRefreshTokensByUserId(userId);
+await deleteAllRefreshTokensByUserId(userId);
   await prisma.user.delete({
     where: { id: userId },
+  });
+};
+
+const deleteAllRefreshTokensByUserId = async (userId) => {
+  return prisma.refreshToken.deleteMany({
+    where: {
+      userId,
+    },
+  });
+};
+
+const deleteRefreshTokenByHash = async (tokenHash) => {
+  return prisma.refreshToken.deleteMany({
+    where: {
+      tokenHash,
+    },
   });
 };
 
@@ -157,4 +173,6 @@ module.exports = {
   update,
   changePassword,
   deleteUser,
+  deleteAllRefreshTokensByUserId,
+deleteRefreshTokenByHash
 };

@@ -16,6 +16,7 @@ const PROFILE_RELATIONS = {
   COMPANY_RESOURCE_CAPABILITY: "resourceCapabilities",
   COMPANY_SUPPLIER: "keySuppliers",
   COMPANY_RAW_MATERIAL: "rawMaterials",
+  COMPANY_ADMIN_DATA: "companyAdminData",
 };
 
 const MODEL_TITLES = {
@@ -34,6 +35,7 @@ const MODEL_TITLES = {
   COMPANY_RESOURCE_CAPABILITY: "منابع و قابلیت‌ها",
   COMPANY_SUPPLIER: "تأمین‌کنندگان کلیدی",
   COMPANY_RAW_MATERIAL: "مواد اولیه / کالاهای اساسی",
+  COMPANY_ADMIN_DATA: "اطلاعات تکمیلی ادمین",
 };
 
 const COMPANY_PROFILE_INCLUDE = {
@@ -52,6 +54,7 @@ const COMPANY_PROFILE_INCLUDE = {
   resourceCapabilities: true,
   keySuppliers: true,
   rawMaterials: true,
+  companyAdminData: true,
 };
 
 const isFilled = (value) => {
@@ -66,6 +69,22 @@ const isFilled = (value) => {
 
 const isProfileFieldCompleted = (company, profileFieldKey) => {
   const [entity, field] = profileFieldKey.split(".");
+
+  if (entity === "COMPANY_ADMIN_DATA") {
+    const rawData = company?.companyAdminData?.data;
+
+    if (!rawData || typeof rawData !== "object") {
+      return false;
+    }
+
+    const legacyText =
+      typeof rawData.text === "string" ? rawData.text : undefined;
+    const value =
+      rawData[field] ??
+      (field === "internalInformation" ? legacyText : undefined);
+
+    return isFilled(value);
+  }
 
   const relation = PROFILE_RELATIONS[entity];
 

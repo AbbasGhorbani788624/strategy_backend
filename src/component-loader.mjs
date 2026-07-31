@@ -93,6 +93,28 @@ export const parseIntegerValue = (value) => {
   return parsed;
 };
 
+export const parseJsonText = (jsonText, fieldName = "jsonText") => {
+  if (jsonText === undefined || jsonText === null) {
+    return undefined;
+  }
+
+  const normalized = String(jsonText).trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(normalized);
+  } catch {
+    throw new ValidationError({
+      [fieldName]: {
+        message: "فرمت JSON معتبر نیست.",
+      },
+    });
+  }
+};
+
 export const parseOptionsText = (optionsText) => {
   if (!optionsText || !String(optionsText).trim()) {
     return null;
@@ -157,6 +179,118 @@ export const validateQuestionOptions = ({ type, options }) => {
       });
     }
   }
+};
+
+const normalizeQuestionOptions = (options) => {
+  if (!options) return [];
+
+  if (Array.isArray(options)) return options;
+
+  if (typeof options === "string") {
+    try {
+      const parsed = JSON.parse(options);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+};
+
+export const formatFollowUpAnswer = (question, answer) => {
+  if (answer === undefined || answer === null) return "—";
+
+  const options = normalizeQuestionOptions(question?.options);
+
+  const findLabel = (value) => {
+    const match = options.find(
+      (option) =>
+        option?.value === value || String(option?.value) === String(value),
+    );
+
+    return match?.label ?? String(value);
+  };
+
+  if (question?.type === "CHECKBOX") {
+    const values = Array.isArray(answer) ? answer : [answer];
+
+    if (values.length === 0) return "—";
+
+    return values.map(findLabel).join("، ");
+  }
+
+  if (question?.type === "RADIO") {
+    return findLabel(answer);
+  }
+
+  if (typeof answer === "string") {
+    return answer.trim() || "—";
+  }
+
+  if (Array.isArray(answer)) {
+    return answer.length ? answer.join("، ") : "—";
+  }
+
+  return String(answer);
+};
+
+export const buildFollowUpResponsesText = (responses, questions = []) => {
+  if (!responses) return "";
+
+  let parsedResponses = responses;
+
+  if (typeof responses === "string") {
+    try {
+      parsedResponses = JSON.parse(responses);
+    } catch {
+      return responses;
+    }
+  }
+
+  if (
+    !parsedResponses ||
+    typeof parsedResponses !== "object" ||
+    Array.isArray(parsedResponses)
+  ) {
+    return JSON.stringify(parsedResponses, null, 2);
+  }
+
+  if (!questions.length) {
+    return JSON.stringify(parsedResponses, null, 2);
+  }
+
+  const questionMap = new Map(questions.map((question) => [question.id, question]));
+  const lines = [];
+
+  const sortedQuestions = [...questions].sort(
+    (left, right) => (left.order ?? 0) - (right.order ?? 0),
+  );
+
+  for (const question of sortedQuestions) {
+    const formattedAnswer = formatFollowUpAnswer(
+      question,
+      parsedResponses[question.id],
+    );
+
+    lines.push(`${question.order}. ${question.label}`);
+    lines.push(`   پاسخ: ${formattedAnswer}`);
+    lines.push("");
+  }
+
+  for (const [questionId, answer] of Object.entries(parsedResponses)) {
+    if (questionMap.has(questionId)) continue;
+
+    lines.push(`[سوال ناشناس: ${questionId}]`);
+    lines.push(
+      `   پاسخ: ${
+        typeof answer === "object" ? JSON.stringify(answer) : String(answer)
+      }`,
+    );
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
 };
 
 export const buildOptionsTextFromRecord = (recordJson) => {

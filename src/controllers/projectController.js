@@ -12,19 +12,22 @@ const {
   getAccessibleProjectsService,
   getMostCommentedProjectsService,
   deleteProjectService,
+  getProjectAnalysisStatusService,
 } = require("../services/projectService");
-const { createBadRequestError } = require("../utils");
+const prisma = require("../prismaClient");
+const { createBadRequestError, buildProjectAccessWhere } = require("../utils");
 const { successResponse } = require("../utils/responses");
 
 exports.createProject = async (req, res, next) => {
   try {
-    const { formId, goalIds, domain } = req.body;
+    const { formId, goalIds, domain, projectTitle } = req.body;
     const currentUser = req.user;
 
     const project = await createAnalysisProjectService(currentUser, {
       formId,
       goalIds,
       domain,
+      projectTitle,
     });
 
     return successResponse(res, 201, {
@@ -137,7 +140,8 @@ exports.giveReteAndComment = async (req, res, next) => {
 };
 
 exports.createStepAnalysisProject = async (req, res, next) => {
-  const { multiAnalysisFormId, goalIds, selectedProjects } = req.body;
+  const { multiAnalysisFormId, goalIds, selectedProjects, projectTitle } =
+    req.body;
   try {
     if (!multiAnalysisFormId) {
       createBadRequestError("شناسه تحلیل چندمرحله‌ای الزامی است");
@@ -156,6 +160,7 @@ exports.createStepAnalysisProject = async (req, res, next) => {
       multiAnalysisFormId,
       goalIds,
       selectedProjects,
+      projectTitle,
     );
     return successResponse(res, 201, result);
   } catch (error) {
@@ -228,6 +233,114 @@ exports.getMostCommentedProjectsController = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: projects,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getCompanyMembers = async (req, res, next) => {
+  try {
+    const userRole = req.user.role;
+    const companyId = req.user.companyId;
+
+    if (userRole !== "COMPANY" && userRole !== "SUPER_ADMIN") {
+      createBadRequestError("دسترسی غیرمجاز.", 401);
+    }
+
+    let whereClause = {};
+
+    if (userRole === "COMPANY") {
+      whereClause = { companyId };
+    } else if (userRole === "SUPER_ADMIN") {
+      // SUPER_ADMIN می‌تواند با companyId در query به اعضای یک شرکت خاص محدود شود؛
+      // در غیر این صورت همه کاربران برگردانده می‌شوند.
+      const { companyId: queryCompanyId } = req.query;
+      if (queryCompanyId) {
+        whereClause = { companyId: queryCompanyId };
+      }
+    }
+
+    const members = await prisma.user.findMany({
+      where: whereClause,
+      select: { id: true, username: true },
+    });
+
+    return successResponse(res, 200, members);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.globalSearch = async (req, res, next) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || q.length < 2) {
+      return successResponse(res, 200, { projects: [], forms: [] });
+    }
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const companyId = req.user.companyId;
+
+    const accessWhere = await buildProjectAccessWhere({
+      userId,
+      userRole,
+      companyId,
+      targetUserId: null,
+    });
+
+    const projectFilters = [{ title: { contains: q } }];
+
+    if (Object.keys(accessWhere).length) {
+      projectFilters.unshift(accessWhere);
+    }
+
+    const [projects, singleFormsResult, multiFormsResult] = await Promise.all([
+      prisma.project.findMany({
+        where: { AND: projectFilters },
+        select: {
+          id: true,
+          title: true,
+          formId: true,
+          multiAnalysisFormId: true,
+        },
+        take: 5,
+      }),
+      prisma.analysisForm.findMany({
+        where: { title: { contains: q } },
+        select: { id: true, title: true },
+        take: 5,
+      }),
+      prisma.multiAnalysisForm.findMany({
+        where: { title: { contains: q } },
+        select: { id: true, title: true },
+        take: 5,
+      }),
+    ]);
+
+    const forms = [
+      ...singleFormsResult.map((f) => ({ ...f, type: "single" })),
+      ...multiFormsResult.map((f) => ({ ...f, type: "multi" })),
+    ];
+
+    return successResponse(res, 200, { projects, forms });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getProjectAnalysisStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const result = await getProjectAnalysisStatusService(id, userId);
+
+    return res.status(200).json({
+      success: true,
+      ...result,
     });
   } catch (error) {
     next(error);

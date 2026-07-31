@@ -19,11 +19,17 @@ const signAccessToken = (payload) => {
 };
 
 const signRefreshToken = (payload) => {
-  return jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET_KEY, {
-    expiresIn: "10d",
-  });
+  return jwt.sign(
+    {
+      ...payload,
+      jti: crypto.randomUUID(),
+    },
+    process.env.REFRESH_TOKEN_SECRET_KEY,
+    {
+      expiresIn: "10d",
+    }
+  );
 };
-
 const verifyToken = (token, secret) => {
   return jwt.verify(token, secret);
 };

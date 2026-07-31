@@ -1,2 +1,3 @@
 -- AlterTable
-ALTER TABLE `company` ADD COLUMN `chatMessageLimit` INTEGER NOT NULL DEFAULT 10;
+ALTER TABLE `Company`
+ADD COLUMN `chatMessageLimit` INTEGER NOT NULL DEFAULT 10;

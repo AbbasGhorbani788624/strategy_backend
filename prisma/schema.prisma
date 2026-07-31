@@ -29,9 +29,11 @@ enum ProjectMode {
 enum ProjectStatus {
   WAITING_FOR_FORM
   ANALYSIS_PENDING
+  AI_PROCESSING
   REVIEWING
   CHAT_MODE
   FINAL_ANALYSIS
+  FAILED
 }
 
 enum NotificationType {
@@ -260,7 +262,6 @@ model Project {
 
   riskAnalysis        String?            @db.Text
   keyStrategicInsights String?   @db.Text
-
 
 
   ratings          ProjectRatingHistory[]
@@ -829,6 +830,7 @@ model Company {
   rawMaterials     CompanyRawMaterial[]
 
   resourceCapabilities CompanyResourceCapability[]
+
 }
 
 model CompanyBasicInfo {

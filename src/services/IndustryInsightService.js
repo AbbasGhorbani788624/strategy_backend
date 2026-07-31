@@ -1,6 +1,6 @@
 const axios = require("axios");
 const prisma = require("../prismaClient");
-const INDUSTRY_INSIGHT_API_URL = "http://185.237.85.53:8080/industry";
+const INDUSTRY_INSIGHT_API_URL = "185.237.85.53:8080/industry";
 
 const syncIndustryInsightService = async (companyId) => {
   if (!companyId) return null;

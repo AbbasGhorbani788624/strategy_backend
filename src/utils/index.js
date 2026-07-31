@@ -21,6 +21,20 @@ const MODEL_TO_COMPANY_KEY = {
   COMPANY_RAW_MATERIAL: "rawMaterials",
 };
 
+const COMPANY_ADMIN_DATA_MODEL = "COMPANY_ADMIN_DATA";
+
+const COMPANY_ADMIN_DATA_FIELDS = [
+  "financeInformation",
+  "externalInformation",
+  "internalInformation",
+];
+
+const COMPANY_ADMIN_DATA_FIELD_TO_PROMPT_KEY = {
+  financeInformation: "company finance information",
+  externalInformation: "company external information",
+  internalInformation: "company internal information",
+};
+
 const createBadRequestError = (message, statusCode) => {
   const err = new Error(message);
   err.statusCode = statusCode || 400;
@@ -199,9 +213,55 @@ const getModelsFromProfileFields = (profileFields = []) => {
 
   return [
     ...new Set(
-      normalizedProfileFields.map((item) => item.model).filter(Boolean),
+      normalizedProfileFields
+        .map((item) => item.model)
+        .filter((model) => model && model !== COMPANY_ADMIN_DATA_MODEL),
     ),
   ];
+};
+
+const getSelectedAdminDataFields = (profileFields = []) => {
+  return normalizeProfileFields(profileFields)
+    .filter((item) => item.model === COMPANY_ADMIN_DATA_MODEL)
+    .map((item) => item.fieldName)
+    .filter((fieldName) => COMPANY_ADMIN_DATA_FIELDS.includes(fieldName));
+};
+
+const normalizeCompanyAdminData = (data) => {
+  if (!data || typeof data !== "object") {
+    return {
+      financeInformation: "",
+      externalInformation: "",
+      internalInformation: "",
+    };
+  }
+
+  const legacyText = typeof data.text === "string" ? data.text : "";
+
+  return {
+    financeInformation: data.financeInformation || "",
+    externalInformation: data.externalInformation || "",
+    internalInformation: data.internalInformation || legacyText,
+  };
+};
+
+const buildCompanyAdminDataForPrompt = (
+  companyAdminData,
+  selectedFields = COMPANY_ADMIN_DATA_FIELDS,
+) => {
+  if (!selectedFields?.length) return {};
+
+  const normalized = normalizeCompanyAdminData(companyAdminData);
+  const result = {};
+
+  for (const field of selectedFields) {
+    const promptKey = COMPANY_ADMIN_DATA_FIELD_TO_PROMPT_KEY[field];
+    if (!promptKey) continue;
+
+    result[promptKey] = normalized[field] || "";
+  }
+
+  return result;
 };
 
 const getCompanyProfileDataForForm = async (companyId, profileFields = []) => {
@@ -213,11 +273,12 @@ const getCompanyProfileDataForForm = async (companyId, profileFields = []) => {
   }
 
   const models = getModelsFromProfileFields(profileFields);
+  const selectedAdminDataFields = getSelectedAdminDataFields(profileFields);
 
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     include: {
-      companyAdminData: true,
+      companyAdminData: selectedAdminDataFields.length > 0,
       basicInfo: models.includes("COMPANY_BASIC_INFO"),
       managers: models.includes("COMPANY_MANAGER"),
       revenueCenters: models.includes("REVENUE_CENTER"),
@@ -244,7 +305,13 @@ const getCompanyProfileDataForForm = async (companyId, profileFields = []) => {
 
   return {
     companyProfile: buildSelectedCompanyProfile(company, profileFields),
-    companyAdminData: company.companyAdminData?.data || null,
+    companyAdminData:
+      selectedAdminDataFields.length > 0
+        ? {
+            data: company.companyAdminData?.data ?? null,
+            selectedFields: selectedAdminDataFields,
+          }
+        : null,
   };
 };
 
@@ -391,8 +458,10 @@ const buildInitialAnalysisPrompt = ({
     "Analysis title": title,
     temperature: temperature ?? 0.7,
     "company information": companyProfileData?.companyProfile || {},
-    "Additional company information":
-      companyProfileData?.companyAdminData?.text || "",
+    ...buildCompanyAdminDataForPrompt(
+      companyProfileData?.companyAdminData?.data,
+      companyProfileData?.companyAdminData?.selectedFields,
+    ),
     "Selected goals": Array.isArray(selectedGoals) ? selectedGoals : [],
     "User Clarification": "",
     domain: domain || "",
@@ -417,6 +486,10 @@ const buildInitialMultiAnalysisPrompt = ({
     "Analysis title": title,
     temperature: temperature ?? 0.7,
     "company information": companyProfileData?.companyProfile || {},
+    ...buildCompanyAdminDataForPrompt(
+      companyProfileData?.companyAdminData?.data,
+      companyProfileData?.companyAdminData?.selectedFields,
+    ),
     "Selected goals": Array.isArray(selectedGoals) ? selectedGoals : [],
     "User Clarification": "",
     domain: domain || "",
@@ -461,8 +534,10 @@ const buildFinalAnalysisWithCorrectionPrompt = ({
     "User Clarification": userCorrection || "",
     temperature: temperature ?? 0.7,
     "company information": companyProfileData?.companyProfile || {},
-    "Additional company information":
-      companyProfileData?.companyAdminData?.text || "",
+    ...buildCompanyAdminDataForPrompt(
+      companyProfileData?.companyAdminData?.data,
+      companyProfileData?.companyAdminData?.selectedFields,
+    ),
     "Selected goals": Array.isArray(selectedGoals) ? selectedGoals : [],
     domain: domain || "",
   };
@@ -657,6 +732,8 @@ module.exports = {
   isEmpty,
   deletePhysicalFiles,
   getCompanyProfileDataForForm,
+  normalizeCompanyAdminData,
+  buildCompanyAdminDataForPrompt,
   buildInitialAnalysisPrompt,
   buildFinalAnalysisPrompt,
   buildFinalAnalysisWithCorrectionPrompt,

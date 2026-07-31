@@ -1,4 +1,5 @@
 const { createBadRequestError, buildProjectAccessWhere } = require("../utils");
+const { buildAnalysisStatusPayload } = require("../utils/analysisFailure");
 const prisma = require("../prismaClient");
 const crypto = require("crypto");
 
@@ -8,11 +9,13 @@ const {
   getProject,
   isProjectExists,
 } = require("../repositories/projectRepository");
-const { handleConversationStepService } = require("./analysisFormService");
+const {
+  enqueueConversationStep,
+} = require("./conversation.queue.service");
 const { getFormById } = require("../repositories/analysisFormRepository");
 
 const createAnalysisProjectService = async (currentUser, payload) => {
-  const { formId, goalIds, domain } = payload;
+  const { formId, goalIds, domain, projectTitle } = payload;
 
   if (!formId) {
     createBadRequestError("شناسه فرم الزامی است");
@@ -55,11 +58,13 @@ const createAnalysisProjectService = async (currentUser, payload) => {
   const hasForm = questionCount > 0;
 
   const uniqueNumber = crypto.randomBytes(3).toString("hex");
-  const projectTitle = `${form.title}-${uniqueNumber}`;
+  const projectTitleFinal = projectTitle
+    ? projectTitle
+    : `${form.title}-${uniqueNumber}`;
 
   const project = await prisma.project.create({
     data: {
-      title: projectTitle,
+      title: projectTitleFinal,
       creatorId: currentUser.id,
       companyId: currentUser.companyId,
       mode: "SINGLE",
@@ -84,24 +89,48 @@ const createAnalysisProjectService = async (currentUser, payload) => {
     },
   });
 
-  let aiResponse = null;
+  let queueResult = null;
   if (!hasForm) {
-    aiResponse = await handleConversationStepService(
-      project.id,
-      currentUser.id,
-      "",
-    );
+    queueResult = await enqueueConversationStep({
+      projectId: project.id,
+      userId: currentUser.id,
+      userInput: "",
+      understood: false,
+    });
   }
 
   return {
     formId,
     projectId: project.id,
-    aiResponse,
+    jobId: queueResult?.jobId ?? null,
+    status: queueResult ? "AI_PROCESSING" : project.status,
   };
 };
 
 const getAllProjectsService = async (userId, userRole, companyId, query) => {
-  const projects = await getAllProjects(userId, userRole, companyId, query);
+  const allowedStatuses = [
+    "WAITING_FOR_FORM",
+    "ANALYSIS_PENDING",
+    "AI_PROCESSING",
+    "REVIEWING",
+    "CHAT_MODE",
+    "FINAL_ANALYSIS",
+    "FAILED",
+  ];
+
+  const { status, ...restQuery } = query;
+  const processedQuery = { ...restQuery };
+
+  if (status && status !== "all" && allowedStatuses.includes(status)) {
+    processedQuery.status = status;
+  }
+
+  const projects = await getAllProjects(
+    userId,
+    userRole,
+    companyId,
+    processedQuery,
+  );
   return projects;
 };
 
@@ -237,7 +266,8 @@ const getProjectTabsService = async (
     type: "multi",
   }));
 
-  return [...multiTabs, ...singleTabs];
+  const allTabs = [...multiTabs, ...singleTabs];
+  return allTabs.sort((a, b) => b.projectCount - a.projectCount);
 };
 
 const getSelectableProjectsForMultiAnalysisService = async (
@@ -613,6 +643,7 @@ const createStepAnalysisProjectService = async (
   multiAnalysisFormId,
   goalIds,
   selectedProjects,
+  projectTitle,
 ) => {
   const multiForm = await prisma.multiAnalysisForm.findFirst({
     where: {
@@ -721,11 +752,13 @@ const createStepAnalysisProjectService = async (
   }
 
   const uniqueNumber = crypto.randomBytes(3).toString("hex");
-  const projectTitle = `${multiForm.title}-${uniqueNumber}`;
+  const projectTitleFinal = projectTitle
+    ? projectTitle
+    : `${form.title}-${uniqueNumber}`;
 
   const project = await prisma.project.create({
     data: {
-      title: projectTitle,
+      title: projectTitleFinal,
       creatorId: currentUser.id,
       companyId: currentUser.companyId,
       mode: "MULTI",
@@ -759,19 +792,21 @@ const createStepAnalysisProjectService = async (
     },
   });
 
-  let aiResponse = null;
+  let queueResult = null;
 
   if (!hasForm) {
-    aiResponse = await handleConversationStepService(
-      project.id,
-      currentUser.id,
-      "",
-    );
+    queueResult = await enqueueConversationStep({
+      projectId: project.id,
+      userId: currentUser.id,
+      userInput: "",
+      understood: false,
+    });
   }
   return {
     projectId: project.id,
     multiAnalysisFormId,
-    aiResponse,
+    jobId: queueResult?.jobId ?? null,
+    status: queueResult ? "AI_PROCESSING" : project.status,
   };
 };
 
@@ -922,6 +957,25 @@ const deleteProjectService = async (projectId, userId) => {
   return true;
 };
 
+const getProjectAnalysisStatusService = async (projectId, userId) => {
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, creatorId: userId },
+    select: {
+      status: true,
+      initialAnalysis: true,
+      finalAnalysis: true,
+      summaryAnalysis: true,
+      riskPercentage: true,
+    },
+  });
+
+  if (!project) {
+    createBadRequestError("پروژه یافت نشد", 404);
+  }
+
+  return buildAnalysisStatusPayload(project);
+};
+
 module.exports = {
   getAllProjectsService,
   getProjectService,
@@ -936,4 +990,5 @@ module.exports = {
   getAccessibleProjectsService,
   getMostCommentedProjectsService,
   deleteProjectService,
+  getProjectAnalysisStatusService,
 };

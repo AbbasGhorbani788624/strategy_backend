@@ -214,6 +214,7 @@ const getSingleForms = async (companyId) => {
     hasForm: form.categories.some((c) => c._count.questions > 0),
     ...buildProfileStatus(company, form.profileFields),
     category: form.category,
+    info:form.info
   }));
 
   const groupedMap = new Map();
@@ -323,6 +324,7 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
       hasForm: multiForm.categories.some((c) => c._count.questions > 0),
       isAvailable: missingAnalysisTitles.length === 0,
       category: multiForm.category,
+      info:multiForm?.description
     };
   });
 

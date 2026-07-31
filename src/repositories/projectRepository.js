@@ -10,6 +10,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     formId,
     sortBy = "createdAt",
     sortOrder = "desc",
+    status,
     scoreFilter,
   } = query;
 
@@ -21,22 +22,19 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
 
   let accessWhere = {};
 
-  if (userRole === "COMPANY") {
-    if (!companyId) {
-      createBadRequestError("CompanyId is required for COMPANY role");
-    }
-
-    accessWhere = {
-      companyId,
-    };
-  } else {
-    accessWhere = await buildProjectAccessWhere({
-      userId,
-      userRole,
-      companyId,
-      targetUserId,
-    });
+  if (userRole === "COMPANY" && !companyId) {
+    throw createBadRequestError(
+      "CompanyId is required for COMPANY role"
+    );
   }
+  
+  accessWhere = await buildProjectAccessWhere({
+    userId,
+    userRole,
+    companyId,
+    targetUserId,
+  });
+
 
   const filters = [];
 
@@ -84,6 +82,10 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
         },
       ],
     });
+  }
+
+  if (status) {
+    filters.push({ status });
   }
 
   const whereClause =
@@ -244,7 +246,7 @@ const getProject = async (projectId, userId, userRole, companyId) => {
       companyId: companyId,
     };
   } else if (userRole === "SUPER_ADMIN") {
-    whereClause = { id: projectId };
+    whereClause = { id: projectId };createBadRequestError("CompanyId is required for COMPANY role");
   }
 
   const project = await prisma.project.findFirst({

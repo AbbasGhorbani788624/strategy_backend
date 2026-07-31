@@ -16,7 +16,10 @@ const {
   getTopRatedProjectsHandler,
   getAccessibleProjectsController,
   getMostCommentedProjectsController,
+  getCompanyMembers,
+  globalSearch,
   deleteProject,
+  getProjectAnalysisStatus,
 } = require("../controllers/projectController");
 const {
   rateCommentSchema,
@@ -33,6 +36,12 @@ router.get("/accessible-projects", auth, getAccessibleProjectsController);
 
 //گرفتن 10 پروژه با بیشترین کامنت
 router.get("/most-commented", auth, getMostCommentedProjectsController);
+
+//گرفتن اعضای شرکت برای فیلتر
+router.get("/members", auth, getCompanyMembers);
+
+//جستجوی سراسری پروژه‌ها و فرم‌ها
+router.get("/search", auth, globalSearch);
 
 //ساخت پروژه تکی
 router.post("/", auth, roleGuard(["COMPANY", "MEMBER"]), createProject);
@@ -60,6 +69,9 @@ router.get(
   auth,
   getSelectableProjectsForMultiAnalysisController,
 );
+
+//گرفتن وضعیت تحلیل پروژه
+router.get("/:id/analysis-status", auth, getProjectAnalysisStatus);
 
 //گرفتن پروژه
 router.get("/:id", auth, getProject);

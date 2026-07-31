@@ -21,24 +21,30 @@ const analysiscategories = require("./routes/analysisCategoriesRoutes");
 const bookmarkRoutes = require("./routes/bookmarkRoutes");
 const chatRoutes = require("./routes/chat");
 
+
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000,
-  max: 200,
-  message: {
-    message:
-      "تعداد درخواست‌ها بیش از حد مجاز است. لطفاً چند دقیقه بعد دوباره تلاش کنید.",
-  },
+  max: 300,
+  message: "زیادی تلاش کردی! لطفاً بعداً امتحان کن.",
   standardHeaders: true,
   legacyHeaders: false,
 });
-const app = express();
 
+const app = express();
+app.set("trust proxy", 1);
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:4173",
-  "http://185.237.85.53",
-];
 
+  "http://185.237.85.53",
+  "https://185.237.85.53",
+
+  "http://ratorai.com",
+  "https://ratorai.com",
+
+  "http://www.ratorai.com",
+  "https://www.ratorai.com",
+];
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -51,12 +57,11 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json());
+app.use(express.json({ limit: "30mb" }));
 app.use(cookieParser());
 app.use(helmet());
 app.use(limiter);
 app.use(express.urlencoded({ limit: "30mb", extended: true }));
-app.use(express.json({ limit: "30mb" }));
 
 app.use(
   "/images",
@@ -82,6 +87,8 @@ app.use("/api/featuredanalysis", featuredanalysisRoutes);
 app.use("/api/analysis-categories", analysiscategories);
 app.use("/api/bookmark", bookmarkRoutes);
 app.use("/api/chat", chatRoutes);
+
+
 app.use((req, res) => {
   console.log("This path is not found:", req.path);
   return res.status(404).json({
