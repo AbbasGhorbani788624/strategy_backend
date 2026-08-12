@@ -7,9 +7,12 @@
     "dev": "node src/server.js",
     "worker:conversation": "node src/workers/conversation.worker.js",
     "test:analysis-failure": "node --test tests/conversationAnalysisFailure.test.js",
+    "test:enqueue-duplicate": "node --test tests/conversationEnqueueDuplicate.test.js",
+    "test:analysis-flow": "node --test tests/conversationAnalysisFlow.test.js tests/conversationEnqueueDuplicate.test.js",
     "admin": "node src/admin.mjs",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "seed:company-profile": "node seedCompanyProfile.js"
   },
   "keywords": [],
   "author": "",
@@ -23,7 +26,7 @@
     "adminjs": "^7.8.17",
     "axios": "^1.17.0",
     "bcrypt": "^6.0.0",
-    "bullmq": "^5.80.11",
+    "bullmq": "^5.81.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "csurf": "^1.11.0",

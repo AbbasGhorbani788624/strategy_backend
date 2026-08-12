@@ -92,6 +92,83 @@ enum TargetMarketType {
   INDIVIDUAL
 }
 
+//////
+enum StrategyFramework {
+  BSC
+  OKR
+}
+
+enum StrategyStatus {
+  DRAFT
+  IN_PROGRESS
+  APPROVED
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum StrategyState {
+  MAP_GENERATION
+  MAP_VALIDATION
+
+  KPI_GENERATION
+  KPI_VALIDATION
+
+  TABLE_GENERATION
+  TABLE_VALIDATION
+
+  READY_FOR_MONITORING
+  MONITORING
+
+  FAILED
+}
+
+enum StrategyMapStatus {
+  DRAFT
+  VALIDATING
+  APPROVED
+}
+
+enum StrategyMeasureStatus {
+  DRAFT
+  VALIDATING
+  APPROVED
+}
+
+enum StrategyMonitoringStatus {
+  DRAFT
+  LOCKED
+}
+
+enum MeasurementFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum BscPerspective {
+  FINANCIAL
+  CUSTOMER
+  INTERNAL_PROCESS
+  LEARNING_GROWTH
+}
+
+enum LearningGrowthCategory {
+  HUMAN_CAPITAL
+  INFORMATION_CAPITAL
+  ORGANIZATIONAL_CAPITAL
+}
+
+enum StrategyApprovalType {
+  MAP
+  MEASURES
+}
+/////
+
+
+
 model User {
   id              String           @id @default(uuid())
   username        String           @unique
@@ -124,6 +201,11 @@ model User {
   followUpRequests    FollowUpRequest[]      @relation("UserFollowUpRequests")
   answeredFollowUps   FollowUpRequest[]      @relation("AdminAnsweredFollowUps")
   bookmarkedProjects  ProjectBookmark[]
+
+  strategyMapsApproved       StrategyMap[]              @relation("StrategyMapApprovedBy")
+  strategyMeasuresOwned      StrategyMeasure[]          @relation("StrategyMeasureOwner")
+  strategyMeasuresApproved   StrategyMeasure[]          @relation("StrategyMeasureApprovedBy")
+  strategyMeasurementsSubmitted StrategyMeasureMeasurement[] @relation("StrategyMeasurementSubmittedBy")
 
   @@index([role])
   @@index([companyId])
@@ -234,7 +316,7 @@ model CompanyAdminData {
 
 model Project {
   id        String        @id @default(uuid())
-  title     String
+  title     String  @db.Text
   creatorId String
   companyId String?
   mode      ProjectMode   @default(SINGLE)
@@ -280,6 +362,7 @@ model Project {
   selectedSourceProjects MultiAnalysisProjectSource[] @relation("MultiProjectSources")
   usedInMultiProjects    MultiAnalysisProjectSource[] @relation("SourceProjectUsedInMulti")
   bookmarks              ProjectBookmark[]
+  strategyPlans StrategyPlan[]
 
   @@index([status])
   @@index([companyId])
@@ -428,7 +511,7 @@ model FormQuestion {
   categoryId String
   category   FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
-  label String
+  label String   @db.Text
 
   type QuestionType
 
@@ -452,7 +535,7 @@ model FormQuestionOption {
   questionId String
   question   FormQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
-  label String
+  label String  @db.Text
   value String
 
   score Int?
@@ -474,7 +557,7 @@ model FormCategoryGroup {
   multiAnalysisFormId String?
   multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
 
-  title String
+  title String @db.Text
 
   order Int @default(0)
 
@@ -548,7 +631,7 @@ model Notification {
   userId        String
   type          NotificationType
   title         String
-  message       String
+  message       String  @db.Text
   isRead        Boolean          @default(false)
   referenceId   String?
   referenceType String?
@@ -803,7 +886,7 @@ model Company {
   updatedAt DateTime @updatedAt
 
   name     String
-  industry String?
+  industry String?  @db.Text
   chatMessageLimit Int @default(10)
 
   members             User[]                      @relation("CompanyMembers")
@@ -831,6 +914,7 @@ model Company {
 
   resourceCapabilities CompanyResourceCapability[]
 
+  strategyPlans StrategyPlan[]
 }
 
 model CompanyBasicInfo {
@@ -840,8 +924,8 @@ model CompanyBasicInfo {
 
   companyId                   String  @unique
   company                     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  brandTitle                  String?
-  knownAs                     String?
+  brandTitle                  String?   @db.Text
+  knownAs                     String?   @db.Text
   nationalId                  String?
   isPublicCompany             Boolean @default(false)
   isHolding                   Boolean @default(false)
@@ -1006,7 +1090,7 @@ model CompanyMarket {
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  marketName             String
+  marketName             String   @db.Text
   marketType             String?
   marketSharePercent     Decimal?          @db.Decimal(5, 2)
   marketPenetrationLevel String?
@@ -1212,8 +1296,8 @@ model CompanyInsight {
 model IndustryInsight {
   id           String   @id @default(uuid())
   createdAt    DateTime @default(now())
-  industryName String?
-  title        String?
+  industryName String?    
+  title        String?    @db.Text
 
   insightData  Json     
 
@@ -1222,4 +1306,313 @@ model IndustryInsight {
 
   @@index([industryName, fetchedAt])
   @@index([fetchedAt])
+}
+
+///
+
+model StrategyPlan {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  framework StrategyFramework
+
+  status StrategyStatus @default(DRAFT)
+  state  StrategyState  @default(MAP_GENERATION)
+
+  strategyText String? @db.Text
+
+  companyProfile Json?
+
+  maps       StrategyMap[]
+  objectives StrategyObjective[]
+  measures   StrategyMeasure[]
+
+  aiRuns     StrategyAiRun[]
+  approvals  StrategyApproval[]
+
+  @@index([projectId])
+  @@index([companyId])
+  @@index([framework])
+  @@index([status])
+  @@index([state])
+}
+
+model StrategyMap {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  strategyPlanId String
+  strategyPlan   StrategyPlan @relation(fields: [strategyPlanId], references: [id], onDelete: Cascade)
+
+  version Int @default(1)
+
+  status StrategyMapStatus @default(DRAFT)
+
+  /**
+   * اولین خروجی AI
+   */
+  initialData Json?
+
+  /**
+   * آخرین داده‌ای که کاربر ویرایش کرده
+   */
+  editedData Json?
+
+  /**
+   * خروجی نهایی بعد از validation
+   */
+  finalData Json?
+
+  approvedAt DateTime?
+
+  approvedById String?
+  approvedBy User? @relation("StrategyMapApprovedBy", fields: [approvedById], references: [id],onDelete: SetNull)
+
+  objectives StrategyObjective[]
+
+  @@index([strategyPlanId])
+  @@index([status])
+}
+
+model StrategyObjective {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  strategyPlanId String
+  strategyPlan   StrategyPlan @relation(fields: [strategyPlanId], references: [id], onDelete: Cascade)
+
+  mapId String?
+  map   StrategyMap? @relation(fields: [mapId], references: [id], onDelete: Cascade)
+  code String?
+
+  title       String
+  description String? @db.Text
+
+  perspective BscPerspective?
+
+  learningGrowthCategory LearningGrowthCategory?
+
+  priority Int?
+
+  sortOrder Int @default(0)
+
+  /**
+   * Hierarchy
+   */
+  parentId String?
+
+  parent StrategyObjective? @relation("StrategyObjectiveHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+
+  children StrategyObjective[] @relation("StrategyObjectiveHierarchy")
+
+  outgoingRelations StrategyObjectiveRelation[] @relation("StrategyObjectiveRelationFrom")
+
+  incomingRelations StrategyObjectiveRelation[] @relation("StrategyObjectiveRelationTo")
+
+  measures StrategyMeasure[]
+
+  @@index([strategyPlanId])
+  @@index([mapId])
+  @@index([perspective])
+  @@index([parentId])
+}
+
+model StrategyObjectiveRelation {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  fromObjectiveId String
+  toObjectiveId   String
+
+  fromObjective StrategyObjective @relation("StrategyObjectiveRelationFrom", fields: [fromObjectiveId], references: [id], onDelete: Cascade)
+
+  toObjective StrategyObjective @relation("StrategyObjectiveRelationTo", fields: [toObjectiveId], references: [id], onDelete: Cascade)
+
+  @@unique([fromObjectiveId, toObjectiveId])
+  @@index([fromObjectiveId])
+  @@index([toObjectiveId])
+}
+
+model StrategyMeasure {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  strategyPlanId String
+  strategyPlan   StrategyPlan @relation(fields: [strategyPlanId], references: [id], onDelete: Cascade)
+
+  objectiveId String?
+  objective   StrategyObjective? @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+
+  /**
+   * نام سنجه
+   */
+  name String
+
+  /**
+   * توضیح سنجه
+   */
+  description String? @db.Text
+
+  /**
+   * ریال، تومان، درصد، عدد، روز و...
+   */
+  unit String?
+
+  /**
+   * روزانه، هفتگی، ماهانه و...
+   */
+  frequency MeasurementFrequency?
+
+  /**
+   * مقدار پایه
+   */
+  baseline Decimal? @db.Decimal(20, 4)
+
+  /**
+   * Target نهایی دوره
+   */
+  finalTarget Decimal? @db.Decimal(20, 4)
+
+  /**
+   * فرمول سنجه (از KPI table)
+   */
+  formula String? @db.Text
+
+  /**
+   * تاریخ شروع پایش
+   */
+  monitoringStartDate DateTime?
+
+  /**
+   * مدت پایش به ماه
+   */
+  monitoringDurationMonths Int?
+
+  /**
+   * وضعیت Planning / Monitoring
+   */
+  monitoringStatus StrategyMonitoringStatus?
+
+  ownerId String?
+
+  owner User? @relation("StrategyMeasureOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  status StrategyMeasureStatus @default(DRAFT)
+
+  approvedAt DateTime?
+
+  approvedById String?
+
+  approvedBy User? @relation("StrategyMeasureApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  targets      StrategyMeasureTarget[]
+  measurements StrategyMeasureMeasurement[]
+
+  @@index([strategyPlanId])
+  @@index([objectiveId])
+  @@index([ownerId])
+  @@index([status])
+}
+
+model StrategyMeasureTarget {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  measureId String
+
+  measure StrategyMeasure @relation(fields: [measureId], references: [id], onDelete: Cascade)
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  periodLabel String?
+
+  targetValue Decimal? @db.Decimal(20, 4)
+
+  @@unique([measureId, periodStart, periodEnd])
+  @@index([measureId])
+  @@index([periodStart, periodEnd])
+}
+
+model StrategyMeasureMeasurement {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  measureId String
+
+  measure StrategyMeasure @relation(fields: [measureId], references: [id], onDelete: Cascade)
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  actualValue Decimal @db.Decimal(20, 4)
+
+  note String? @db.Text
+
+  submittedById String?
+
+  submittedBy User? @relation("StrategyMeasurementSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+
+  submittedAt DateTime @default(now())
+
+  @@unique([measureId, periodStart, periodEnd])
+  @@index([measureId])
+  @@index([periodStart, periodEnd])
+}
+
+model StrategyAiRun {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  strategyPlanId String
+
+  strategyPlan StrategyPlan @relation(fields: [strategyPlanId], references: [id], onDelete: Cascade)
+
+  framework StrategyFramework
+  state     StrategyState
+
+  requestPayload Json
+
+  responsePayload Json?
+
+  success Boolean @default(false)
+
+  errorMessage String? @db.Text
+
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+
+  @@index([strategyPlanId])
+  @@index([state])
+  @@index([success])
+}
+
+model StrategyApproval {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  strategyPlanId String
+
+  strategyPlan StrategyPlan @relation(fields: [strategyPlanId], references: [id], onDelete: Cascade)
+
+  type StrategyApprovalType
+
+  version Int
+
+  approvedAt DateTime @default(now())
+
+  @@index([strategyPlanId])
+  @@index([type])
 }

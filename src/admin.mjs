@@ -1,6 +1,4 @@
 
-
-
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
@@ -210,6 +208,63 @@ process.env.TEMP = ADMIN_UPLOAD_TMP;
 process.env.TMPDIR = ADMIN_UPLOAD_TMP;
 
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
+
+const normalizeUploadPublicPath = (filePath) => {
+  if (!filePath || typeof filePath !== "string") {
+    return null;
+  }
+
+  const normalized = filePath.replaceAll("\\", "/");
+  const uploadsIndex = normalized.indexOf("uploads/");
+
+  if (uploadsIndex !== -1) {
+    return `/${normalized.slice(uploadsIndex)}`;
+  }
+
+  return normalized.startsWith("/") ? normalized : `/${normalized}`;
+};
+
+const resolveUploadAbsolutePath = (filePath) => {
+  const publicPath = normalizeUploadPublicPath(filePath);
+  if (!publicPath || !publicPath.startsWith("/uploads/")) {
+    return null;
+  }
+
+  const absolutePath = path.resolve(PROJECT_ROOT, publicPath.slice(1));
+  const uploadsRoot = path.resolve(UPLOADS_ROOT);
+
+  if (
+    absolutePath !== uploadsRoot &&
+    !absolutePath.startsWith(`${uploadsRoot}${path.sep}`)
+  ) {
+    return null;
+  }
+
+  return absolutePath;
+};
+
+app.get("/download-upload", async (req, res) => {
+  const absolutePath = resolveUploadAbsolutePath(String(req.query.path || ""));
+
+  if (!absolutePath) {
+    return res.status(400).send("مسیر فایل نامعتبر است");
+  }
+
+  try {
+    await fs.access(absolutePath);
+  } catch {
+    return res.status(404).send("فایل پیدا نشد");
+  }
+
+  return res.download(absolutePath, path.basename(absolutePath));
+});
+
+const Components = {
+  DownloadFileAttachment: componentLoader.add(
+    "DownloadFileAttachment",
+    path.join(__dirname, "admin-components", "DownloadFileAttachment"),
+  ),
+};
 
 const prismaResource = (modelName, options = {}) => {
   const { actions, features, ...restOptions } = options;
@@ -1714,12 +1769,9 @@ const fileAttachmentResource = {
           }
 
           for (const record of response.records) {
-            let fp = record.params.filePath;
-            if (fp && fp.includes("uploads")) {
-              const parts = fp.split(/[/\\]uploads[/\\]/);
-              if (parts.length > 1) {
-                record.params.filePath = `/uploads/${parts[1].replaceAll("\\", "/")}`;
-              }
+            const publicPath = normalizeUploadPublicPath(record.params.filePath);
+            if (publicPath) {
+              record.params.filePath = publicPath;
             }
           }
 
@@ -1825,12 +1877,11 @@ const fileAttachmentResource = {
 
       show: {
         after: async (response) => {
-          let fp = response.record?.params?.filePath;
-          if (fp && fp.includes("uploads")) {
-            const parts = fp.split(/[/\\]uploads[/\\]/);
-            if (parts.length > 1) {
-              response.record.params.filePath = `/uploads/${parts[1].replaceAll("\\", "/")}`;
-            }
+          const publicPath = normalizeUploadPublicPath(
+            response.record?.params?.filePath,
+          );
+          if (publicPath) {
+            response.record.params.filePath = publicPath;
           }
 
           return response;
@@ -1869,15 +1920,17 @@ const fileAttachmentResource = {
         actionType: "record",
         icon: "Download",
         label: "دانلود فایل",
-        component: false,
+        component: Components.DownloadFileAttachment,
         guard: false,
 
         handler: async (request, response, context) => {
-          const fp = context.record.params.filePath;
+          const publicPath = normalizeUploadPublicPath(
+            context.record.params.filePath,
+          );
 
-          if (!fp) {
+          if (!publicPath) {
             return {
-              record: context.record.toJSON(),
+              record: context.record.toJSON(context.currentAdmin),
               notice: {
                 message: "فایلی برای دانلود وجود ندارد",
                 type: "error",
@@ -1885,21 +1938,10 @@ const fileAttachmentResource = {
             };
           }
 
-          let relativePath = fp;
-          if (fp.includes("uploads")) {
-            const parts = fp.split(/[/\\]uploads[/\\]/);
-            if (parts.length > 1) {
-              relativePath = `/uploads/${parts[1].replaceAll("\\", "/")}`;
-            }
-          }
-
-          const host = request.headers?.host || `localhost:${PORT}`;
-          const protocol = request.headers?.["x-forwarded-proto"] || "http";
-          const absoluteUrl = `${protocol}://${host}${relativePath}`;
+          context.record.params.filePath = publicPath;
 
           return {
-            record: context.record.toJSON(),
-            redirectUrl: absoluteUrl,
+            record: context.record.toJSON(context.currentAdmin),
           };
         },
       },

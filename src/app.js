@@ -20,6 +20,8 @@ const featuredanalysisRoutes = require("./routes/featuredanalysisRoutes");
 const analysiscategories = require("./routes/analysisCategoriesRoutes");
 const bookmarkRoutes = require("./routes/bookmarkRoutes");
 const chatRoutes = require("./routes/chat");
+const strategyPlanRoutes = require("./routes/strategyPlanRoutes");
+const strategyMonitoringRoutes = require("./routes/strategyMonitoringRoutes");
 
 
 const limiter = rateLimit({
@@ -39,12 +41,10 @@ const allowedOrigins = [
   "http://185.237.85.53",
   "https://185.237.85.53",
 
-  "http://ratorai.com",
-  "https://ratorai.com",
-
-  "http://www.ratorai.com",
-  "https://www.ratorai.com",
+  "http://strategy.ratorai.com",
+  "https://strategy.ratorai.com",
 ];
+
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -87,6 +87,8 @@ app.use("/api/featuredanalysis", featuredanalysisRoutes);
 app.use("/api/analysis-categories", analysiscategories);
 app.use("/api/bookmark", bookmarkRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/strategy-plans", strategyPlanRoutes);
+app.use("/api/strategy", strategyMonitoringRoutes);
 
 
 app.use((req, res) => {

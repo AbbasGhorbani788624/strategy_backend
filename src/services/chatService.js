@@ -9,7 +9,6 @@ const createChatService = async ({
   conversationId,
 }) => {
   try {
-
     const company = await prisma.company.findUnique({
       where: {
         id: companyId,
@@ -24,32 +23,32 @@ const createChatService = async ({
     }
 
     const payload = {
-      organization_request_limit: company.chatMessageLimit ,
+      organization_request_limit: company.chatMessageLimit,
       organization_id: companyId,
       user_id: userId,
       conversation_id: conversationId,
       user_goal: userGoal,
     };
-let response;
+    let response;
 
-try {
-  response = await axios.post(
-    "185.237.85.53:8080/chatbot/chatbot",
-    payload,
-    {
-      timeout: 300000,
+    try {
+      response = await axios.post(
+        "http://185.237.85.53:8080/chatbot/chatbot",
+        payload,
+        {
+          timeout: 300000,
+        },
+      );
+    } catch (error) {
+      if (error.response?.status === 400) {
+        throw createBadRequestError(
+          "تعداد درخواست های شما بیش از حد مجاز میباشد",
+          400,
+        );
+      }
+
+      throw error;
     }
-  );
-} catch (error) {
-  if (error.response?.status === 400) {
-    throw createBadRequestError(
-      "تعداد درخواست های شما بیش از حد مجاز میباشد",
-      400
-    );
-  }
-
-  throw error;
-}
     const [forms, multiForms] = await Promise.all([
       prisma.analysisForm.findMany({
         select: {
@@ -66,17 +65,16 @@ try {
     ]);
 
     const formsMap = new Map(
-      forms.map((form) => [form.title.trim().toLowerCase(), form])
+      forms.map((form) => [form.title.trim().toLowerCase(), form]),
     );
 
     const multiFormsMap = new Map(
-      multiForms.map((form) => [form.title.trim().toLowerCase(), form])
+      multiForms.map((form) => [form.title.trim().toLowerCase(), form]),
     );
 
     const rawAnalyses = Array.isArray(response.data.recommendedAnalyses)
       ? response.data.recommendedAnalyses
       : [];
-
 
     const recommendedAnalyses = rawAnalyses.map((item) => {
       const normalizedTitle = item.title?.trim().toLowerCase();
@@ -85,14 +83,10 @@ try {
         ? multiFormsMap.get(normalizedTitle)
         : null;
 
-      const form = normalizedTitle
-        ? formsMap.get(normalizedTitle)
-        : null;
+      const form = normalizedTitle ? formsMap.get(normalizedTitle) : null;
 
       if (!multiForm && !form) {
-        console.warn(
-          `Analysis form not found for title: ${item.title}`
-        );
+        console.warn(`Analysis form not found for title: ${item.title}`);
       }
 
       return {
@@ -102,21 +96,18 @@ try {
       };
     });
 
-
-
     return {
       ...response.data,
       recommendedAnalyses,
     };
   } catch (error) {
-
     throw error;
   }
 };
 
 const getChatService = async ({ conversationId }) => {
   const response = await axios.get(
-    `185.237.85.53:8080/chatbot/history/${conversationId}`,
+    `http://185.237.85.53:8080/chatbot/history/${conversationId}`,
     {
       params: {
         organization_id: conversationId,

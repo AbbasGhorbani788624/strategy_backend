@@ -3,7 +3,9 @@ const {
   submitFormAnswersService,
   getCompanyAnalysisStatisticsService,
 } = require("../services/analysisFormService");
-const { enqueueConversationStep } = require("../services/conversation.queue.service");
+const {
+  processConversationStepService,
+} = require("../services/analysisProcessor.service");
 const { successResponse } = require("../utils/responses");
 
 exports.submitFormAnswers = async (req, res, next) => {
@@ -24,7 +26,7 @@ exports.handleConversationStep = async (req, res, next) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const { jobId } = await enqueueConversationStep({
+    const { jobId, status } = await processConversationStepService({
       projectId: id,
       userId,
       userInput,
@@ -35,7 +37,7 @@ exports.handleConversationStep = async (req, res, next) => {
       success: true,
       message: "Analysis job queued",
       jobId,
-      status: "AI_PROCESSING",
+      status,
     });
   } catch (err) {
     console.error(err);

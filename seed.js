@@ -150,8 +150,8 @@ async function main() {
     console.log("Admin already exists");
   }
 
-  await deduplicateFormQuestionsByLabel();
-  await deduplicateFormQuestionOptionsByLabelAndValue();
+  // await deduplicateFormQuestionsByLabel();
+  // await deduplicateFormQuestionOptionsByLabelAndValue();
 }
 
 main()

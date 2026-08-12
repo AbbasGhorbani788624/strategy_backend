@@ -9,9 +9,7 @@ const {
   getProject,
   isProjectExists,
 } = require("../repositories/projectRepository");
-const {
-  enqueueConversationStep,
-} = require("./conversation.queue.service");
+const { startAnalysisProcessing } = require("./analysisProcessor.service");
 const { getFormById } = require("../repositories/analysisFormRepository");
 
 const createAnalysisProjectService = async (currentUser, payload) => {
@@ -91,11 +89,12 @@ const createAnalysisProjectService = async (currentUser, payload) => {
 
   let queueResult = null;
   if (!hasForm) {
-    queueResult = await enqueueConversationStep({
+    queueResult = await startAnalysisProcessing({
       projectId: project.id,
       userId: currentUser.id,
       userInput: "",
       understood: false,
+      source: "projectService.createAnalysisProjectService",
     });
   }
 
@@ -103,7 +102,7 @@ const createAnalysisProjectService = async (currentUser, payload) => {
     formId,
     projectId: project.id,
     jobId: queueResult?.jobId ?? null,
-    status: queueResult ? "AI_PROCESSING" : project.status,
+    status: queueResult ? queueResult.status : project.status,
   };
 };
 
@@ -132,6 +131,13 @@ const getAllProjectsService = async (userId, userRole, companyId, query) => {
     processedQuery,
   );
   return projects;
+};
+
+const getMultiProjectsService = async (userId, userRole, companyId, query) => {
+  return getAllProjectsService(userId, userRole, companyId, {
+    ...query,
+    mode: "MULTI",
+  });
 };
 
 const getMyProjects = async (userId, query = {}) => {
@@ -754,7 +760,7 @@ const createStepAnalysisProjectService = async (
   const uniqueNumber = crypto.randomBytes(3).toString("hex");
   const projectTitleFinal = projectTitle
     ? projectTitle
-    : `${form.title}-${uniqueNumber}`;
+    : `${multiForm.title}-${uniqueNumber}`;
 
   const project = await prisma.project.create({
     data: {
@@ -795,18 +801,19 @@ const createStepAnalysisProjectService = async (
   let queueResult = null;
 
   if (!hasForm) {
-    queueResult = await enqueueConversationStep({
+    queueResult = await startAnalysisProcessing({
       projectId: project.id,
       userId: currentUser.id,
       userInput: "",
       understood: false,
+      source: "projectService.createStepAnalysisProjectService",
     });
   }
   return {
     projectId: project.id,
     multiAnalysisFormId,
     jobId: queueResult?.jobId ?? null,
-    status: queueResult ? "AI_PROCESSING" : project.status,
+    status: queueResult ? queueResult.status : project.status,
   };
 };
 
@@ -978,6 +985,7 @@ const getProjectAnalysisStatusService = async (projectId, userId) => {
 
 module.exports = {
   getAllProjectsService,
+  getMultiProjectsService,
   getProjectService,
   giveRateToProjectService,
   createAnalysisProjectService,

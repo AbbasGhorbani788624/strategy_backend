@@ -1,5 +1,5 @@
 const { Worker } = require("bullmq");
-const redis = require("../configs/redis");
+const { redisConnectionOptions } = require("../configs/redis");
 const prisma = require("../prismaClient");
 const {
   handleConversationStepService,
@@ -10,66 +10,78 @@ const worker = new Worker(
   "conversation",
   async (job) => {
     const { projectId, userId, userInput, understood } = job.data;
-
-    console.log("Processing:", projectId);
-
-    await prisma.project.update({
-      where: { id: projectId },
-      data: {
-        status: "AI_PROCESSING",
-      },
-    });
+    const maxAttempts = job.opts?.attempts ?? 1;
 
     try {
-      await handleConversationStepService(
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { status: "AI_PROCESSING" },
+      });
+    } catch {
+      // Status update failure should not crash the worker process.
+    }
+
+    try {
+      return await handleConversationStepService(
         projectId,
         userId,
         userInput,
         understood,
       );
     } catch (error) {
-      const maxAttempts = job.opts?.attempts ?? 1;
       const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
 
       if (isFinalAttempt) {
-        await markProjectAnalysisFailed(projectId);
+        try {
+          await markProjectAnalysisFailed(projectId);
+        } catch {
+          // ignore secondary failure
+        }
       }
 
+      // Re-throw so BullMQ records failedReason and applies retry/backoff.
       throw error;
     }
-
-    console.log("Finished:", projectId);
   },
   {
-    connection: redis,
+    connection: { ...redisConnectionOptions },
     concurrency: 2,
+    lockDuration: 300000,
   },
 );
 
-worker.on("completed", (job) => {
-  console.log("Completed", job.id, "projectId:", job.data?.projectId);
-});
-
 worker.on("failed", async (job, error) => {
-  console.error("Failed", job?.id, "projectId:", job?.data?.projectId, error);
+  const maxAttempts = job?.opts?.attempts ?? 1;
+  const isFinalAttempt = (job?.attemptsMade ?? 0) >= maxAttempts;
 
-  if (!job?.data?.projectId) {
+  if (!job?.data?.projectId || !isFinalAttempt) {
     return;
   }
 
-  const maxAttempts = job.opts?.attempts ?? 1;
-
-  if (job.attemptsMade >= maxAttempts) {
-    try {
-      await markProjectAnalysisFailed(job.data.projectId);
-    } catch (updateError) {
-      console.error(
-        "Failed to set project status to FAILED:",
-        job.data?.projectId,
-        updateError,
-      );
-    }
+  try {
+    await markProjectAnalysisFailed(job.data.projectId);
+  } catch (updateError) {
+    console.error(
+      "Failed to set project status to FAILED:",
+      job.data?.projectId,
+      updateError,
+    );
   }
 });
+
+worker.on("error", (error) => {
+  console.error("Worker error:", error);
+});
+
+const shutdown = async () => {
+  try {
+    await worker.close();
+  } finally {
+    process.exit(0);
+  }
+};
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
 
 module.exports = worker;

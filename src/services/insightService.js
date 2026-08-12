@@ -5,8 +5,7 @@ const {
 } = require("../utils");
 const axios = require("axios");
 
-
-const AI_INSIGHT_API_URL = "185.237.85.53:8080/insights";
+const AI_INSIGHT_API_URL = "http://185.237.85.53:8080/insights";
 
 const callAIInsightAPI = async (payload) => {
   try {

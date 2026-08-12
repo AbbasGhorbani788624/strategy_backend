@@ -1,6 +1,7 @@
 const {
   getProjectService,
   getAllProjectsService,
+  getMultiProjectsService,
   giveRateToProjectService,
   createAnalysisProjectService,
   grantProjectAccessService,
@@ -50,6 +51,22 @@ exports.getAllProjects = async (req, res, next) => {
       userId,
       userRole,
       companyId,
+      req.query,
+    );
+
+    return successResponse(res, 200, projects);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.getMultiProjects = async (req, res, next) => {
+  try {
+    const projects = await getMultiProjectsService(
+      req.user.id,
+      req.user.role,
+      req.user.companyId,
       req.query,
     );
 

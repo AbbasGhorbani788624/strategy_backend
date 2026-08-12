@@ -5,6 +5,7 @@ const { roleGuard } = require("../middleware/roleGuard");
 
 const {
   getAllProjects,
+  getMultiProjects,
   getProject,
   giveReteAndComment,
   createProject,
@@ -56,6 +57,9 @@ router.post(
 
 //گرفتن همه پروژه ها
 router.get("/", auth, getAllProjects);
+
+//گرفتن همه پروژه‌های چندمرحله‌ای
+router.get("/multi", auth, getMultiProjects);
 
 //گرفتن پروژه ها  خود شخص
 router.get("/myproject", auth, getMyProjectsController);
