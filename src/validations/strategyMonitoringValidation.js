@@ -10,15 +10,23 @@ const planningSchema = yup.object().shape({
     .array()
     .of(
       yup.object().shape({
-        periodId: yup
-          .string()
-          .uuid("periodId معتبر نیست")
-          .required("periodId الزامی است"),
+        periodIndex: yup
+          .number()
+          .integer("periodIndex باید عدد صحیح باشد")
+          .min(0, "periodIndex نمی‌تواند منفی باشد"),
+        periodId: yup.string().uuid("periodId معتبر نیست"),
         targetValue: yup
           .number()
           .typeError("targetValue باید عدد باشد")
           .required("targetValue الزامی است"),
-      }),
+      })
+        .test(
+          "period-ref",
+          "periodIndex یا periodId الزامی است",
+          (value) =>
+            (value?.periodIndex !== undefined && value?.periodIndex !== null) ||
+            Boolean(value?.periodId),
+        ),
     )
     .min(1, "حداقل یک period الزامی است")
     .required("periods الزامی است"),

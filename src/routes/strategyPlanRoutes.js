@@ -4,6 +4,8 @@ const auth = require("../middleware/auth");
 const { roleGuard } = require("../middleware/roleGuard");
 const {
   createStrategyPlan,
+  translateStrategyAnalysis,
+  getActiveStrategyPlan,
   getStrategyPlanByProject,
   getStrategyPlan,
   validateStrategyMap,
@@ -12,11 +14,24 @@ const {
   validateStrategyTable,
   approveStrategyKpis,
   approveStrategyTable,
-  listPendingBscMaps,
-  listPendingMeasures,
-  listApprovedStrategyPlans,
   listStrategyPlanMeasures,
   syncStrategyPlanMeasures,
+  validateStrategyMapByActive,
+  approveStrategyMapByActive,
+  validateStrategyKpisByActive,
+  validateStrategyTableByActive,
+  approveStrategyKpisByActive,
+  approveStrategyTableByActive,
+  listStrategyPlanMeasuresByActive,
+  syncStrategyPlanMeasuresByActive,
+  validateStrategyMapByProject,
+  approveStrategyMapByProject,
+  validateStrategyKpisByProject,
+  validateStrategyTableByProject,
+  approveStrategyKpisByProject,
+  approveStrategyTableByProject,
+  listStrategyPlanMeasuresByProject,
+  syncStrategyPlanMeasuresByProject,
 } = require("../controllers/strategyPlanController");
 const {
   createStrategyPlanSchema,
@@ -43,39 +58,22 @@ const {
   strategyPlanByProjectQuerySchema,
 } = require("../validations/strategyPlanByProjectQueryValidation");
 const {
-  strategyPlanListQuerySchema,
-  strategyPlanApprovedListQuerySchema,
   strategyPlanMeasuresListQuerySchema,
 } = require("../validations/strategyPlanListQueryValidation");
+const {
+  strategyTranslationSchema,
+} = require("../validations/strategyTranslationValidation");
 
-// GET — لیست BSCهایی که Map تایید نشده → { items, pagination }; query: page, limit, search|q, framework?
-router.get(
-  "/pending/maps",
+// POST — ترجمه؛ body: { projectId }
+router.post(
+  "/strategy-translation",
   auth,
   roleGuard(["COMPANY", "MEMBER"]),
-  strategyPlanListQuerySchema,
-  listPendingBscMaps,
+  strategyTranslationSchema,
+  translateStrategyAnalysis,
 );
 
-// GET — لیست KPI/table در انتظار (BSC + OKR) → { items, pagination }; query: page, limit, search|q, framework?
-router.get(
-  "/pending/measures",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
-  strategyPlanListQuerySchema,
-  listPendingMeasures,
-);
-
-// GET — لیست planهای approve‌شده → { items, pagination }; query: page, limit, search|q, framework?, state?
-router.get(
-  "/approved",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
-  strategyPlanApprovedListQuerySchema,
-  listApprovedStrategyPlans,
-);
-
-// POST — شروع فرایند Strategy Planning (idempotent)؛ body: { projectId, framework } → plan جدید 201 یا plan موجود 200 + existing: true
+// POST — شروع flow؛ body: { projectId, framework, restart: true }
 router.post(
   "/",
   auth,
@@ -84,7 +82,87 @@ router.post(
   createStrategyPlan,
 );
 
-// GET — Resume یکپارچه بر اساس projectId + framework → { exists, continueAction, strategyPlan?, measures? }
+// GET — plan فعال شرکت (از companyId توکن)؛ query: framework
+router.get(
+  "/active",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  getActiveStrategyPlan,
+);
+
+router.post(
+  "/active/map/validate",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  validateStrategyMapSchema,
+  validateStrategyMapByActive,
+);
+
+router.post(
+  "/active/map/approve",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  approveStrategyMapSchema,
+  approveStrategyMapByActive,
+);
+
+router.post(
+  "/active/kpis/validate",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  validateStrategyKpiSchema,
+  validateStrategyKpisByActive,
+);
+
+router.post(
+  "/active/kpis/approve",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  approveStrategyKpiSchema,
+  approveStrategyKpisByActive,
+);
+
+router.post(
+  "/active/table/validate",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  validateStrategyTableSchema,
+  validateStrategyTableByActive,
+);
+
+router.post(
+  "/active/table/approve",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  approveStrategyTableSchema,
+  approveStrategyTableByActive,
+);
+
+router.get(
+  "/active/measures",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  strategyPlanMeasuresListQuerySchema,
+  listStrategyPlanMeasuresByActive,
+);
+
+router.post(
+  "/active/measures/sync",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  syncStrategyPlanMeasuresByActive,
+);
+
+// --- legacy: by-project (deprecated) ---
 router.get(
   "/by-project/:projectId",
   auth,
@@ -93,7 +171,78 @@ router.get(
   getStrategyPlanByProject,
 );
 
-// POST — BSC: ارسال Map ویرایش‌شده برای AI Validation؛ body: { editedMap } → { strategyPlan, map, initialMap, editedMap, finalMap }
+router.post(
+  "/by-project/:projectId/map/validate",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  validateStrategyMapSchema,
+  validateStrategyMapByProject,
+);
+
+router.post(
+  "/by-project/:projectId/map/approve",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  approveStrategyMapSchema,
+  approveStrategyMapByProject,
+);
+
+router.post(
+  "/by-project/:projectId/kpis/validate",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  validateStrategyKpiSchema,
+  validateStrategyKpisByProject,
+);
+
+router.post(
+  "/by-project/:projectId/kpis/approve",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  approveStrategyKpiSchema,
+  approveStrategyKpisByProject,
+);
+
+router.post(
+  "/by-project/:projectId/table/validate",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  validateStrategyTableSchema,
+  validateStrategyTableByProject,
+);
+
+router.post(
+  "/by-project/:projectId/table/approve",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  approveStrategyTableSchema,
+  approveStrategyTableByProject,
+);
+
+router.get(
+  "/by-project/:projectId/measures",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  strategyPlanMeasuresListQuerySchema,
+  listStrategyPlanMeasuresByProject,
+);
+
+router.post(
+  "/by-project/:projectId/measures/sync",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  syncStrategyPlanMeasuresByProject,
+);
+
+// --- legacy: strategyPlanId ---
 router.post(
   "/:strategyPlanId/map/validate",
   auth,
@@ -102,7 +251,6 @@ router.post(
   validateStrategyMap,
 );
 
-// POST — BSC: تایید Map و تولید جدول KPI توسط AI؛ body: { approvedMap } → { strategyPlan(state: KPI_VALIDATION), map, kpiTable }
 router.post(
   "/:strategyPlanId/map/approve",
   auth,
@@ -111,7 +259,6 @@ router.post(
   approveStrategyMap,
 );
 
-// POST — BSC: ارسال جدول KPI ویرایش‌شده برای AI Validation؛ body: { editedKpiTable } → { strategyPlan, kpiTable, initialKpiTable, editedKpiTable }
 router.post(
   "/:strategyPlanId/kpis/validate",
   auth,
@@ -120,7 +267,6 @@ router.post(
   validateStrategyKpis,
 );
 
-// POST — BSC: تایید نهایی جدول KPI؛ body: { approvedKpiTable } → { strategyPlan(state: READY_FOR_MONITORING, status: APPROVED), kpiTable }
 router.post(
   "/:strategyPlanId/kpis/approve",
   auth,
@@ -129,7 +275,6 @@ router.post(
   approveStrategyKpis,
 );
 
-// POST — OKR: ارسال جدول ویرایش‌شده برای AI Validation؛ body: { editedTable } → { strategyPlan, table, initialTable, editedTable }
 router.post(
   "/:strategyPlanId/table/validate",
   auth,
@@ -138,7 +283,6 @@ router.post(
   validateStrategyTable,
 );
 
-// POST — OKR: تایید نهایی جدول؛ body: { approvedTable } → { strategyPlan(state: READY_FOR_MONITORING, status: APPROVED), table }
 router.post(
   "/:strategyPlanId/table/approve",
   auth,
@@ -147,7 +291,6 @@ router.post(
   approveStrategyTable,
 );
 
-// GET — لیست Measureهای sync‌شده → { items, pagination }; query: page, limit, search|q, monitoringStatus?
 router.get(
   "/:strategyPlanId/measures",
   auth,
@@ -156,7 +299,6 @@ router.get(
   listStrategyPlanMeasures,
 );
 
-// POST — re-sync KPIهای تاییدشده به Measure (برای planهای قدیمی) → { items: [...] }
 router.post(
   "/:strategyPlanId/measures/sync",
   auth,
@@ -164,7 +306,6 @@ router.post(
   syncStrategyPlanMeasures,
 );
 
-// GET — Resume/خواندن وضعیت یک Strategy Plan؛ param: strategyPlanId → { strategyPlan, map/kpiTable(BSC) | table(OKR) }
 router.get(
   "/:strategyPlanId",
   auth,

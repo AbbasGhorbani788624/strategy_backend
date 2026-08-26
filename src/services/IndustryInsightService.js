@@ -1,6 +1,6 @@
 const axios = require("axios");
 const prisma = require("../prismaClient");
-const INDUSTRY_INSIGHT_API_URL = "185.237.85.53:8080/industry";
+const INDUSTRY_INSIGHT_API_URL = "https://strategy.ratorai.com/ai/industry";
 
 const syncIndustryInsightService = async (companyId) => {
   if (!companyId) return null;
@@ -21,6 +21,8 @@ const syncIndustryInsightService = async (companyId) => {
     const industry = company.industry.trim();
     const region = company.basicInfo?.region || "IRAN";
 
+    console.log("[IndustryInsight] Request:", { companyId, industry, region });
+
     const response = await axios.post(
       INDUSTRY_INSIGHT_API_URL,
       {
@@ -28,9 +30,11 @@ const syncIndustryInsightService = async (companyId) => {
         region,
       },
       {
-        timeout: 60000,
+        timeout: 120000,
       },
     );
+
+    console.log("[IndustryInsight] Response:", response.data);
 
     await prisma.industryInsight.create({
       data: {
@@ -42,7 +46,43 @@ const syncIndustryInsightService = async (companyId) => {
 
     return response.data;
   } catch (error) {
-    console.log(error);
+    const toPlain = (value) => {
+      if (value == null) return value;
+      try {
+        return JSON.parse(JSON.stringify(value));
+      } catch {
+        return String(value);
+      }
+    };
+
+    console.error(
+      "[IndustryInsight] Sync failed:\n" +
+        JSON.stringify(
+          {
+            companyId,
+            name: error.name,
+            message: error.message,
+            code: error.code,
+            isAxiosError: error.isAxiosError === true,
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            responseData: toPlain(error.response?.data),
+            responseHeaders: toPlain(error.response?.headers),
+            request: error.config
+              ? {
+                  method: error.config.method,
+                  url: error.config.url,
+                  timeout: error.config.timeout,
+                  data: toPlain(error.config.data),
+                  headers: toPlain(error.config.headers),
+                }
+              : undefined,
+            stack: error.stack,
+          },
+          null,
+          2,
+        ),
+    );
 
     return null;
   }

@@ -36,11 +36,8 @@ const app = express();
 app.set("trust proxy", 1);
 const allowedOrigins = [
   "http://localhost:5173",
-  "http://localhost:4173",
-
   "http://185.237.85.53",
   "https://185.237.85.53",
-
   "http://strategy.ratorai.com",
   "https://strategy.ratorai.com",
 ];

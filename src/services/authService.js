@@ -96,6 +96,7 @@ const getMeService = async (userId) => {
     id: user.id,
     username: user.username,
     role: user.role,
+    companyName: user.company?.name,
     companyId: user.companyId,
     progress: {
       user: userProgress,

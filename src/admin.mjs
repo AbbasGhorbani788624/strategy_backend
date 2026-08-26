@@ -1,5 +1,6 @@
 
 import "dotenv/config";
+import "./admin-env.mjs";
 import express from "express";
 import session from "express-session";
 import bcrypt from "bcrypt";
@@ -2798,16 +2799,24 @@ const admin = new AdminJS({
         return {
           financeInformationText:
             data.financeInformation ||
+            data["Company Additional Financial Information"] ||
             recordParams["data.financeInformation"] ||
             "",
           externalInformationText:
             data.externalInformation ||
+            data["Company Additional External Information"] ||
             recordParams["data.externalInformation"] ||
             "",
           internalInformationText:
             data.internalInformation ||
+            data["Company Additional Internal Information"] ||
             recordParams["data.internalInformation"] ||
             legacyText,
+          companyProfileText:
+            data.companyProfile ||
+            data["company Profile"] ||
+            recordParams["data.companyProfile"] ||
+            "",
         };
       };
 
@@ -2815,6 +2824,7 @@ const admin = new AdminJS({
         financeInformation: String(payload?.financeInformationText || ""),
         externalInformation: String(payload?.externalInformationText || ""),
         internalInformation: String(payload?.internalInformationText || ""),
+        companyProfile: String(payload?.companyProfileText || ""),
       });
 
       return prismaResource("CompanyAdminData", {
@@ -2847,7 +2857,7 @@ const admin = new AdminJS({
           type: "textarea",
           isVirtual: true,
           position: 2,
-          label: "اطلاعات مالی شرکت",
+          label: "اطلاعات مالی تکمیلی شرکت",
           isVisible: {
             list: false,
             filter: false,
@@ -2863,7 +2873,7 @@ const admin = new AdminJS({
           type: "textarea",
           isVirtual: true,
           position: 3,
-          label: "اطلاعات خارجی شرکت",
+          label: "اطلاعات خارجی تکمیلی شرکت",
           isVisible: {
             list: false,
             filter: false,
@@ -2879,7 +2889,23 @@ const admin = new AdminJS({
           type: "textarea",
           isVirtual: true,
           position: 4,
-          label: "اطلاعات داخلی شرکت",
+          label: "اطلاعات داخلی تکمیلی شرکت",
+          isVisible: {
+            list: false,
+            filter: false,
+            show: true,
+            edit: true,
+          },
+          props: {
+            rows: 10,
+          },
+        },
+
+        companyProfileText: {
+          type: "textarea",
+          isVirtual: true,
+          position: 5,
+          label: "پروفایل شرکت",
           isVisible: {
             list: false,
             filter: false,
@@ -2958,6 +2984,7 @@ const admin = new AdminJS({
         "financeInformationText",
         "externalInformationText",
         "internalInformationText",
+        "companyProfileText",
       ],
       showProperties: [
         "id",
@@ -2965,6 +2992,7 @@ const admin = new AdminJS({
         "financeInformationText",
         "externalInformationText",
         "internalInformationText",
+        "companyProfileText",
         "createdAt",
         "updatedAt",
       ],

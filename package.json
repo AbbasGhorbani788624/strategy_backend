@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "node src/server.js",
     "worker:conversation": "node src/workers/conversation.worker.js",
+    "worker:chat": "node src/workers/chat.worker.js",
     "test:analysis-failure": "node --test tests/conversationAnalysisFailure.test.js",
     "test:enqueue-duplicate": "node --test tests/conversationEnqueueDuplicate.test.js",
     "test:analysis-flow": "node --test tests/conversationAnalysisFlow.test.js tests/conversationEnqueueDuplicate.test.js",
     "admin": "node src/admin.mjs",
+    "admin:build": "NODE_ENV=production node src/admin-build.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed:company-profile": "node seedCompanyProfile.js"

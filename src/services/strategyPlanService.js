@@ -15,7 +15,7 @@ const {
   countBscKpisInTable,
   countOkrKeyResultsInTable,
 } = require("./strategyMeasureSyncService");
-const { formatMeasureListItem } = require("./strategyMonitoringService");
+const { formatMeasureListItem, fetchMonitoringForPlan } = require("./strategyMonitoringService");
 const {
   buildActivePlanWhere,
   resolveContinueAction,
@@ -25,10 +25,13 @@ const {
   createStrategyFlowError,
 } = require("../utils/strategyPlanResume");
 const {
-  parseListQuery,
-  buildPaginationMeta,
-  buildProjectTitleSearchFilter,
-} = require("../utils/listQueryUtils");
+  deleteStrategyPlansForCompanyFramework,
+  loadActiveStrategyPlan,
+  loadStrategyPlanByProject,
+  findActiveStrategyPlanForCompany,
+  loadProjectForUser,
+  ACTIVE_STRATEGY_PLAN_INCLUDE,
+} = require("../utils/strategyPlanResolve");
 
 const COMPANY_PROFILE_INCLUDE = {
   basicInfo: true,
@@ -64,7 +67,10 @@ const toPlainJson = (value) => {
   }
 
   if (typeof value === "object") {
-    if (typeof value.toNumber === "function" && value.constructor?.name === "Decimal") {
+    if (
+      typeof value.toNumber === "function" &&
+      value.constructor?.name === "Decimal"
+    ) {
       return value.toNumber();
     }
 
@@ -200,37 +206,17 @@ const buildAiPayload = ({
   goals,
 });
 
-const buildMapValidationPayload = ({
-  strategyText,
-  companyProfile,
-  goals = [],
-  initialMap,
-  editedMap,
-}) => ({
-  framework: "BSC",
-  state: "MAP_VALIDATION",
-  strategy: strategyText,
-  company_profile: companyProfile,
-  goals,
-  initial_map: initialMap,
-  edited_map: editedMap,
-});
-
 const getNextStateAfterMapValidation = () => "MAP_VALIDATION";
 
 const getNextStateAfterKpiGeneration = () => "KPI_VALIDATION";
 
 const buildKpiGenerationPayload = ({
-  strategyText,
+  strategyAnalysis,
   companyProfile,
-  goals = [],
   approvedMap,
 }) => ({
-  framework: "BSC",
-  state: "KPI_GENERATION",
-  strategy: strategyText,
+  strategy_analysis: strategyAnalysis,
   company_profile: companyProfile,
-  goals,
   approved_map: approvedMap,
 });
 
@@ -266,6 +252,30 @@ const buildTableValidationPayload = ({
   edited_table: editedTable,
 });
 
+const buildStrategyTranslationPayload = ({
+  strategyAnalysis,
+  companyProfile,
+}) => ({
+  strategy_analysis: strategyAnalysis,
+  company_profile: companyProfile,
+});
+
+const buildBscComposePayload = ({ strategyAnalysis, companyProfile }) => ({
+  method: "BSC",
+  strategy_analysis: strategyAnalysis,
+  company_profile: companyProfile,
+});
+
+const buildBscValidatePayload = ({
+  strategyAnalysis,
+  companyProfile,
+  map,
+}) => ({
+  strategy_analysis: strategyAnalysis,
+  company_profile: companyProfile,
+  map,
+});
+
 const getNextStateAfterKpiValidation = () => "KPI_VALIDATION";
 
 const getNextStateAfterTableValidation = () => "TABLE_VALIDATION";
@@ -296,55 +306,6 @@ const buildStrategyPlanAccessWhere = (user) => {
   createBadRequestError("دسترسی غیرمجاز", 403);
 };
 
-const formatStrategyPlanListItem = (plan) => {
-  const mapApproval = plan.approvals?.find((item) => item.type === "MAP");
-  const measuresApproval = plan.approvals?.find(
-    (item) => item.type === "MEASURES",
-  );
-  const latestMap = plan.maps?.[0] || null;
-
-  return {
-    id: plan.id,
-    projectId: plan.projectId,
-    projectTitle: plan.project?.title || null,
-    framework: plan.framework,
-    state: plan.state,
-    status: plan.status,
-    createdAt: plan.createdAt,
-    updatedAt: plan.updatedAt,
-    mapStatus: latestMap?.status || null,
-    mapApprovedAt: mapApproval?.approvedAt || latestMap?.approvedAt || null,
-    measuresApprovedAt: measuresApproval?.approvedAt || null,
-    hasMapApproval: Boolean(mapApproval),
-    hasMeasuresApproval: Boolean(measuresApproval),
-  };
-};
-
-const listStrategyPlanInclude = {
-  project: {
-    select: {
-      id: true,
-      title: true,
-      creatorId: true,
-    },
-  },
-  maps: {
-    orderBy: [{ version: "desc" }, { createdAt: "desc" }],
-    take: 1,
-  },
-  approvals: {
-    orderBy: { approvedAt: "desc" },
-  },
-  aiRuns: {
-    where: { success: true },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  },
-  measures: {
-    orderBy: { createdAt: "asc" },
-  },
-};
-
 const fetchMeasuresForPlan = async (strategyPlanId) => {
   await ensureMeasuresSyncedForPlan(strategyPlanId);
 
@@ -353,10 +314,14 @@ const fetchMeasuresForPlan = async (strategyPlanId) => {
     orderBy: { createdAt: "asc" },
   });
 
-  return measures.map(formatMeasureListItem);
+  return measures.map((measure, index) => formatMeasureListItem(measure, index));
 };
 
-const loadStrategyPlanForUser = async (strategyPlanId, user, { includeAiRuns = false } = {}) => {
+const loadStrategyPlanForUser = async (
+  strategyPlanId,
+  user,
+  { includeAiRuns = false } = {},
+) => {
   const plan = await prisma.strategyPlan.findUnique({
     where: { id: strategyPlanId },
     include: {
@@ -394,7 +359,12 @@ const loadStrategyPlanForUser = async (strategyPlanId, user, { includeAiRuns = f
   return plan;
 };
 
-const recordFailedAiRun = async ({ aiRunId, strategyPlanId, error, nextPlanState }) => {
+const recordFailedAiRun = async ({
+  aiRunId,
+  strategyPlanId,
+  error,
+  nextPlanState,
+}) => {
   await prisma.$transaction([
     prisma.strategyAiRun.update({
       where: { id: aiRunId },
@@ -414,9 +384,224 @@ const recordFailedAiRun = async ({ aiRunId, strategyPlanId, error, nextPlanState
   ]);
 };
 
+const STRATEGY_TRANSLATION_AI_URL =
+  "https://strategy.ratorai.com/ai/goal-setting/translate";
+
+const STRATEGY_BSC_COMPOSE_AI_URL =
+  "https://strategy.ratorai.com/ai/goal-setting/run";
+
+const STRATEGY_BSC_VALIDATE_AI_URL =
+  "https://strategy.ratorai.com/ai/goal-setting/bsc/validate";
+
+const STRATEGY_BSC_KPI_AI_URL =
+  "https://strategy.ratorai.com/ai/goal-setting/bsc/kpi";
+
+const summarizeForLog = (value, { maxLength = 1500, maxDepth = 4 } = {}) => {
+  const walk = (input, depth) => {
+    if (input === null || input === undefined) {
+      return input;
+    }
+
+    if (typeof input === "string") {
+      return input.length > maxLength
+        ? `${input.slice(0, maxLength)}… [truncated ${input.length - maxLength} chars]`
+        : input;
+    }
+
+    if (typeof input !== "object") {
+      return input;
+    }
+
+    if (depth >= maxDepth) {
+      return Array.isArray(input) ? `[Array(${input.length})]` : "[Object]";
+    }
+
+    if (Array.isArray(input)) {
+      return input.slice(0, 20).map((item) => walk(item, depth + 1));
+    }
+
+    return Object.fromEntries(
+      Object.entries(input).map(([key, nested]) => [
+        key,
+        walk(nested, depth + 1),
+      ]),
+    );
+  };
+
+  return walk(value, 0);
+};
+
+const callStrategyTranslationAi = async (payload, { projectId } = {}) => {
+  const url = STRATEGY_TRANSLATION_AI_URL;
+
+  try {
+    const response = await axios.post(url, payload, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 180000,
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      "[Strategy Translation AI] request failed",
+      JSON.stringify(
+        {
+          projectId,
+          url,
+          status: error.response?.status,
+          message: error.message,
+          response: summarizeForLog(error.response?.data),
+        },
+        null,
+        2,
+      ),
+    );
+
+    const apiMessage =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      (typeof error.response?.data === "string" ? error.response.data : null);
+
+    const failure = new Error(
+      apiMessage || error.message || "خطا در ارتباط با سرویس ترجمه استراتژی",
+    );
+    failure.statusCode = error.response?.status || 502;
+    failure.cause = error;
+    throw failure;
+  }
+};
+
+const callBscComposeAi = async (
+  payload,
+  { projectId, strategyPlanId } = {},
+) => {
+  const url = STRATEGY_BSC_COMPOSE_AI_URL;
+
+  try {
+    const response = await axios.post(url, payload, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 180000,
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      "[BSC Compose AI] request failed",
+      JSON.stringify(
+        {
+          projectId,
+          strategyPlanId,
+          url,
+          status: error.response?.status,
+          message: error.message,
+          response: summarizeForLog(error.response?.data),
+        },
+        null,
+        2,
+      ),
+    );
+
+    const apiMessage =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      (typeof error.response?.data === "string" ? error.response.data : null);
+
+    const failure = new Error(
+      apiMessage || error.message || "خطا در ارتباط با سرویس BSC Compose",
+    );
+    failure.statusCode = error.response?.status || 502;
+    failure.cause = error;
+    throw failure;
+  }
+};
+
+const callBscValidateAi = async (
+  payload,
+  { projectId, strategyPlanId } = {},
+) => {
+  const url = STRATEGY_BSC_VALIDATE_AI_URL;
+
+  try {
+    const response = await axios.post(url, payload, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 180000,
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      "[BSC Validate AI] request failed",
+      JSON.stringify(
+        {
+          projectId,
+          strategyPlanId,
+          url,
+          status: error.response?.status,
+          message: error.message,
+          response: summarizeForLog(error.response?.data),
+        },
+        null,
+        2,
+      ),
+    );
+
+    const apiMessage =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      (typeof error.response?.data === "string" ? error.response.data : null);
+
+    const failure = new Error(
+      apiMessage || error.message || "خطا در ارتباط با سرویس BSC Validate",
+    );
+    failure.statusCode = error.response?.status || 502;
+    failure.cause = error;
+    throw failure;
+  }
+};
+
+const callBscKpiAi = async (payload, { projectId, strategyPlanId } = {}) => {
+  const url = STRATEGY_BSC_KPI_AI_URL;
+
+  try {
+    const response = await axios.post(url, payload, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 180000,
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      "[BSC KPI AI] request failed",
+      JSON.stringify(
+        {
+          projectId,
+          strategyPlanId,
+          url,
+          status: error.response?.status,
+          message: error.message,
+          response: summarizeForLog(error.response?.data),
+        },
+        null,
+        2,
+      ),
+    );
+
+    const apiMessage =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      (typeof error.response?.data === "string" ? error.response.data : null);
+
+    const failure = new Error(
+      apiMessage || error.message || "خطا در ارتباط با سرویس BSC KPI",
+    );
+    failure.statusCode = error.response?.status || 502;
+    failure.cause = error;
+    throw failure;
+  }
+};
+
 const callStrategyAi = async (payload) => {
   if (isStrategyAiMockEnabled()) {
-    console.info("[Strategy AI Mock]", payload.framework, payload.state);
     return buildMockStrategyAiResponse(payload);
   }
 
@@ -450,11 +635,49 @@ const callStrategyAi = async (payload) => {
       (typeof error.response?.data === "string" ? error.response.data : null);
 
     const failure = new Error(
-      apiMessage || error.message || "خطا در ارتباط با سرویس هوش مصنوعی استراتژی",
+      apiMessage ||
+        error.message ||
+        "خطا در ارتباط با سرویس هوش مصنوعی استراتژی",
     );
     failure.statusCode = error.response?.status || 502;
     failure.cause = error;
     throw failure;
+  }
+};
+
+const extractBscMapArtifact = (aiResponse) => {
+  if (!aiResponse || typeof aiResponse !== "object") {
+    return aiResponse;
+  }
+
+  if (Array.isArray(aiResponse.perspectives)) {
+    return aiResponse;
+  }
+
+  if (aiResponse.map && typeof aiResponse.map === "object") {
+    if (Array.isArray(aiResponse.map.perspectives)) {
+      return aiResponse.map;
+    }
+    return aiResponse.map;
+  }
+
+  if (aiResponse.data && Array.isArray(aiResponse.data.perspectives)) {
+    return aiResponse.data;
+  }
+
+  return aiResponse.map ?? aiResponse.data?.map ?? aiResponse;
+};
+
+const assertValidBscComposeMap = (map) => {
+  if (
+    !map ||
+    !Array.isArray(map.perspectives) ||
+    map.perspectives.length === 0
+  ) {
+    createBadRequestError(
+      "پاسخ BSC Compose ساختار map (perspectives) ندارد یا خالی است",
+      502,
+    );
   }
 };
 
@@ -466,10 +689,9 @@ const extractGeneratedArtifact = (framework, aiResponse, { phase } = {}) => {
   if (framework === "BSC") {
     if (phase === "MAP_VALIDATION") {
       return (
-        aiResponse.map ??
+        extractBscMapArtifact(aiResponse) ??
         aiResponse.validated_map ??
         aiResponse.final_map ??
-        aiResponse.data?.map ??
         aiResponse.data?.validated_map ??
         aiResponse
       );
@@ -490,7 +712,7 @@ const extractGeneratedArtifact = (framework, aiResponse, { phase } = {}) => {
       );
     }
 
-    return aiResponse.map ?? aiResponse.data?.map ?? aiResponse;
+    return extractBscMapArtifact(aiResponse);
   }
 
   if (framework === "OKR") {
@@ -541,8 +763,7 @@ const buildBscMapResponse = (plan, map) => {
     };
   }
 
-  const currentMap =
-    map.finalData ?? map.editedData ?? map.initialData ?? null;
+  const currentMap = map.finalData ?? map.editedData ?? map.initialData ?? null;
 
   return {
     map: currentMap,
@@ -692,9 +913,7 @@ const buildOkrTableResponse = (aiRuns) => {
 };
 
 const formatStrategyPlan = (plan) => ({
-  id: plan.id,
   projectId: plan.projectId,
-  companyId: plan.companyId,
   framework: plan.framework,
   state: plan.state,
   status: plan.status,
@@ -702,39 +921,8 @@ const formatStrategyPlan = (plan) => ({
   updatedAt: plan.updatedAt,
 });
 
-const activeStrategyPlanInclude = {
-  project: {
-    select: {
-      id: true,
-      title: true,
-      creatorId: true,
-    },
-  },
-  maps: {
-    orderBy: [{ version: "desc" }, { createdAt: "desc" }],
-    take: 1,
-  },
-  approvals: {
-    orderBy: { approvedAt: "desc" },
-  },
-  aiRuns: {
-    where: { success: true },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  },
-};
-
-const findActiveStrategyPlan = async (user, { projectId, framework, companyId }) => {
-  const accessWhere = buildStrategyPlanAccessWhere(user);
-
-  return prisma.strategyPlan.findFirst({
-    where: {
-      ...accessWhere,
-      ...buildActivePlanWhere({ projectId, framework, companyId }),
-    },
-    include: activeStrategyPlanInclude,
-    orderBy: { updatedAt: "desc" },
-  });
+const prepareProjectForNewStrategyPlan = async ({ companyId, framework }) => {
+  await deleteStrategyPlansForCompanyFramework(companyId, framework);
 };
 
 const buildFullStrategyPlanPayload = async (plan) => {
@@ -742,7 +930,10 @@ const buildFullStrategyPlanPayload = async (plan) => {
     (approval) => approval.type === "MEASURES",
   );
   const continueAction = resolveContinueAction(plan.state);
-  const { stage, stageLabel } = resolveStageInfo(plan.state, hasMeasuresApproval);
+  const { stage, stageLabel } = resolveStageInfo(
+    plan.state,
+    hasMeasuresApproval,
+  );
 
   const payload = {
     strategyPlan: formatStrategyPlan(plan),
@@ -769,10 +960,17 @@ const buildFullStrategyPlanPayload = async (plan) => {
     payload.measures = await fetchMeasuresForPlan(plan.id);
   }
 
+  if (plan.state === "MONITORING") {
+    payload.monitoring = await fetchMonitoringForPlan(plan.id);
+  }
+
   return payload;
 };
 
-const createStrategyPlanService = async (user, { projectId, framework }) => {
+const createStrategyPlanService = async (
+  user,
+  { projectId, framework, restart = false },
+) => {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
     select: {
@@ -792,24 +990,10 @@ const createStrategyPlanService = async (user, { projectId, framework }) => {
 
   assertProjectAccess(project, user);
 
-  const existingPlan = await findActiveStrategyPlan(user, {
-    projectId: project.id,
-    framework,
+  await prepareProjectForNewStrategyPlan({
     companyId: project.companyId,
+    framework,
   });
-
-  if (existingPlan) {
-    const payload = await buildFullStrategyPlanPayload(existingPlan);
-    return {
-      ...payload,
-      existing: true,
-      projectTitle: existingPlan.project?.title || null,
-      message: buildResumeMessage(
-        existingPlan.framework,
-        payload.continueAction,
-      ),
-    };
-  }
 
   const finalAnalysis = project.finalAnalysis?.trim();
   if (!finalAnalysis) {
@@ -835,13 +1019,20 @@ const createStrategyPlanService = async (user, { projectId, framework }) => {
     },
   });
 
-  const requestPayload = buildAiPayload({
-    framework,
-    state: initialState,
-    strategyText: finalAnalysis,
-    companyProfile,
-    goals,
-  });
+  const requestPayload =
+    framework === "BSC"
+      ? buildBscComposePayload({
+          strategyAnalysis: finalAnalysis,
+          companyProfile,
+          // goals,
+        })
+      : buildAiPayload({
+          framework,
+          state: initialState,
+          strategyText: finalAnalysis,
+          companyProfile,
+          goals,
+        });
 
   const aiRun = await prisma.strategyAiRun.create({
     data: {
@@ -855,7 +1046,14 @@ const createStrategyPlanService = async (user, { projectId, framework }) => {
 
   let aiResponse;
   try {
-    aiResponse = await callStrategyAi(requestPayload);
+    if (framework === "BSC") {
+      aiResponse = await callBscComposeAi(requestPayload, {
+        projectId: project.id,
+        strategyPlanId: strategyPlan.id,
+      });
+    } else {
+      aiResponse = await callStrategyAi(requestPayload);
+    }
   } catch (error) {
     await recordFailedAiRun({
       aiRunId: aiRun.id,
@@ -868,7 +1066,15 @@ const createStrategyPlanService = async (user, { projectId, framework }) => {
   }
 
   const nextState = getNextStateAfterGeneration(framework);
-  const generatedArtifact = extractGeneratedArtifact(framework, aiResponse);
+  const generatedArtifact =
+    framework === "BSC"
+      ? extractBscMapArtifact(aiResponse)
+      : extractGeneratedArtifact(framework, aiResponse);
+
+  if (framework === "BSC") {
+    assertValidBscComposeMap(generatedArtifact);
+  }
+
   const finishedAt = new Date();
 
   const [, updatedPlan, strategyMap] = await prisma.$transaction(async (tx) => {
@@ -908,6 +1114,7 @@ const createStrategyPlanService = async (user, { projectId, framework }) => {
   if (framework === "BSC") {
     return {
       existing: false,
+      restarted: Boolean(restart),
       strategyPlan: formatStrategyPlan(updatedPlan),
       ...buildBscMapResponse(updatedPlan, strategyMap),
       map: strategyMap?.initialData ?? generatedArtifact,
@@ -917,6 +1124,7 @@ const createStrategyPlanService = async (user, { projectId, framework }) => {
 
   return {
     existing: false,
+    restarted: Boolean(restart),
     strategyPlan: formatStrategyPlan(updatedPlan),
     kpiTable: generatedArtifact,
     initialKpiTable: generatedArtifact,
@@ -926,47 +1134,52 @@ const createStrategyPlanService = async (user, { projectId, framework }) => {
   };
 };
 
-const getStrategyPlanByProjectService = async (user, projectId, framework) => {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: {
-      id: true,
-      title: true,
-      companyId: true,
-      creatorId: true,
-      accesses: {
-        select: { userId: true },
-      },
-    },
-  });
-
-  if (!project) {
-    createBadRequestError("پروژه یافت نشد", 404);
-  }
-
-  assertProjectAccess(project, user);
-
-  const plan = await findActiveStrategyPlan(user, {
-    projectId: project.id,
+const getActiveStrategyPlanService = async (user, framework) => {
+  const plan = await findActiveStrategyPlanForCompany(
+    user,
     framework,
-    companyId: project.companyId,
-  });
+    { include: ACTIVE_STRATEGY_PLAN_INCLUDE },
+  );
 
   if (!plan) {
     return {
       exists: false,
       canCreateNew: true,
+      canRestart: true,
     };
   }
+
+  assertStrategyPlanAccess(plan, user);
 
   const payload = await buildFullStrategyPlanPayload(plan);
 
   return {
     exists: true,
+    canRestart: true,
     ...payload,
-    projectTitle: project.title || null,
+    projectTitle: plan.project?.title || null,
     message: buildResumeMessage(plan.framework, payload.continueAction),
   };
+};
+
+const getStrategyPlanByProjectService = async (user, projectId, framework) => {
+  await loadProjectForUser(user, projectId);
+
+  const active = await getActiveStrategyPlanService(user, framework);
+
+  if (!active.exists) {
+    return active;
+  }
+
+  if (active.strategyPlan.projectId !== projectId) {
+    return {
+      exists: false,
+      canCreateNew: true,
+      canRestart: true,
+    };
+  }
+
+  return active;
 };
 
 const assertStrategyPlanAccess = (plan, user) => {
@@ -1018,13 +1231,15 @@ const validateBscMapService = async (user, strategyPlanId, editedMap) => {
   }
 
   const companyProfile = plan.companyProfile || {};
-  const goals = await fetchProjectGoals(plan.projectId);
-  const requestPayload = buildMapValidationPayload({
-    strategyText: plan.strategyText,
+  const strategyAnalysis = plan.strategyText?.trim();
+  if (!strategyAnalysis) {
+    createBadRequestError("متن استراتژی پروژه موجود نیست", 400);
+  }
+
+  const requestPayload = buildBscValidatePayload({
+    strategyAnalysis,
     companyProfile,
-    goals,
-    initialMap: strategyMap.initialData,
-    editedMap,
+    map: editedMap,
   });
 
   await prisma.strategyMap.update({
@@ -1047,7 +1262,10 @@ const validateBscMapService = async (user, strategyPlanId, editedMap) => {
 
   let aiResponse;
   try {
-    aiResponse = await callStrategyAi(requestPayload);
+    aiResponse = await callBscValidateAi(requestPayload, {
+      projectId: plan.projectId,
+      strategyPlanId: plan.id,
+    });
   } catch (error) {
     await recordFailedAiRun({
       aiRunId: aiRun.id,
@@ -1066,9 +1284,8 @@ const validateBscMapService = async (user, strategyPlanId, editedMap) => {
     throw error;
   }
 
-  const validatedMap = extractGeneratedArtifact("BSC", aiResponse, {
-    phase: "MAP_VALIDATION",
-  });
+  const validatedMap = extractBscMapArtifact(aiResponse);
+  assertValidBscComposeMap(validatedMap);
   const nextState = getNextStateAfterMapValidation();
   const finishedAt = new Date();
 
@@ -1131,11 +1348,14 @@ const approveBscMapAndGenerateKpisService = async (
   }
 
   const companyProfile = plan.companyProfile || {};
-  const goals = await fetchProjectGoals(plan.projectId);
+  const strategyAnalysis = plan.strategyText?.trim();
+  if (!strategyAnalysis) {
+    createBadRequestError("متن استراتژی پروژه موجود نیست", 400);
+  }
+
   const requestPayload = buildKpiGenerationPayload({
-    strategyText: plan.strategyText,
+    strategyAnalysis,
     companyProfile,
-    goals,
     approvedMap,
   });
 
@@ -1163,7 +1383,10 @@ const approveBscMapAndGenerateKpisService = async (
 
   let aiResponse;
   try {
-    aiResponse = await callStrategyAi(requestPayload);
+    aiResponse = await callBscKpiAi(requestPayload, {
+      projectId: plan.projectId,
+      strategyPlanId: plan.id,
+    });
   } catch (error) {
     await recordFailedAiRun({
       aiRunId: aiRun.id,
@@ -1416,214 +1639,15 @@ const validateOkrTableService = async (user, strategyPlanId, editedTable) => {
   };
 };
 
-const listPendingBscMapsService = async (user, query = {}) => {
-  const accessWhere = buildStrategyPlanAccessWhere(user);
-  const { page, limit, skip, search } = parseListQuery(query);
-  const framework = query.framework || "BSC";
-
-  const where = {
-    ...accessWhere,
-    framework,
-    state: { not: "FAILED" },
-    NOT: {
-      approvals: {
-        some: { type: "MAP" },
-      },
-    },
-    ...buildProjectTitleSearchFilter(search),
-  };
-
-  const [plans, totalItems] = await Promise.all([
-    prisma.strategyPlan.findMany({
-      where,
-      include: listStrategyPlanInclude,
-      orderBy: { updatedAt: "desc" },
-      skip,
-      take: limit,
-    }),
-    prisma.strategyPlan.count({ where }),
-  ]);
-
-  const items = plans.map((plan) => {
-    const item = formatStrategyPlanListItem(plan);
-    const latestMap = plan.maps[0] || null;
-
-    return {
-      ...item,
-      stage: "MAP",
-      continueAction: "MAP_VALIDATION",
-      map: latestMap
-        ? latestMap.finalData ?? latestMap.editedData ?? latestMap.initialData
-        : null,
-    };
-  });
-
-  return {
-    items,
-    pagination: buildPaginationMeta({ totalItems, page, limit }),
-  };
-};
-
-const listPendingMeasuresService = async (user, query = {}) => {
-  const accessWhere = buildStrategyPlanAccessWhere(user);
-  const { page, limit, skip, search } = parseListQuery(query);
-
-  const where = {
-    ...accessWhere,
-    state: { not: "FAILED" },
-    NOT: {
-      approvals: {
-        some: { type: "MEASURES" },
-      },
-    },
-    OR: [
-      {
-        framework: "BSC",
-        approvals: {
-          some: { type: "MAP" },
-        },
-        state: {
-          in: ["KPI_GENERATION", "KPI_VALIDATION"],
-        },
-      },
-      {
-        framework: "OKR",
-        state: {
-          in: ["TABLE_GENERATION", "TABLE_VALIDATION"],
-        },
-        aiRuns: {
-          some: {
-            state: "TABLE_GENERATION",
-            success: true,
-          },
-        },
-      },
-    ],
-    ...buildProjectTitleSearchFilter(search),
-  };
-
-  if (query.framework) {
-    where.OR = where.OR.filter((clause) => clause.framework === query.framework);
-  }
-
-  const [plans, totalItems] = await Promise.all([
-    prisma.strategyPlan.findMany({
-      where,
-      include: listStrategyPlanInclude,
-      orderBy: { updatedAt: "desc" },
-      skip,
-      take: limit,
-    }),
-    prisma.strategyPlan.count({ where }),
-  ]);
-
-  const items = plans.map((plan) => {
-    const item = formatStrategyPlanListItem(plan);
-
-    if (plan.framework === "BSC") {
-      const latestMap = plan.maps[0] || null;
-      return {
-        ...item,
-        stage: "MEASURES",
-        continueAction: "KPI_VALIDATION",
-        map: latestMap?.finalData ?? null,
-        kpiTable: resolveKpiTableFromAiRuns(plan.aiRuns),
-      };
-    }
-
-    return {
-      ...item,
-      stage: "MEASURES",
-      continueAction: "TABLE_VALIDATION",
-      kpiTable: resolveOkrTableFromAiRuns(plan.aiRuns),
-      table: resolveOkrTableFromAiRuns(plan.aiRuns),
-    };
-  });
-
-  return {
-    items,
-    pagination: buildPaginationMeta({ totalItems, page, limit }),
-  };
-};
-
-const listApprovedStrategyPlansService = async (user, query = {}) => {
-  const accessWhere = buildStrategyPlanAccessWhere(user);
-  const { page, limit, skip, search } = parseListQuery(query);
-
-  const where = {
-    ...accessWhere,
-    approvals: {
-      some: { type: "MEASURES" },
-    },
-    ...(query.framework ? { framework: query.framework } : {}),
-    ...(query.state ? { state: query.state } : {}),
-    ...buildProjectTitleSearchFilter(search),
-  };
-
-  const [plans, totalItems] = await Promise.all([
-    prisma.strategyPlan.findMany({
-      where,
-      include: listStrategyPlanInclude,
-      orderBy: { updatedAt: "desc" },
-      skip,
-      take: limit,
-    }),
-    prisma.strategyPlan.count({ where }),
-  ]);
-
-  const items = await Promise.all(
-    plans.map(async (plan) => {
-      const item = formatStrategyPlanListItem(plan);
-      const latestMap = plan.maps[0] || null;
-      const continueAction =
-        plan.state === "MONITORING" ? "MONITORING" : "READY_FOR_MONITORING";
-      const { stage, stageLabel } =
-        plan.state === "MONITORING"
-          ? { stage: "MONITORING", stageLabel: "پایش" }
-          : { stage: "APPROVED", stageLabel: "آماده پایش" };
-
-      const baseItem = {
-        ...item,
-        stage,
-        stageLabel,
-        continueAction,
-        measures: await fetchMeasuresForPlan(plan.id),
-      };
-
-      if (plan.framework === "BSC") {
-        return {
-          ...baseItem,
-          map: latestMap?.finalData ?? null,
-          kpiTable: resolveKpiTableFromAiRuns(plan.aiRuns, {
-            preferApproved: true,
-          }),
-        };
-      }
-
-      return {
-        ...baseItem,
-        kpiTable: resolveOkrTableFromAiRuns(plan.aiRuns, {
-          preferApproved: true,
-        }),
-        table: resolveOkrTableFromAiRuns(plan.aiRuns, { preferApproved: true }),
-      };
-    }),
-  );
-
-  return {
-    items,
-    pagination: buildPaginationMeta({ totalItems, page, limit }),
-  };
-};
-
-const approveBscKpisService = async (user, strategyPlanId, approvedKpiTable) => {
+const approveBscKpisService = async (
+  user,
+  strategyPlanId,
+  approvedKpiTable,
+) => {
   const plan = await loadStrategyPlanForUser(strategyPlanId, user);
 
   if (plan.framework !== "BSC") {
-    createBadRequestError(
-      "تایید KPI فقط برای framework نوع BSC مجاز است",
-      400,
-    );
+    createBadRequestError("تایید KPI فقط برای framework نوع BSC مجاز است", 400);
   }
 
   assertPlanState(plan, ["KPI_VALIDATION"], "تایید KPI");
@@ -1877,7 +1901,10 @@ const getStrategyPlanService = async (strategyPlanId, user) => {
     (approval) => approval.type === "MEASURES",
   );
   const continueAction = resolveContinueAction(plan.state);
-  const { stage, stageLabel } = resolveStageInfo(plan.state, hasMeasuresApproval);
+  const { stage, stageLabel } = resolveStageInfo(
+    plan.state,
+    hasMeasuresApproval,
+  );
 
   const response = {
     strategyPlan: formatStrategyPlan(plan),
@@ -1885,6 +1912,7 @@ const getStrategyPlanService = async (strategyPlanId, user) => {
     stage,
     stageLabel,
     hasMeasuresApproval,
+    canRestart: true,
   };
 
   if (plan.framework === "BSC") {
@@ -1906,8 +1934,199 @@ const getStrategyPlanService = async (strategyPlanId, user) => {
   return response;
 };
 
+const extractStrategyStatement = (aiResponse) => {
+  const raw =
+    aiResponse?.strategy_statement ??
+    aiResponse?.data?.strategy_statement ??
+    aiResponse?.strategyStatement ??
+    aiResponse?.data?.strategyStatement ??
+    null;
+
+  if (typeof raw !== "string") {
+    return null;
+  }
+
+  const statement = raw.trim();
+  return statement || null;
+};
+
+const translateStrategyAnalysisService = async (user, { projectId }) => {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      id: true,
+      companyId: true,
+      creatorId: true,
+      finalAnalysis: true,
+      accesses: {
+        select: { userId: true },
+      },
+    },
+  });
+
+  if (!project) {
+    createBadRequestError("پروژه یافت نشد", 404);
+  }
+
+  assertProjectAccess(project, user);
+
+  const strategyAnalysis = project.finalAnalysis?.trim();
+  if (!strategyAnalysis) {
+    createBadRequestError(
+      "تحلیل نهایی پروژه موجود نیست. ابتدا تحلیل نهایی را تکمیل کنید",
+      400,
+    );
+  }
+
+  const companyProfile = await buildCompanyProfile(project.companyId);
+  const requestPayload = buildStrategyTranslationPayload({
+    strategyAnalysis,
+    companyProfile,
+  });
+
+  const aiResponse = await callStrategyTranslationAi(requestPayload, {
+    projectId,
+  });
+  const strategyStatement = extractStrategyStatement(aiResponse);
+
+  if (!strategyStatement) {
+    createBadRequestError(
+      "پاسخ AI فیلد strategy_statement ندارد یا خالی است",
+      502,
+    );
+  }
+
+  return { strategy_statement: strategyStatement };
+};
+
+const validateBscMapByActiveService = async (user, framework, editedMap) => {
+  const plan = await loadActiveStrategyPlan(user, framework);
+  return validateBscMapService(user, plan.id, editedMap);
+};
+
+const approveBscMapByActiveService = async (
+  user,
+  framework,
+  approvedMap,
+) => {
+  const plan = await loadActiveStrategyPlan(user, framework);
+  return approveBscMapAndGenerateKpisService(user, plan.id, approvedMap);
+};
+
+const validateBscKpisByActiveService = async (
+  user,
+  framework,
+  editedKpiTable,
+) => {
+  const plan = await loadActiveStrategyPlan(user, framework);
+  return validateBscKpisService(user, plan.id, editedKpiTable);
+};
+
+const approveBscKpisByActiveService = async (
+  user,
+  framework,
+  approvedKpiTable,
+) => {
+  const plan = await loadActiveStrategyPlan(user, framework);
+  return approveBscKpisService(user, plan.id, approvedKpiTable);
+};
+
+const validateOkrTableByActiveService = async (
+  user,
+  framework,
+  editedTable,
+) => {
+  const plan = await loadActiveStrategyPlan(user, framework);
+  return validateOkrTableService(user, plan.id, editedTable);
+};
+
+const approveOkrTableByActiveService = async (
+  user,
+  framework,
+  approvedTable,
+) => {
+  const plan = await loadActiveStrategyPlan(user, framework);
+  return approveOkrTableService(user, plan.id, approvedTable);
+};
+
+const syncStrategyPlanMeasuresByActiveService = async (user, framework) => {
+  const plan = await loadActiveStrategyPlan(user, framework);
+  return syncStrategyPlanMeasuresService(user, plan.id);
+};
+
+const validateBscMapByProjectService = async (
+  user,
+  projectId,
+  framework,
+  editedMap,
+) => {
+  const plan = await loadStrategyPlanByProject(user, projectId, framework);
+  return validateBscMapService(user, plan.id, editedMap);
+};
+
+const approveBscMapByProjectService = async (
+  user,
+  projectId,
+  framework,
+  approvedMap,
+) => {
+  const plan = await loadStrategyPlanByProject(user, projectId, framework);
+  return approveBscMapAndGenerateKpisService(user, plan.id, approvedMap);
+};
+
+const validateBscKpisByProjectService = async (
+  user,
+  projectId,
+  framework,
+  editedKpiTable,
+) => {
+  const plan = await loadStrategyPlanByProject(user, projectId, framework);
+  return validateBscKpisService(user, plan.id, editedKpiTable);
+};
+
+const approveBscKpisByProjectService = async (
+  user,
+  projectId,
+  framework,
+  approvedKpiTable,
+) => {
+  const plan = await loadStrategyPlanByProject(user, projectId, framework);
+  return approveBscKpisService(user, plan.id, approvedKpiTable);
+};
+
+const validateOkrTableByProjectService = async (
+  user,
+  projectId,
+  framework,
+  editedTable,
+) => {
+  const plan = await loadStrategyPlanByProject(user, projectId, framework);
+  return validateOkrTableService(user, plan.id, editedTable);
+};
+
+const approveOkrTableByProjectService = async (
+  user,
+  projectId,
+  framework,
+  approvedTable,
+) => {
+  const plan = await loadStrategyPlanByProject(user, projectId, framework);
+  return approveOkrTableService(user, plan.id, approvedTable);
+};
+
+const syncStrategyPlanMeasuresByProjectService = async (
+  user,
+  projectId,
+  framework,
+) => {
+  const plan = await loadStrategyPlanByProject(user, projectId, framework);
+  return syncStrategyPlanMeasuresService(user, plan.id);
+};
+
 module.exports = {
   createStrategyPlanService,
+  translateStrategyAnalysisService,
+  getActiveStrategyPlanService,
   getStrategyPlanByProjectService,
   getStrategyPlanService,
   validateBscMapService,
@@ -1916,10 +2135,21 @@ module.exports = {
   validateOkrTableService,
   approveBscKpisService,
   approveOkrTableService,
-  listPendingBscMapsService,
-  listPendingMeasuresService,
-  listApprovedStrategyPlansService,
   syncStrategyPlanMeasuresService,
+  validateBscMapByActiveService,
+  approveBscMapByActiveService,
+  validateBscKpisByActiveService,
+  approveBscKpisByActiveService,
+  validateOkrTableByActiveService,
+  approveOkrTableByActiveService,
+  syncStrategyPlanMeasuresByActiveService,
+  validateBscMapByProjectService,
+  approveBscMapByProjectService,
+  validateBscKpisByProjectService,
+  approveBscKpisByProjectService,
+  validateOkrTableByProjectService,
+  approveOkrTableByProjectService,
+  syncStrategyPlanMeasuresByProjectService,
   fetchMeasuresForPlan,
   resolveKpiTableFromAiRuns,
   resolveOkrTableFromAiRuns,

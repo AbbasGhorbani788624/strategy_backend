@@ -27,12 +27,14 @@ const COMPANY_ADMIN_DATA_FIELDS = [
   "financeInformation",
   "externalInformation",
   "internalInformation",
+  "companyProfile",
 ];
 
 const COMPANY_ADMIN_DATA_FIELD_TO_PROMPT_KEY = {
-  financeInformation: "company finance information",
-  externalInformation: "company external information",
-  internalInformation: "company internal information",
+  financeInformation: "Company Additional Financial Information",
+  externalInformation: "Company Additional External Information",
+  internalInformation: "Company Additional Internal Information",
+  companyProfile: "company Profile",
 };
 
 const createBadRequestError = (message, statusCode) => {
@@ -227,22 +229,57 @@ const getSelectedAdminDataFields = (profileFields = []) => {
     .filter((fieldName) => COMPANY_ADMIN_DATA_FIELDS.includes(fieldName));
 };
 
-const normalizeCompanyAdminData = (data) => {
-  if (!data || typeof data !== "object") {
-    return {
-      financeInformation: "",
-      externalInformation: "",
-      internalInformation: "",
-    };
+const emptyCompanyAdminData = () => ({
+  financeInformation: "",
+  externalInformation: "",
+  internalInformation: "",
+  companyProfile: "",
+});
+
+const readCompanyAdminDataField = (data, field) => {
+  if (!data || typeof data !== "object") return "";
+
+  const promptKey = COMPANY_ADMIN_DATA_FIELD_TO_PROMPT_KEY[field];
+  const value = data[field] || data[promptKey] || data[`${field}Text`] || "";
+
+  if (field === "internalInformation" && !value) {
+    return typeof data.text === "string" ? data.text : "";
   }
 
-  const legacyText = typeof data.text === "string" ? data.text : "";
+  return typeof value === "string" ? value : String(value || "");
+};
+
+const normalizeCompanyAdminData = (data) => {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return emptyCompanyAdminData();
+  }
 
   return {
-    financeInformation: data.financeInformation || "",
-    externalInformation: data.externalInformation || "",
-    internalInformation: data.internalInformation || legacyText,
+    financeInformation: readCompanyAdminDataField(data, "financeInformation"),
+    externalInformation: readCompanyAdminDataField(data, "externalInformation"),
+    internalInformation: readCompanyAdminDataField(data, "internalInformation"),
+    companyProfile: readCompanyAdminDataField(data, "companyProfile"),
   };
+};
+
+const pickCompanyAdminDataFromPayload = (payload = {}, existing = null) => {
+  const next = normalizeCompanyAdminData(existing);
+
+  if (!payload || typeof payload !== "object") {
+    return next;
+  }
+
+  for (const field of COMPANY_ADMIN_DATA_FIELDS) {
+    const promptKey = COMPANY_ADMIN_DATA_FIELD_TO_PROMPT_KEY[field];
+    const value =
+      payload[field] ?? payload[promptKey] ?? payload[`${field}Text`];
+
+    if (value !== undefined && value !== null) {
+      next[field] = String(value);
+    }
+  }
+
+  return next;
 };
 
 const buildCompanyAdminDataForPrompt = (
@@ -315,123 +352,10 @@ const getCompanyProfileDataForForm = async (companyId, profileFields = []) => {
   };
 };
 
-const resolveNextProjectStep = ({ currentStatus }) => {
-  let nextStatus = currentStatus;
-  let transitionReason = null;
 
-  switch (currentStatus) {
-    case "ANALYSIS_PENDING":
-      nextStatus = "REVIEWING";
-      transitionReason = "INITIAL_ANALYSIS_GENERATED";
-      break;
 
-    case "REVIEWING":
-      nextStatus = "FINAL_ANALYSIS";
-      transitionReason = "INITIAL_ANALYSIS_APPROVED";
-      break;
 
-    case "FINAL_ANALYSIS":
-      nextStatus = "FINAL_ANALYSIS";
-      transitionReason = "FINAL_ANALYSIS_ALREADY_GENERATED";
-      break;
 
-    default:
-      nextStatus = currentStatus;
-      transitionReason = "UNKNOWN_STATUS";
-      break;
-  }
-
-  return {
-    nextStatus,
-    transitionReason,
-  };
-};
-
-const getPublishedPromptContentsForAnalysisForm = async (formId) => {
-  const promptDefinition = await prisma.promptDefinition.findFirst({
-    where: {
-      ownerType: "ANALYSIS_FORM",
-      analysisFormId: formId,
-    },
-    include: {
-      versions: {
-        where: {
-          status: "PUBLISHED",
-        },
-        orderBy: {
-          versionNumber: "desc",
-        },
-        take: 1,
-        include: {
-          values: {
-            include: {
-              segmentDefinition: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const publishedVersion = promptDefinition?.versions?.[0];
-
-  if (!publishedVersion) {
-    return {};
-  }
-
-  return publishedVersion.values.reduce((acc, item) => {
-    if (!item.content) return acc;
-
-    const key = item.segmentDefinition.key;
-    acc[key] = item.content;
-
-    return acc;
-  }, {});
-};
-
-const getPublishedPromptContentsForMultiAnalysisForm = async (
-  multiAnalysisFormId,
-) => {
-  const promptDefinition = await prisma.promptDefinition.findFirst({
-    where: {
-      ownerType: "MULTI_ANALYSIS_FORM",
-      multiAnalysisFormId,
-    },
-    include: {
-      versions: {
-        where: {
-          status: "PUBLISHED",
-        },
-        orderBy: {
-          versionNumber: "desc",
-        },
-        take: 1,
-        include: {
-          values: {
-            include: {
-              segmentDefinition: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const publishedVersion = promptDefinition?.versions?.[0];
-
-  if (!publishedVersion) {
-    return {};
-  }
-
-  return publishedVersion.values.reduce((acc, item) => {
-    if (!item.content) return acc;
-
-    const key = item.segmentDefinition.key;
-    acc[key] = item.content;
-
-    return acc;
-  }, {});
-};
 
 const buildRecipeSteps = (promptSegments, startStep = 1) => {
   if (!Array.isArray(promptSegments) || !promptSegments.length) return [];
@@ -551,82 +475,7 @@ const buildFinalAnalysisWithCorrectionPrompt = ({
   return JSON.stringify(promptObject, null, 2);
 };
 
-const parseFinalAnalysisResponse = (aiResponse) => {
-  const toText = (value) => {
-    if (value === null || value === undefined) return "";
 
-    if (typeof value === "string") return value.trim();
-
-    return JSON.stringify(value, null, 2);
-  };
-
-  const extractJsonText = (text) => {
-    if (!text || typeof text !== "string") return "";
-
-    let cleaned = text
-      .replace(/```json/gi, "")
-      .replace(/```/g, "")
-      .trim();
-
-    const firstBraceIndex = cleaned.indexOf("{");
-    const lastBraceIndex = cleaned.lastIndexOf("}");
-
-    if (
-      firstBraceIndex !== -1 &&
-      lastBraceIndex !== -1 &&
-      lastBraceIndex > firstBraceIndex
-    ) {
-      cleaned = cleaned.slice(firstBraceIndex, lastBraceIndex + 1);
-    }
-
-    return cleaned;
-  };
-
-  try {
-    const jsonText = extractJsonText(aiResponse);
-    const parsed = JSON.parse(jsonText);
-
-    const finalAnalysis = toText(
-      parsed.finalAnalysis ??
-        parsed.final_analysis ??
-        parsed.analysis ??
-        parsed.final ??
-        aiResponse ??
-        "",
-    );
-
-    const riskAnalysis = toText(
-      parsed.riskAnalysis ??
-        parsed.risk_analysis ??
-        parsed.risk ??
-        parsed.risks ??
-        finalAnalysis,
-    );
-
-    const summary = toText(
-      parsed.summary ??
-        parsed.summaryAnalysis ??
-        parsed.summary_analysis ??
-        parsed.executiveSummary ??
-        parsed.executive_summary ??
-        finalAnalysis,
-    );
-
-    return {
-      riskAnalysis: riskAnalysis || finalAnalysis,
-      finalAnalysis,
-      summary: summary || finalAnalysis,
-    };
-  } catch (error) {
-    const fallback = toText(aiResponse);
-
-    return {
-      riskAnalysis: fallback,
-      finalAnalysis: fallback,
-      summary: fallback,
-    };
-  }
-};
 
 const buildSelectedSourceProjectSummaries = (selectedSourceProjects = []) => {
   return selectedSourceProjects
@@ -676,73 +525,27 @@ const safeStringify = (value) => {
   }
 };
 
-const extractAnalysisData = (aiResponse) => {
-  const result = {
-    finalAnalysis: null,
-    riskAnalysis: null,
-    riskPercentage: null,
-    summaryAnalysis: null,
-    keyStrategicInsights: null,
-  };
 
-  if (!aiResponse?.final_output) {
-    return result;
-  }
-
-  try {
-    const cleanJson = aiResponse.final_output
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```$/i, "")
-      .trim();
-
-    const parsed = JSON.parse(cleanJson);
-
-    result.finalAnalysis = safeStringify(parsed?.final_analysis);
-
-    result.riskAnalysis = safeStringify(parsed?.risk_analysis);
-
-    result.riskPercentage = parsed?.risk_percentage
-      ? parseFloat(String(parsed.risk_percentage).replace("%", "").trim())
-      : null;
-
-    result.summaryAnalysis = safeStringify(parsed?.executive_summary);
-
-    result.keyStrategicInsights = safeStringify(parsed?.key_strategic_insights);
-
-    return result;
-  } catch (error) {
-    return {
-      finalAnalysis: safeStringify(aiResponse.final_output),
-      riskAnalysis: null,
-      riskPercentage: null,
-      summaryAnalysis: null,
-      keyStrategicInsights: null,
-    };
-  }
-};
 
 module.exports = {
   createBadRequestError,
   buildProjectAccessWhere,
-  resolveNextProjectStep,
-  getPublishedPromptContentsForAnalysisForm,
-  getPublishedPromptContentsForMultiAnalysisForm,
   isUuid,
   isEmpty,
   deletePhysicalFiles,
   getCompanyProfileDataForForm,
+  COMPANY_ADMIN_DATA_FIELDS,
+  COMPANY_ADMIN_DATA_FIELD_TO_PROMPT_KEY,
   normalizeCompanyAdminData,
+  pickCompanyAdminDataFromPayload,
   buildCompanyAdminDataForPrompt,
   buildInitialAnalysisPrompt,
   buildFinalAnalysisPrompt,
   buildFinalAnalysisWithCorrectionPrompt,
 
-  parseFinalAnalysisResponse,
   buildInitialMultiAnalysisPrompt,
   buildSelectedSourceProjectSummaries,
   getOrderedPromptSegments,
   pickPromptSegments,
-  extractAnalysisData,
   safeStringify,
 };

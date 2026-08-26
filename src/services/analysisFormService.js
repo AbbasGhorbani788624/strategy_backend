@@ -1,23 +1,17 @@
 const {
-  deleteFormRepo,
   getSingleForms,
   getAvailableMultiAnalysisFormsService,
 } = require("../repositories/analysisFormRepository");
 const {
   createBadRequestError,
-  resolveNextProjectStep,
-  getPublishedPromptContentsForAnalysisForm,
-  getPublishedPromptContentsForMultiAnalysisForm,
   getCompanyProfileDataForForm,
   buildInitialAnalysisPrompt,
   buildFinalAnalysisPrompt,
   buildFinalAnalysisWithCorrectionPrompt,
-  parseFinalAnalysisResponse,
   buildInitialMultiAnalysisPrompt,
   buildSelectedSourceProjectSummaries,
   getOrderedPromptSegments,
   pickPromptSegments,
-  extractAnalysisData,
   safeStringify,
 } = require("../utils");
 const prisma = require("../prismaClient");
@@ -141,10 +135,25 @@ const getProjectForm = async (project) => {
 };
 
 const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {
+  console.log("hello");
   const payload = typeof prompt === "string" ? JSON.parse(prompt) : prompt;
 
   const endpoint = mode === "MULTI" ? "full_analyze" : "analyze";
-  const url = `http://185.237.85.53:8080/${endpoint}`;
+  const url = `https://strategy.ratorai.com/ai/${endpoint}`;
+
+  console.log(
+    [
+      "",
+      "========== AI Analyze Request ==========",
+      `Mode     : ${mode}`,
+      `Endpoint : ${endpoint}`,
+      `URL      : ${url}`,
+      "Payload  :",
+      safeStringify(payload),
+      "========================================",
+      "",
+    ].join("\n"),
+  );
 
   try {
     const response = await axios.post(url, payload, {

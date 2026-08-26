@@ -1,3 +1,4 @@
+import "./admin-env.mjs";
 import { ComponentLoader } from "adminjs";
 import { ValidationError } from "adminjs";
 export const questionTypeValues = [

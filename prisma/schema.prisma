@@ -108,6 +108,8 @@ enum StrategyStatus {
 }
 
 enum StrategyState {
+  STRATEGY_TRANSLATION
+  
   MAP_GENERATION
   MAP_VALIDATION
 

@@ -4,90 +4,7 @@ const {
   COMPANY_PROFILE_INCLUDE,
 } = require("../utils/profileStatus");
 
-const deleteFormRepo = async (id) => {
-  return prisma.$transaction(async (tx) => {
-    const form = await tx.analysisForm.findUnique({
-      where: { id },
-      include: {
-        promptDefinition: {
-          include: {
-            versions: true,
-          },
-        },
-      },
-    });
 
-    if (!form) {
-      createBadRequestError("فرم پیدا نشد", 404);
-    }
-
-    const promptVersionIds =
-      form.promptDefinition?.versions?.map((v) => v.id) || [];
-
-    const relatedProject = await tx.project.findFirst({
-      where: {
-        OR: [
-          { analysisFormId: id },
-          ...(promptVersionIds.length
-            ? [{ promptVersionId: { in: promptVersionIds } }]
-            : []),
-        ],
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    if (relatedProject) {
-      createBadRequestError(
-        "این فرم در پروژه استفاده شده و قابل حذف نیست",
-        400,
-      );
-    }
-
-    await tx.formQuestion.deleteMany({
-      where: { formId: id },
-    });
-
-    await tx.formGoal.deleteMany({
-      where: { formId: id },
-    });
-
-    if (form.promptDefinition) {
-      const promptDefinitionId = form.promptDefinition.id;
-
-      await tx.promptVersionSegmentValue.deleteMany({
-        where: {
-          promptVersion: {
-            promptDefinitionId,
-          },
-        },
-      });
-
-      await tx.promptVersion.deleteMany({
-        where: {
-          promptDefinitionId,
-        },
-      });
-
-      await tx.promptSegmentDefinition.deleteMany({
-        where: {
-          promptDefinitionId,
-        },
-      });
-
-      await tx.promptDefinition.delete({
-        where: {
-          id: promptDefinitionId,
-        },
-      });
-    }
-
-    return tx.analysisForm.delete({
-      where: { id },
-    });
-  });
-};
 
 const getFormById = async (id) => {
   let form = await prisma.analysisForm.findUnique({
@@ -352,7 +269,6 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
 };
 
 module.exports = {
-  deleteFormRepo,
   getFormById,
   getSingleForms,
   getAvailableMultiAnalysisFormsService,

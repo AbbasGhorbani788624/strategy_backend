@@ -1,15 +1,1 @@
-basicInfo
-managers
-revenueCenters
-shareholders
-organizationUnits
-licenseCertificates
-memberships
-productServices
-markets
-keyCustomers
-balanceSheets
-incomeStatements
-keySuppliers
-rawMaterials
-resourceCapabilities
+https://strategy.ratorai.com/ai/

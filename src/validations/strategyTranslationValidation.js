@@ -5,14 +5,9 @@ const schema = yup.object().shape({
     .string()
     .uuid("شناسه پروژه معتبر نیست")
     .required("شناسه پروژه الزامی است"),
-  framework: yup
-    .string()
-    .oneOf(["BSC", "OKR"], "framework فقط می‌تواند BSC یا OKR باشد")
-    .required("framework الزامی است"),
-  restart: yup.boolean().optional().default(false),
 });
 
-exports.createStrategyPlanSchema = async (req, res, next) => {
+exports.strategyTranslationSchema = async (req, res, next) => {
   try {
     await schema.validate(req.body, { abortEarly: false });
     next();

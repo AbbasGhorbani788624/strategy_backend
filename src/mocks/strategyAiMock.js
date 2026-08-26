@@ -158,6 +158,16 @@ const withMockMeta = (data, state) => {
 const buildMockStrategyAiResponse = (payload) => {
   const { framework, state } = payload;
 
+  if (state === "STRATEGY_TRANSLATION") {
+    return withMockMeta(
+      {
+        strategy_text:
+          "متن استراتژی ترجمه‌شده نمونه: بر اساس تحلیل نهایی پروژه و پروفایل شرکت، اهداف کلیدی و مسیر اجرایی استخراج شده است.",
+      },
+      state,
+    );
+  }
+
   if (framework === "BSC" && state === "MAP_GENERATION") {
     return { map: withMockMeta(clone(MOCK_BSC_MAP), state) };
   }

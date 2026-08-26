@@ -3,6 +3,13 @@ const { createBadRequestError } = require("../utils");
 const {
   createStrategyFlowError,
 } = require("../utils/strategyPlanResume");
+const {
+  loadStrategyPlanByProject,
+  loadActiveStrategyPlan,
+  parseMeasureIndex,
+  parsePeriodIndex,
+  resolveMeasureIdForActivePlan,
+} = require("../utils/strategyPlanResolve");
 const { generateMonitoringPeriods } = require("../utils/measurePeriodUtils");
 
 const MONITORING_MEASURE_INCLUDE = {
@@ -196,8 +203,8 @@ const assertMonitoringLocked = (measure) => {
   }
 };
 
-const formatMeasureListItem = (measure) => ({
-  id: measure.id,
+const formatMeasureListItem = (measure, index = null) => ({
+  ...(index !== null && index !== undefined ? { index } : {}),
   name: measure.name,
   metric: measure.name,
   unit: measure.unit,
@@ -229,7 +236,7 @@ const formatOwner = (owner) => {
   };
 };
 
-const formatMonitoringResponse = (measure) => {
+const formatMonitoringResponse = (measure, measureIndex = null) => {
   const measurementMap = new Map(
     measure.measurements.map((item) => [
       `${item.periodStart.toISOString()}_${item.periodEnd.toISOString()}`,
@@ -238,11 +245,11 @@ const formatMonitoringResponse = (measure) => {
   );
 
   return {
-    monitoringId: measure.id,
-    measureId: measure.id,
+    ...(measureIndex !== null && measureIndex !== undefined
+      ? { measureIndex }
+      : {}),
     status: measure.monitoringStatus,
     measure: {
-      id: measure.id,
       name: measure.name,
       unit: measure.unit,
       frequency: measure.frequency,
@@ -256,12 +263,12 @@ const formatMonitoringResponse = (measure) => {
       measure.finalTarget !== null && measure.finalTarget !== undefined
         ? Number(measure.finalTarget)
         : null,
-    periods: measure.targets.map((target) => {
+    periods: measure.targets.map((target, periodIndex) => {
       const measurementKey = `${target.periodStart.toISOString()}_${target.periodEnd.toISOString()}`;
       const measurement = measurementMap.get(measurementKey);
 
       return {
-        id: target.id,
+        index: periodIndex,
         label: target.periodLabel,
         periodStart: target.periodStart,
         periodEnd: target.periodEnd,
@@ -279,7 +286,110 @@ const formatMonitoringResponse = (measure) => {
   };
 };
 
-const startMonitoringService = async (user, measureId) => {
+const resolveMeasureIdByProject = async (
+  user,
+  projectId,
+  framework,
+  measureIndexRaw,
+) => {
+  await loadStrategyPlanByProject(user, projectId, framework);
+  return resolveMeasureIdForActivePlan(user, framework, measureIndexRaw);
+};
+
+const startMonitoringByActiveService = async (
+  user,
+  framework,
+  measureIndexRaw,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdForActivePlan(
+    user,
+    framework,
+    measureIndexRaw,
+  );
+
+  return startMonitoringService(user, measureId, measureIndex);
+};
+
+const getMonitoringByActiveService = async (
+  user,
+  framework,
+  measureIndexRaw,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdForActivePlan(
+    user,
+    framework,
+    measureIndexRaw,
+  );
+
+  return getMonitoringService(user, measureId, measureIndex);
+};
+
+const updateMonitoringPlanningByActiveService = async (
+  user,
+  framework,
+  measureIndexRaw,
+  body,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdForActivePlan(
+    user,
+    framework,
+    measureIndexRaw,
+  );
+
+  return updateMonitoringPlanningService(
+    user,
+    measureId,
+    body,
+    measureIndex,
+  );
+};
+
+const confirmMonitoringByActiveService = async (
+  user,
+  framework,
+  measureIndexRaw,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdForActivePlan(
+    user,
+    framework,
+    measureIndexRaw,
+  );
+
+  return confirmMonitoringService(user, measureId, measureIndex);
+};
+
+const recordPeriodMeasurementByActiveService = async (
+  user,
+  framework,
+  measureIndexRaw,
+  periodIndexRaw,
+  actualValue,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdForActivePlan(
+    user,
+    framework,
+    measureIndexRaw,
+  );
+
+  return recordPeriodMeasurementService(
+    user,
+    measureId,
+    periodIndexRaw,
+    actualValue,
+    { measureIndex, usePeriodIndex: true },
+  );
+};
+
+const listStrategyPlanMeasuresByActiveService = async (
+  user,
+  framework,
+  query = {},
+) => {
+  const plan = await loadActiveStrategyPlan(user, framework);
+  return listStrategyPlanMeasuresService(user, plan.id, query);
+};
+
+const startMonitoringService = async (user, measureId, measureIndex = null) => {
   let measure = await loadMeasureForUser(measureId, user);
 
   if (measure.monitoringStatus === "LOCKED") {
@@ -287,7 +397,7 @@ const startMonitoringService = async (user, measureId) => {
   }
 
   if (measure.monitoringStatus === "DRAFT" && measure.targets.length > 0) {
-    return formatMonitoringResponse(measure);
+    return formatMonitoringResponse(measure, measureIndex);
   }
 
   const startDate = measure.monitoringStartDate || new Date();
@@ -380,30 +490,61 @@ const startMonitoringService = async (user, measureId) => {
     if (isConflict) {
       const existing = await loadExistingDraftMonitoring(measureId);
       if (existing) {
-        return formatMonitoringResponse(existing);
+        return formatMonitoringResponse(existing, measureIndex);
       }
     }
 
     throw error;
   }
 
-  return formatMonitoringResponse(measure);
+  return formatMonitoringResponse(measure, measureIndex);
 };
 
-const getMonitoringService = async (user, monitoringId) => {
+const getMonitoringService = async (user, monitoringId, measureIndex = null) => {
   const measure = await loadMeasureForUser(monitoringId, user);
 
   if (!measure.monitoringStatus) {
     createBadRequestError("Monitoring برای این سنجه شروع نشده است", 404);
   }
 
-  return formatMonitoringResponse(measure);
+  return formatMonitoringResponse(measure, measureIndex);
+};
+
+const resolvePeriodTarget = (measure, periodInput) => {
+  if (
+    periodInput?.periodIndex !== undefined &&
+    periodInput?.periodIndex !== null
+  ) {
+    const periodIndex = parsePeriodIndex(periodInput.periodIndex);
+
+    if (periodIndex >= measure.targets.length) {
+      createBadRequestError(`period با index ${periodIndex} یافت نشد`, 404);
+    }
+
+    return measure.targets[periodIndex];
+  }
+
+  if (periodInput?.periodId) {
+    const target = measure.targets.find((item) => item.id === periodInput.periodId);
+
+    if (!target) {
+      createBadRequestError(
+        `period با شناسه ${periodInput.periodId} یافت نشد`,
+        404,
+      );
+    }
+
+    return target;
+  }
+
+  createBadRequestError("periodIndex یا periodId برای هر period الزامی است", 400);
 };
 
 const updateMonitoringPlanningService = async (
   user,
   monitoringId,
   { ownerId, finalTarget, periods },
+  measureIndex = null,
 ) => {
   const measure = await loadMeasureForUser(monitoringId, user);
   assertMonitoringEditable(measure);
@@ -436,12 +577,10 @@ const updateMonitoringPlanningService = async (
   const targetMap = new Map(measure.targets.map((target) => [target.id, target]));
 
   for (const periodInput of periods) {
-    if (!periodInput?.periodId) {
-      createBadRequestError("periodId برای هر period الزامی است", 400);
-    }
+    const target = resolvePeriodTarget(measure, periodInput);
 
-    if (!targetMap.has(periodInput.periodId)) {
-      createBadRequestError(`period با شناسه ${periodInput.periodId} یافت نشد`, 400);
+    if (!targetMap.has(target.id)) {
+      createBadRequestError(`period با index ${periodInput.periodIndex ?? periodInput.periodId} یافت نشد`, 404);
     }
 
     if (
@@ -451,6 +590,8 @@ const updateMonitoringPlanningService = async (
     ) {
       createBadRequestError("targetValue برای همه periodها الزامی است", 400);
     }
+
+    periodInput.periodId = target.id;
   }
 
   if (periods.length !== measure.targets.length) {
@@ -504,10 +645,14 @@ const updateMonitoringPlanningService = async (
     });
   });
 
-  return formatMonitoringResponse(updatedMeasure);
+  return formatMonitoringResponse(updatedMeasure, measureIndex);
 };
 
-const confirmMonitoringService = async (user, monitoringId) => {
+const confirmMonitoringService = async (
+  user,
+  monitoringId,
+  measureIndex = null,
+) => {
   const measure = await loadMeasureForUser(monitoringId, user);
   assertMonitoringEditable(measure);
 
@@ -562,21 +707,34 @@ const confirmMonitoringService = async (user, monitoringId) => {
     },
   });
 
-  return formatMonitoringResponse(updatedMeasure);
+  return formatMonitoringResponse(updatedMeasure, measureIndex);
 };
 
 const recordPeriodMeasurementService = async (
   user,
   monitoringId,
-  periodId,
+  periodRef,
   actualValue,
+  { measureIndex = null, usePeriodIndex = false } = {},
 ) => {
   const measure = await loadMeasureForUser(monitoringId, user);
   assertMonitoringLocked(measure);
 
-  const target = measure.targets.find((item) => item.id === periodId);
-  if (!target) {
-    createBadRequestError("period یافت نشد", 404);
+  let target;
+
+  if (usePeriodIndex) {
+    const periodIndex = parsePeriodIndex(periodRef);
+    target = measure.targets[periodIndex];
+
+    if (!target) {
+      createBadRequestError("period یافت نشد", 404);
+    }
+  } else {
+    target = measure.targets.find((item) => item.id === periodRef);
+
+    if (!target) {
+      createBadRequestError("period یافت نشد", 404);
+    }
   }
 
   if (
@@ -637,7 +795,133 @@ const recordPeriodMeasurementService = async (
     },
   });
 
-  return formatMonitoringResponse(updatedMeasure);
+  return formatMonitoringResponse(updatedMeasure, measureIndex);
+};
+
+const fetchMonitoringForPlan = async (strategyPlanId) => {
+  const measures = await prisma.strategyMeasure.findMany({
+    where: { strategyPlanId },
+    orderBy: { createdAt: "asc" },
+    include: {
+      owner: {
+        select: {
+          id: true,
+          username: true,
+          userInfo: { select: { firstName: true, lastName: true } },
+        },
+      },
+      targets: { orderBy: [{ periodStart: "asc" }] },
+      measurements: { orderBy: [{ periodStart: "asc" }] },
+    },
+  });
+
+  return measures
+    .filter((measure) => measure.monitoringStatus)
+    .map((measure, index) => formatMonitoringResponse(measure, index));
+};
+
+const startMonitoringByProjectService = async (
+  user,
+  projectId,
+  framework,
+  measureIndexRaw,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdByProject(
+    user,
+    projectId,
+    framework,
+    measureIndexRaw,
+  );
+
+  return startMonitoringService(user, measureId, measureIndex);
+};
+
+const getMonitoringByProjectService = async (
+  user,
+  projectId,
+  framework,
+  measureIndexRaw,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdByProject(
+    user,
+    projectId,
+    framework,
+    measureIndexRaw,
+  );
+
+  return getMonitoringService(user, measureId, measureIndex);
+};
+
+const updateMonitoringPlanningByProjectService = async (
+  user,
+  projectId,
+  framework,
+  measureIndexRaw,
+  body,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdByProject(
+    user,
+    projectId,
+    framework,
+    measureIndexRaw,
+  );
+
+  return updateMonitoringPlanningService(
+    user,
+    measureId,
+    body,
+    measureIndex,
+  );
+};
+
+const confirmMonitoringByProjectService = async (
+  user,
+  projectId,
+  framework,
+  measureIndexRaw,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdByProject(
+    user,
+    projectId,
+    framework,
+    measureIndexRaw,
+  );
+
+  return confirmMonitoringService(user, measureId, measureIndex);
+};
+
+const recordPeriodMeasurementByProjectService = async (
+  user,
+  projectId,
+  framework,
+  measureIndexRaw,
+  periodIndexRaw,
+  actualValue,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdByProject(
+    user,
+    projectId,
+    framework,
+    measureIndexRaw,
+  );
+
+  return recordPeriodMeasurementService(
+    user,
+    measureId,
+    periodIndexRaw,
+    actualValue,
+    { measureIndex, usePeriodIndex: true },
+  );
+};
+
+const listStrategyPlanMeasuresByProjectService = async (
+  user,
+  projectId,
+  framework,
+  query = {},
+) => {
+  const plan = await loadStrategyPlanByProject(user, projectId, framework);
+  return listStrategyPlanMeasuresService(user, plan.id, query);
 };
 
 const listStrategyPlanMeasuresService = async (user, strategyPlanId, query = {}) => {
@@ -705,7 +989,7 @@ const listStrategyPlanMeasuresService = async (user, strategyPlanId, query = {})
   ]);
 
   return {
-    items: measures.map(formatMeasureListItem),
+    items: measures.map((measure, index) => formatMeasureListItem(measure, index)),
     pagination: buildPaginationMeta({ totalItems, page, limit }),
   };
 };
@@ -717,5 +1001,18 @@ module.exports = {
   confirmMonitoringService,
   recordPeriodMeasurementService,
   listStrategyPlanMeasuresService,
+  startMonitoringByActiveService,
+  getMonitoringByActiveService,
+  updateMonitoringPlanningByActiveService,
+  confirmMonitoringByActiveService,
+  recordPeriodMeasurementByActiveService,
+  listStrategyPlanMeasuresByActiveService,
+  startMonitoringByProjectService,
+  getMonitoringByProjectService,
+  updateMonitoringPlanningByProjectService,
+  confirmMonitoringByProjectService,
+  recordPeriodMeasurementByProjectService,
+  listStrategyPlanMeasuresByProjectService,
+  fetchMonitoringForPlan,
   formatMeasureListItem,
 };

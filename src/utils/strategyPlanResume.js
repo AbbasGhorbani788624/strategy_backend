@@ -7,6 +7,12 @@ const buildActivePlanWhere = ({ projectId, framework, companyId }) => ({
   status: { notIn: INACTIVE_STRATEGY_STATUSES },
 });
 
+const buildActiveCompanyPlanWhere = ({ companyId, framework }) => ({
+  companyId,
+  framework,
+  status: { notIn: INACTIVE_STRATEGY_STATUSES },
+});
+
 const resolveContinueAction = (state) => {
   const mapping = {
     MAP_GENERATION: "MAP_VALIDATION",
@@ -91,6 +97,7 @@ const assertPlanState = (plan, allowedStates, actionLabel = "این عملیات
 module.exports = {
   INACTIVE_STRATEGY_STATUSES,
   buildActivePlanWhere,
+  buildActiveCompanyPlanWhere,
   resolveContinueAction,
   resolveStageInfo,
   buildResumeMessage,

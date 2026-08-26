@@ -12,6 +12,7 @@ const {
   deletePhysicalFile,
   isEmpty,
   isUuid,
+  normalizeCompanyAdminData,
 } = require("../utils");
 const { hashPassword } = require("../utils/auth");
 const prisma = require("../prismaClient");
@@ -413,6 +414,10 @@ const getCompanyProfile = async (companyId, userId) => {
     orderBy: [{ createdAt: "asc" }],
   });
 
+  const companyAdminDataRecord = await prisma.companyAdminData.findUnique({
+    where: { companyId },
+  });
+
   return {
     userInfo: {
       id: userInfo.id,
@@ -442,6 +447,12 @@ const getCompanyProfile = async (companyId, userId) => {
     incomeStatements,
     suppliers,
     rawMaterials,
+    companyAdminData: companyAdminDataRecord
+      ? {
+          id: companyAdminDataRecord.id,
+          data: normalizeCompanyAdminData(companyAdminDataRecord.data),
+        }
+      : null,
   };
 };
 

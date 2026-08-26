@@ -79,8 +79,16 @@ const isProfileFieldCompleted = (company, profileFieldKey) => {
 
     const legacyText =
       typeof rawData.text === "string" ? rawData.text : undefined;
+    const promptKeyMap = {
+      financeInformation: "Company Additional Financial Information",
+      externalInformation: "Company Additional External Information",
+      internalInformation: "Company Additional Internal Information",
+      companyProfile: "company Profile",
+    };
+
     const value =
       rawData[field] ??
+      rawData[promptKeyMap[field]] ??
       (field === "internalInformation" ? legacyText : undefined);
 
     return isFilled(value);

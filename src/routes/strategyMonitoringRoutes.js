@@ -8,13 +8,113 @@ const {
   updateMonitoringPlanning,
   confirmMonitoring,
   recordPeriodMeasurement,
+  startMonitoringByActive,
+  getMonitoringByActive,
+  updateMonitoringPlanningByActive,
+  confirmMonitoringByActive,
+  recordPeriodMeasurementByActive,
+  startMonitoringByProject,
+  getMonitoringByProject,
+  updateMonitoringPlanningByProject,
+  confirmMonitoringByProject,
+  recordPeriodMeasurementByProject,
 } = require("../controllers/strategyMonitoringController");
 const {
   updateMonitoringPlanningSchema,
   recordPeriodMeasurementSchema,
 } = require("../validations/strategyMonitoringValidation");
+const {
+  strategyPlanByProjectQuerySchema,
+} = require("../validations/strategyPlanByProjectQueryValidation");
 
-// POST — شروع Planning/Monitoring برای یک KPI؛ body ندارد → ساخت periodها و { monitoringId, measure, periods[] }
+// --- plan فعال شرکت (از companyId توکن) + measureIndex ---
+
+router.post(
+  "/measures/:measureIndex/monitoring",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  startMonitoringByActive,
+);
+
+router.get(
+  "/measures/:measureIndex/monitoring",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  getMonitoringByActive,
+);
+
+router.patch(
+  "/measures/:measureIndex/monitoring/planning",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  updateMonitoringPlanningSchema,
+  updateMonitoringPlanningByActive,
+);
+
+router.post(
+  "/measures/:measureIndex/monitoring/confirm",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  confirmMonitoringByActive,
+);
+
+router.patch(
+  "/measures/:measureIndex/monitoring/periods/:periodIndex/measurement",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  recordPeriodMeasurementSchema,
+  recordPeriodMeasurementByActive,
+);
+
+// --- legacy: by-project (deprecated) ---
+router.post(
+  "/by-project/:projectId/measures/:measureIndex/monitoring",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  startMonitoringByProject,
+);
+
+router.get(
+  "/by-project/:projectId/measures/:measureIndex/monitoring",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  getMonitoringByProject,
+);
+
+router.patch(
+  "/by-project/:projectId/measures/:measureIndex/monitoring/planning",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  updateMonitoringPlanningSchema,
+  updateMonitoringPlanningByProject,
+);
+
+router.post(
+  "/by-project/:projectId/measures/:measureIndex/monitoring/confirm",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  confirmMonitoringByProject,
+);
+
+router.patch(
+  "/by-project/:projectId/measures/:measureIndex/monitoring/periods/:periodIndex/measurement",
+  auth,
+  roleGuard(["COMPANY", "MEMBER"]),
+  strategyPlanByProjectQuerySchema,
+  recordPeriodMeasurementSchema,
+  recordPeriodMeasurementByProject,
+);
+
+// --- legacy: UUID ---
 router.post(
   "/measures/:measureId/monitoring",
   auth,
@@ -22,7 +122,6 @@ router.post(
   startMonitoring,
 );
 
-// GET — دریافت جدول پایش؛ param: monitoringId (= measureId) → { status, owner, finalTarget, periods[] }
 router.get(
   "/monitoring/:monitoringId",
   auth,
@@ -30,7 +129,6 @@ router.get(
   getMonitoring,
 );
 
-// PATCH — ذخیره Planning (owner + finalTarget + target هر period)؛ body: { ownerId, finalTarget, periods[] }
 router.patch(
   "/monitoring/:monitoringId/planning",
   auth,
@@ -39,7 +137,6 @@ router.patch(
   updateMonitoringPlanning,
 );
 
-// POST — Lock کردن Planning پس از تکمیل Targetها؛ body ندارد → status: LOCKED
 router.post(
   "/monitoring/:monitoringId/confirm",
   auth,
@@ -47,7 +144,6 @@ router.post(
   confirmMonitoring,
 );
 
-// PATCH — ثبت Actual یک period (فقط بعد از Lock)؛ body: { actualValue }
 router.patch(
   "/monitoring/:monitoringId/periods/:periodId/measurement",
   auth,

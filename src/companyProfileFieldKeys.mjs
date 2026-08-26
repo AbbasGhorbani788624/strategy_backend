@@ -151,9 +151,10 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
   ],
 
   COMPANY_ADMIN_DATA: [
-    { value: "financeInformation", label: "اطلاعات مالی شرکت" },
-    { value: "externalInformation", label: "اطلاعات خارجی شرکت" },
-    { value: "internalInformation", label: "اطلاعات داخلی شرکت" },
+    { value: "financeInformation", label: "اطلاعات مالی تکمیلی شرکت" },
+    { value: "externalInformation", label: "اطلاعات خارجی تکمیلی شرکت" },
+    { value: "internalInformation", label: "اطلاعات داخلی تکمیلی شرکت" },
+    { value: "companyProfile", label: "پروفایل شرکت" },
   ],
 };
 

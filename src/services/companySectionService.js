@@ -1,7 +1,40 @@
 const sectionModels = require("./companySectionModels");
 const prisma = require("../prismaClient");
 const fileConfigs = require("../configs/companySectionFiles");
-const { deletePhysicalFiles, createBadRequestError } = require("../utils");
+const {
+  deletePhysicalFiles,
+  createBadRequestError,
+  pickCompanyAdminDataFromPayload,
+} = require("../utils");
+
+const COMPANY_ADMIN_DATA_SECTION = "companyAdminData";
+
+async function upsertCompanyAdminData(companyId, payload, existingRecord = null) {
+  const existing =
+    existingRecord ||
+    (await prisma.companyAdminData.findUnique({
+      where: { companyId },
+    }));
+
+  const adminData = pickCompanyAdminDataFromPayload(
+    payload,
+    existing?.data ?? null,
+  );
+
+  if (existing) {
+    return prisma.companyAdminData.update({
+      where: { id: existing.id },
+      data: { data: adminData },
+    });
+  }
+
+  return prisma.companyAdminData.create({
+    data: {
+      companyId,
+      data: adminData,
+    },
+  });
+}
 
 function getModel(client, section) {
   const modelName = sectionModels[section];
@@ -24,6 +57,14 @@ function buildInclude(section) {
 }
 
 exports.create = async (companyId, section, data, files, uploadedById) => {
+  if (section === COMPANY_ADMIN_DATA_SECTION) {
+    if (!companyId) {
+      createBadRequestError("شناسه شرکت الزامی است", 400);
+    }
+
+    return upsertCompanyAdminData(companyId, data);
+  }
+
   return await prisma.$transaction(async (tx) => {
     const model = getModel(tx, section);
 
@@ -66,10 +107,19 @@ exports.create = async (companyId, section, data, files, uploadedById) => {
 };
 
 exports.update = async (section, id, data, files, uploadedById) => {
+  if (section === COMPANY_ADMIN_DATA_SECTION) {
+    const current = await prisma.companyAdminData.findUnique({
+      where: { id },
+    });
+
+    if (!current) {
+      createBadRequestError("رکورد موردنظر یافت نشد.", 404);
+    }
+
+    return upsertCompanyAdminData(current.companyId, data, current);
+  }
+
   const filesToDelete = [];
-  const current = await prisma.organizationUnit.findUnique({
-    where: { id },
-  });
 
   const result = await prisma.$transaction(async (tx) => {
     const model = getModel(tx, section);
@@ -153,6 +203,22 @@ exports.update = async (section, id, data, files, uploadedById) => {
 };
 
 exports.remove = async (section, id) => {
+  if (section === COMPANY_ADMIN_DATA_SECTION) {
+    const record = await prisma.companyAdminData.findUnique({
+      where: { id },
+    });
+
+    if (!record) {
+      createBadRequestError("رکورد یافت نشد.", 404);
+    }
+
+    await prisma.companyAdminData.delete({
+      where: { id },
+    });
+
+    return;
+  }
+
   const filesToDelete = [];
 
   try {
