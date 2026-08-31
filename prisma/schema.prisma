@@ -92,7 +92,6 @@ enum TargetMarketType {
   INDIVIDUAL
 }
 
-//////
 enum StrategyFramework {
   BSC
   OKR
@@ -167,6 +166,19 @@ enum StrategyApprovalType {
   MAP
   MEASURES
 }
+
+enum ProjectPlanStatus {
+  DRAFT
+  LOCKED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ProjectPlanActionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
 /////
 
 
@@ -208,6 +220,7 @@ model User {
   strategyMeasuresOwned      StrategyMeasure[]          @relation("StrategyMeasureOwner")
   strategyMeasuresApproved   StrategyMeasure[]          @relation("StrategyMeasureApprovedBy")
   strategyMeasurementsSubmitted StrategyMeasureMeasurement[] @relation("StrategyMeasurementSubmittedBy")
+  projectPlanActions          ProjectPlanAction[]          @relation("ProjectPlanActionExecutor")
 
   @@index([role])
   @@index([companyId])
@@ -365,6 +378,7 @@ model Project {
   usedInMultiProjects    MultiAnalysisProjectSource[] @relation("SourceProjectUsedInMulti")
   bookmarks              ProjectBookmark[]
   strategyPlans StrategyPlan[]
+  projectPlan            ProjectPlan?
 
   @@index([status])
   @@index([companyId])
@@ -1617,4 +1631,47 @@ model StrategyApproval {
 
   @@index([strategyPlanId])
   @@index([type])
+}
+
+model ProjectPlan {
+  id        String            @id @default(uuid())
+  projectId String            @unique
+  status    ProjectPlanStatus @default(DRAFT)
+  lockedAt  DateTime?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  project Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actions ProjectPlanAction[]
+
+  @@index([status])
+}
+
+model ProjectPlanAction {
+  id                   String                  @id @default(uuid())
+  planId               String
+  title                String                  @db.Text
+  description          String?                 @db.Text
+  startDate            DateTime?
+  endDate              DateTime?
+  executorId           String?
+  progress             Int                     @default(0)
+  status               ProjectPlanActionStatus @default(NOT_STARTED)
+  completedAt          DateTime?
+  order                Int
+  prerequisiteActionId String?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  plan               ProjectPlan         @relation(fields: [planId], references: [id], onDelete: Cascade)
+  executor           User?               @relation("ProjectPlanActionExecutor", fields: [executorId], references: [id], onDelete: SetNull)
+  prerequisiteAction ProjectPlanAction?  @relation("ProjectPlanActionDependency", fields: [prerequisiteActionId], references: [id], onDelete: SetNull)
+  dependentActions   ProjectPlanAction[] @relation("ProjectPlanActionDependency")
+
+  @@index([planId])
+  @@index([executorId])
+  @@index([prerequisiteActionId])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
 }

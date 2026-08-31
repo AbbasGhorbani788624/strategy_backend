@@ -22,6 +22,8 @@ const bookmarkRoutes = require("./routes/bookmarkRoutes");
 const chatRoutes = require("./routes/chat");
 const strategyPlanRoutes = require("./routes/strategyPlanRoutes");
 const strategyMonitoringRoutes = require("./routes/strategyMonitoringRoutes");
+const projectPlanRoutes = require("./routes/projectPlanRoutes");
+const projectPlanActionRoutes = require("./routes/projectPlanActionRoutes");
 
 
 const limiter = rateLimit({
@@ -86,6 +88,8 @@ app.use("/api/bookmark", bookmarkRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/strategy-plans", strategyPlanRoutes);
 app.use("/api/strategy", strategyMonitoringRoutes);
+app.use("/api/project-plans", projectPlanRoutes);
+app.use("/api/project-plan-actions", projectPlanActionRoutes);
 
 
 app.use((req, res) => {

@@ -28,6 +28,10 @@ const {
 const {
   projectAccessSchema,
 } = require("../validations/projectAccessValidation");
+const {
+  createProjectPlan,
+  getProjectPlanByProject,
+} = require("../controllers/projectPlanController");
 
 //گرفتن 10 پروژه با بیشترین امتیاز
 router.get("/top-rated", auth, getTopRatedProjectsHandler);
@@ -74,8 +78,14 @@ router.get(
   getSelectableProjectsForMultiAnalysisController,
 );
 
+const companyOnly = roleGuard(["COMPANY", "SUPER_ADMIN"]);
+
 //گرفتن وضعیت تحلیل پروژه
 router.get("/:id/analysis-status", auth, getProjectAnalysisStatus);
+
+// Project Planning & Control — برنامه پروژه
+router.post("/:projectId/plan", auth, companyOnly, createProjectPlan);
+router.get("/:projectId/plan", auth, companyOnly, getProjectPlanByProject);
 
 //گرفتن پروژه
 router.get("/:id", auth, getProject);

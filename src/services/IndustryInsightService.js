@@ -3,9 +3,18 @@ const prisma = require("../prismaClient");
 const INDUSTRY_INSIGHT_API_URL = "https://strategy.ratorai.com/ai/industry";
 
 const syncIndustryInsightService = async (companyId) => {
-  if (!companyId) return null;
+  console.log("========================================");
+  console.log("[IndustryInsight] SERVICE START");
+  console.log("[IndustryInsight] companyId:", companyId);
+
+  if (!companyId) {
+    console.log("[IndustryInsight] companyId is missing");
+    return null;
+  }
 
   try {
+    console.log("[IndustryInsight] STEP 1: Fetching company...");
+
     const company = await prisma.company.findUnique({
       where: { id: companyId },
       select: {
@@ -18,23 +27,60 @@ const syncIndustryInsightService = async (companyId) => {
       },
     });
 
+    console.log("[IndustryInsight] STEP 2: Company result:", company);
+
+    if (!company) {
+      console.error(
+        "[IndustryInsight] Company not found:",
+        companyId,
+      );
+      return null;
+    }
+
+    if (!company.industry) {
+      console.error(
+        "[IndustryInsight] Company industry is missing:",
+        companyId,
+      );
+      return null;
+    }
+
     const industry = company.industry.trim();
     const region = company.basicInfo?.region || "IRAN";
 
-    console.log("[IndustryInsight] Request:", { companyId, industry, region });
+    const payload = {
+      industry,
+      region,
+    };
+
+    console.log("[IndustryInsight] STEP 3: Preparing request");
+    console.log("[IndustryInsight] URL:", INDUSTRY_INSIGHT_API_URL);
+    console.log("[IndustryInsight] Payload:", payload);
+
+    console.log("[IndustryInsight] STEP 4: ABOUT TO SEND REQUEST");
+
+    const startTime = Date.now();
 
     const response = await axios.post(
       INDUSTRY_INSIGHT_API_URL,
-      {
-        industry,
-        region,
-      },
+      payload,
       {
         timeout: 120000,
+        headers: {
+          "Content-Type": "application/json",
+        },
       },
     );
 
+    console.log(
+      "[IndustryInsight] STEP 5: REQUEST COMPLETED",
+      `${Date.now() - startTime}ms`,
+    );
+
+    console.log("[IndustryInsight] Status:", response.status);
     console.log("[IndustryInsight] Response:", response.data);
+
+    console.log("[IndustryInsight] STEP 6: Saving insight...");
 
     await prisma.industryInsight.create({
       data: {
@@ -44,45 +90,57 @@ const syncIndustryInsightService = async (companyId) => {
       },
     });
 
+    console.log("[IndustryInsight] STEP 7: Insight saved");
+    console.log("[IndustryInsight] SERVICE SUCCESS");
+    console.log("========================================");
+
     return response.data;
   } catch (error) {
-    const toPlain = (value) => {
-      if (value == null) return value;
-      try {
-        return JSON.parse(JSON.stringify(value));
-      } catch {
-        return String(value);
-      }
-    };
+    console.error("========================================");
+    console.error("[IndustryInsight] SERVICE FAILED");
+
+    console.error("[IndustryInsight] name:", error.name);
+    console.error("[IndustryInsight] message:", error.message);
+    console.error("[IndustryInsight] code:", error.code);
 
     console.error(
-      "[IndustryInsight] Sync failed:\n" +
-        JSON.stringify(
-          {
-            companyId,
-            name: error.name,
-            message: error.message,
-            code: error.code,
-            isAxiosError: error.isAxiosError === true,
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            responseData: toPlain(error.response?.data),
-            responseHeaders: toPlain(error.response?.headers),
-            request: error.config
-              ? {
-                  method: error.config.method,
-                  url: error.config.url,
-                  timeout: error.config.timeout,
-                  data: toPlain(error.config.data),
-                  headers: toPlain(error.config.headers),
-                }
-              : undefined,
-            stack: error.stack,
-          },
-          null,
-          2,
-        ),
+      "[IndustryInsight] isAxiosError:",
+      error.isAxiosError,
     );
+
+    console.error(
+      "[IndustryInsight] response status:",
+      error.response?.status,
+    );
+
+    console.error(
+      "[IndustryInsight] response data:",
+      error.response?.data,
+    );
+
+    console.error(
+      "[IndustryInsight] response headers:",
+      error.response?.headers,
+    );
+
+    console.error(
+      "[IndustryInsight] request URL:",
+      error.config?.url,
+    );
+
+    console.error(
+      "[IndustryInsight] request method:",
+      error.config?.method,
+    );
+
+    console.error(
+      "[IndustryInsight] request data:",
+      error.config?.data,
+    );
+
+    console.error("[IndustryInsight] stack:", error.stack);
+
+    console.error("========================================");
 
     return null;
   }
