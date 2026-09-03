@@ -193,7 +193,7 @@ exports.getSelectableProjectsForMultiAnalysisController = async (
   try {
     const { id } = req.params;
 
-    const { page, limit, search } = req.query;
+    const { page, limit, search, formId, multiAnalysisFormId } = req.query;
     const result = await getSelectableProjectsForMultiAnalysisService(
       req.user,
       id,
@@ -201,6 +201,8 @@ exports.getSelectableProjectsForMultiAnalysisController = async (
         page,
         limit,
         search,
+        formId,
+        multiAnalysisFormId,
       },
     );
 

@@ -1,0 +1,2 @@
+-- No-op migration.
+-- This directory existed without a migration file and blocked prisma migrate deploy.

@@ -4,10 +4,7 @@ const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 const hasActionDates = (startDate, endDate) => Boolean(startDate && endDate);
 
-const isActionCompleted = (action) =>
-  (action.progress ?? 0) >= 100 ||
-  action.status === "COMPLETED" ||
-  Boolean(action.completedAt);
+const isActionCompleted = (action) => (action.progress ?? 0) >= 100;
 
 const isActionInProgress = (action) =>
   !isActionCompleted(action) &&
@@ -99,6 +96,7 @@ const enrichActionWithSchedule = (action, now = new Date()) => {
 
   return {
     ...action,
+    previouslyCompleted: (action.progress ?? 0) >= 100,
     expectedProgress,
     scheduleStatus,
   };

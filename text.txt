@@ -1,1 +1,15 @@
 https://strategy.ratorai.com/ai/
+
+
+ProjectPlanActionProgressHistory
+ProjectPlan
+ProjectPlanAction
+StrategyApproval
+StrategyAiRun
+StrategyMeasureMeasurement
+StrategyMeasure
+StrategyObjectiveRelation
+StrategyMeasureTarget
+StrategyMap
+StrategyPlan
+StrategyObjective

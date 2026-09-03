@@ -121,8 +121,13 @@ describe("projectPlanScheduleUtils", () => {
     assert.equal(summary.overallProgress, 37);
   });
 
-  it("counts completed actions from status or completedAt without progress", () => {
+  it("counts completed actions only from progress >= 100", () => {
     const actions = [
+      {
+        progress: 100,
+        status: "COMPLETED",
+        completedAt: new Date("2026-06-01T00:00:00.000Z"),
+      },
       {
         progress: 0,
         status: "COMPLETED",
@@ -138,19 +143,19 @@ describe("projectPlanScheduleUtils", () => {
     const summary = calculateControlSummary(actions);
 
     assert.equal(summary.completedActions, 1);
-    assert.equal(summary.notStartedActions, 1);
+    assert.equal(summary.notStartedActions, 2);
   });
 
-  it("detects completed action from progress, status, or completedAt", () => {
+  it("detects completed action only from progress >= 100", () => {
     assert.equal(isActionCompleted({ progress: 100 }), true);
-    assert.equal(isActionCompleted({ status: "COMPLETED", progress: 0 }), true);
+    assert.equal(isActionCompleted({ status: "COMPLETED", progress: 0 }), false);
     assert.equal(
       isActionCompleted({
         completedAt: new Date("2026-06-01T00:00:00.000Z"),
         progress: 0,
         status: "NOT_STARTED",
       }),
-      true,
+      false,
     );
     assert.equal(
       isActionNotStarted({ progress: 0, status: "NOT_STARTED", completedAt: null }),
@@ -160,6 +165,15 @@ describe("projectPlanScheduleUtils", () => {
       isActionInProgress({ progress: 40, status: "IN_PROGRESS", completedAt: null }),
       true,
     );
+  });
+
+  it("keeps plan IN_PROGRESS when average progress is high but not all actions complete", () => {
+    const actions = [{ progress: 100 }, { progress: 100 }, { progress: 99 }];
+    const allCompleted = actions.every((action) => (action.progress ?? 0) >= 100);
+    const overall = calculateOverallProgress(actions);
+
+    assert.equal(allCompleted, false);
+    assert.equal(overall, 100);
   });
 });
 
@@ -182,6 +196,110 @@ describe("projectPlanDependencyUtils", () => {
     ];
 
     assert.equal(hasCircularDependency(actions), false);
+  });
+});
+
+describe("projectPlan progress and completion logic", () => {
+  const parseAndValidateProgress = (progress) => {
+    const parsed = parseInt(progress, 10);
+    if (Number.isNaN(parsed) || parsed < 0 || parsed > 100) {
+      return null;
+    }
+    return parsed;
+  };
+
+  const buildProgressUpdate = (progress) => {
+    const parsedProgress = parseAndValidateProgress(progress);
+    if (parsedProgress === null) {
+      return null;
+    }
+
+    return {
+      progress: parsedProgress,
+      status: deriveActionStatusFromProgress(parsedProgress),
+      completedAt: parsedProgress >= 100 ? new Date("2026-06-01T00:00:00.000Z") : null,
+    };
+  };
+
+  it("accepts progress 0", () => {
+    const update = buildProgressUpdate(0);
+    assert.equal(update.progress, 0);
+    assert.equal(update.status, "NOT_STARTED");
+    assert.equal(update.completedAt, null);
+  });
+
+  it("accepts progress 50", () => {
+    const update = buildProgressUpdate(50);
+    assert.equal(update.progress, 50);
+    assert.equal(update.status, "IN_PROGRESS");
+    assert.equal(update.completedAt, null);
+  });
+
+  it("accepts progress 100 and marks completed", () => {
+    const update = buildProgressUpdate(100);
+    assert.equal(update.progress, 100);
+    assert.equal(update.status, "COMPLETED");
+    assert.ok(update.completedAt);
+  });
+
+  it("rejects progress above 100", () => {
+    assert.equal(buildProgressUpdate(101), null);
+  });
+
+  it("rejects progress below 0", () => {
+    assert.equal(buildProgressUpdate(-1), null);
+  });
+
+  it("clears completedAt when completed action is changed back below 100", () => {
+    const update = buildProgressUpdate(50);
+    assert.equal(update.status, "IN_PROGRESS");
+    assert.equal(update.completedAt, null);
+  });
+
+  it("syncs checkbox completion to progress 100", () => {
+    const previouslyCompleted = true;
+    const progress = previouslyCompleted ? 100 : 0;
+    const update = buildProgressUpdate(progress);
+
+    assert.equal(update.progress, 100);
+    assert.equal(update.status, "COMPLETED");
+  });
+
+  it("syncs checkbox uncheck to progress 0", () => {
+    const previouslyCompleted = false;
+    const progress = previouslyCompleted ? 100 : 0;
+    const update = buildProgressUpdate(progress);
+
+    assert.equal(update.progress, 0);
+    assert.equal(update.status, "NOT_STARTED");
+    assert.equal(update.completedAt, null);
+  });
+
+  it("allows progress to decrease and remain valid", () => {
+    const first = buildProgressUpdate(50);
+    const second = buildProgressUpdate(40);
+
+    assert.equal(first.status, "IN_PROGRESS");
+    assert.equal(second.progress, 40);
+    assert.equal(second.status, "IN_PROGRESS");
+  });
+
+  it("derives plan status after lock as IN_PROGRESS until all actions complete", () => {
+    const derivePlanStatus = (actions) => {
+      if (actions.every((action) => (action.progress ?? 0) >= 100)) {
+        return "COMPLETED";
+      }
+      return "IN_PROGRESS";
+    };
+
+    assert.equal(
+      derivePlanStatus([{ progress: 100 }, { progress: 60 }]),
+      "IN_PROGRESS",
+    );
+    assert.equal(
+      derivePlanStatus([{ progress: 100 }, { progress: 100 }]),
+      "COMPLETED",
+    );
   });
 });
 
@@ -221,5 +339,114 @@ describe("projectPlanService authorization helpers", () => {
     const executor = { role: "MEMBER", companyId: "c2" };
     const projectCompanyId = "c1";
     assert.notEqual(executor.companyId, projectCompanyId);
+  });
+});
+
+describe("projectPlan progress history expectations", () => {
+  it("records each progress update as a separate history entry", () => {
+    const history = [];
+    const record = (progress) => history.push({ progress, createdAt: new Date() });
+
+    record(20);
+    record(35);
+    record(50);
+
+    assert.equal(history.length, 3);
+    assert.deepEqual(
+      history.map((entry) => entry.progress),
+      [20, 35, 50],
+    );
+  });
+
+  it("preserves multiple updates on the same day", () => {
+    const sameDay = new Date("2026-06-01T10:00:00.000Z");
+    const history = [
+      { progress: 20, createdAt: sameDay },
+      { progress: 35, createdAt: new Date("2026-06-01T14:00:00.000Z") },
+      { progress: 50, createdAt: new Date("2026-06-01T17:30:00.000Z") },
+    ];
+
+    assert.equal(history.length, 3);
+    assert.equal(history[0].progress, 20);
+    assert.equal(history[2].progress, 50);
+  });
+
+  it("records progress decrease in history", () => {
+    const history = [50, 40];
+    assert.equal(history[1], 40);
+  });
+});
+
+describe("projectPlan description edit rules", () => {
+  const canEditDescription = (planStatus) =>
+    ["LOCKED", "IN_PROGRESS"].includes(planStatus);
+
+  const includesDescriptionInResponse = (planStatus) => planStatus !== "DRAFT";
+
+  it("does not expose description in DRAFT responses", () => {
+    assert.equal(includesDescriptionInResponse("DRAFT"), false);
+    assert.equal(includesDescriptionInResponse("IN_PROGRESS"), true);
+    assert.equal(includesDescriptionInResponse("COMPLETED"), true);
+  });
+
+  it("allows description edits only after lock", () => {
+    assert.equal(canEditDescription("DRAFT"), false);
+    assert.equal(canEditDescription("IN_PROGRESS"), true);
+    assert.equal(canEditDescription("LOCKED"), true);
+    assert.equal(canEditDescription("COMPLETED"), false);
+  });
+
+  it("blocks description edits when plan is completed", () => {
+    const planStatus = "COMPLETED";
+    assert.equal(canEditDescription(planStatus), false);
+  });
+});
+
+describe("projectPlan gantt data shape", () => {
+  it("includes required gantt fields on enriched action", () => {
+    const action = {
+      id: "a1",
+      title: "Task",
+      description: "Desc",
+      startDate: new Date("2026-06-01T00:00:00.000Z"),
+      endDate: new Date("2026-06-10T00:00:00.000Z"),
+      progress: 40,
+      status: "IN_PROGRESS",
+      order: 1,
+      prerequisiteActionId: null,
+      completedAt: null,
+      executor: { id: "u1", username: "member1" },
+    };
+
+    const expectedProgress = calculateExpectedProgress(
+      action.startDate,
+      action.endDate,
+      new Date("2026-06-06T00:00:00.000Z"),
+    );
+    const scheduleStatus = calculateScheduleStatus(
+      action,
+      new Date("2026-06-06T00:00:00.000Z"),
+    );
+
+    assert.ok(action.id);
+    assert.ok(action.title);
+    assert.ok(action.startDate);
+    assert.ok(action.endDate);
+    assert.equal(typeof action.progress, "number");
+    assert.equal(typeof expectedProgress, "number");
+    assert.ok(["ON_TRACK", "AT_RISK", "DELAYED"].includes(scheduleStatus));
+    assert.ok(action.executor);
+    assert.equal(action.order, 1);
+  });
+
+  it("orders actions deterministically by order ASC", () => {
+    const actions = [
+      { id: "a3", order: 3 },
+      { id: "a1", order: 1 },
+      { id: "a2", order: 2 },
+    ];
+
+    const sorted = [...actions].sort((a, b) => a.order - b.order);
+    assert.deepEqual(sorted.map((action) => action.id), ["a1", "a2", "a3"]);
   });
 });

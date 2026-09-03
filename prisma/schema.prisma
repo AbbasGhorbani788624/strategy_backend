@@ -26,6 +26,11 @@ enum ProjectMode {
   MULTI
 }
 
+enum RequiredAnalysisType {
+  SINGLE
+  MULTI
+}
+
 enum ProjectStatus {
   WAITING_FOR_FORM
   ANALYSIS_PENDING
@@ -149,6 +154,12 @@ enum MeasurementFrequency {
   YEARLY
 }
 
+enum MonitoringPeriodSplit {
+  DAY
+  WEEK
+  MONTH
+}
+
 enum BscPerspective {
   FINANCIAL
   CUSTOMER
@@ -220,7 +231,8 @@ model User {
   strategyMeasuresOwned      StrategyMeasure[]          @relation("StrategyMeasureOwner")
   strategyMeasuresApproved   StrategyMeasure[]          @relation("StrategyMeasureApprovedBy")
   strategyMeasurementsSubmitted StrategyMeasureMeasurement[] @relation("StrategyMeasurementSubmittedBy")
-  projectPlanActions          ProjectPlanAction[]          @relation("ProjectPlanActionExecutor")
+  projectPlanActions                 ProjectPlanAction[]                 @relation("ProjectPlanActionExecutor")
+  projectPlanActionProgressHistory   ProjectPlanActionProgressHistory[]  @relation("ProjectPlanActionProgressUpdatedBy")
 
   @@index([role])
   @@index([companyId])
@@ -672,37 +684,46 @@ model ProjectAccess {
 }
 
 model MultiAnalysisRequiredForm {
-  id                  String @id @default(uuid())
-  multiAnalysisFormId String
-  formId              String
-  order               Int
+  id                          String               @id @default(uuid())
+  multiAnalysisFormId         String
+  type                        RequiredAnalysisType @default(SINGLE)
+  formId                      String?
+  requiredMultiAnalysisFormId String?
+  order                       Int
 
-  multiAnalysisForm MultiAnalysisForm @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
-  form              AnalysisForm      @relation(fields: [formId], references: [id], onDelete: Cascade)
+  multiAnalysisForm         MultiAnalysisForm  @relation("ParentMultiAnalysisForm", fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
+  form                      AnalysisForm?      @relation(fields: [formId], references: [id], onDelete: Cascade)
+  requiredMultiAnalysisForm MultiAnalysisForm? @relation("RequiredMultiAnalysisDependency", fields: [requiredMultiAnalysisFormId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([multiAnalysisFormId, formId])
+  @@unique([multiAnalysisFormId, requiredMultiAnalysisFormId], map: "MARForm_parent_requiredMulti_uq")
   @@index([multiAnalysisFormId, order])
   @@index([formId])
+  @@index([requiredMultiAnalysisFormId], map: "MARForm_requiredMultiAnalysisFormId_idx")
 }
 
 model MultiAnalysisProjectSource {
-  id              String   @id @default(uuid())
-  multiProjectId  String
-  sourceProjectId String
-  formId          String
-  createdAt       DateTime @default(now())
+  id                  String   @id @default(uuid())
+  multiProjectId      String
+  sourceProjectId     String
+  formId              String?
+  multiAnalysisFormId String?
+  createdAt           DateTime @default(now())
 
-  multiProject  Project      @relation("MultiProjectSources", fields: [multiProjectId], references: [id], onDelete: Cascade)
-  sourceProject Project      @relation("SourceProjectUsedInMulti", fields: [sourceProjectId], references: [id], onDelete: Cascade)
-  form          AnalysisForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  multiProject      Project            @relation("MultiProjectSources", fields: [multiProjectId], references: [id], onDelete: Cascade)
+  sourceProject     Project            @relation("SourceProjectUsedInMulti", fields: [sourceProjectId], references: [id], onDelete: Cascade)
+  form              AnalysisForm?      @relation(fields: [formId], references: [id], onDelete: Cascade)
+  multiAnalysisForm MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
 
   @@unique([multiProjectId, formId])
+  @@unique([multiProjectId, multiAnalysisFormId], map: "MAPSource_multiProject_multiAnalysis_uq")
   @@index([multiProjectId])
   @@index([sourceProjectId])
   @@index([formId])
+  @@index([multiAnalysisFormId], map: "MAPSource_multiAnalysisFormId_idx")
 }
 
 model MultiAnalysisForm {
@@ -715,13 +736,15 @@ model MultiAnalysisForm {
   categoryId     String?
   category       AnalysisCategory? @relation(fields: [categoryId], references: [id])
 
-  requiredForms    MultiAnalysisRequiredForm[]
-  goals            MultiAnalysisGoal[]
-  projects         Project[]
-  promptDefinition PromptDefinition?
-  profileFields    MultiAnalysisFormProfileField[]
-  categories       FormQuestionCategory[]
-  categoryGroups   FormCategoryGroup[]
+  requiredForms                 MultiAnalysisRequiredForm[] @relation("ParentMultiAnalysisForm")
+  requiredInOtherMultiAnalyses  MultiAnalysisRequiredForm[] @relation("RequiredMultiAnalysisDependency")
+  multiProjectSources           MultiAnalysisProjectSource[]
+  goals                         MultiAnalysisGoal[]
+  projects                      Project[]
+  promptDefinition              PromptDefinition?
+  profileFields                 MultiAnalysisFormProfileField[]
+  categories                    FormQuestionCategory[]
+  categoryGroups                FormCategoryGroup[]
 
   temperature Float @default(0.7)
 
@@ -1515,6 +1538,21 @@ model StrategyMeasure {
   monitoringDurationMonths Int?
 
   /**
+   * مدت پایش به روز (مثلاً هفتگی = ۷ روز)
+   */
+  monitoringDurationDays Int?
+
+  /**
+   * متن بازه اندازه‌گیری از جدول KPI (هفتگی، سه ماهه، ...)
+   */
+  measurementPeriodLabel String?
+
+  /**
+   * نحوه تقسیم دوره‌های target در پایش
+   */
+  periodSplitBy MonitoringPeriodSplit?
+
+  /**
    * وضعیت Planning / Monitoring
    */
   monitoringStatus StrategyMonitoringStatus?
@@ -1667,6 +1705,7 @@ model ProjectPlanAction {
   executor           User?               @relation("ProjectPlanActionExecutor", fields: [executorId], references: [id], onDelete: SetNull)
   prerequisiteAction ProjectPlanAction?  @relation("ProjectPlanActionDependency", fields: [prerequisiteActionId], references: [id], onDelete: SetNull)
   dependentActions   ProjectPlanAction[] @relation("ProjectPlanActionDependency")
+  progressHistory    ProjectPlanActionProgressHistory[]
 
   @@index([planId])
   @@index([executorId])
@@ -1674,4 +1713,19 @@ model ProjectPlanAction {
   @@index([status])
   @@index([startDate])
   @@index([endDate])
+}
+
+model ProjectPlanActionProgressHistory {
+  id        String   @id @default(uuid())
+  actionId  String
+  progress  Int
+  updatedBy String
+  createdAt DateTime @default(now())
+
+  action ProjectPlanAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  user   User              @relation("ProjectPlanActionProgressUpdatedBy", fields: [updatedBy], references: [id], onDelete: Cascade)
+
+  @@index([actionId])
+  @@index([updatedBy])
+  @@index([createdAt])
 }

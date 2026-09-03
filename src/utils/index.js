@@ -480,7 +480,8 @@ const buildFinalAnalysisWithCorrectionPrompt = ({
 const buildSelectedSourceProjectSummaries = (selectedSourceProjects = []) => {
   return selectedSourceProjects
     .map((item) => {
-      const title = item?.form?.title?.trim();
+      const title =
+        item?.form?.title?.trim() || item?.multiAnalysisForm?.title?.trim();
       const summary = item?.sourceProject?.summaryAnalysis?.trim();
 
       if (!title || !summary) return null;

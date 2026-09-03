@@ -6,7 +6,6 @@ const {
   calculateControlSummary,
   calculatePlanScheduleStatus,
   getPlanDateRange,
-  isActionCompleted,
 } = require("../utils/projectPlanScheduleUtils");
 const {
   validateNoCircularDependencies,
@@ -210,30 +209,43 @@ const seedSuggestedPlanActions = async (planId, project, tx = prisma) => {
   });
 };
 
+const formatActionResponse = (action, planStatus, now = new Date()) => {
+  const base = {
+    id: action.id,
+    order: action.order,
+    title: action.title,
+    startDate: action.startDate,
+    endDate: action.endDate,
+    executor: action.executor,
+    executorId: action.executorId,
+    prerequisiteActionId: action.prerequisiteActionId,
+    prerequisiteAction: action.prerequisiteAction,
+  };
+
+  if (planStatus === "DRAFT") {
+    return base;
+  }
+
+  const enriched = enrichActionWithSchedule(
+    {
+      ...base,
+      description: action.description,
+      progress: action.progress,
+      status: action.status,
+      previouslyCompleted: (action.progress ?? 0) >= 100,
+      completedAt: action.completedAt,
+      createdAt: action.createdAt,
+      updatedAt: action.updatedAt,
+    },
+    now,
+  );
+
+  return enriched;
+};
+
 const formatPlanResponse = (plan, now = new Date()) => {
   const actions = plan.actions.map((action) =>
-    enrichActionWithSchedule(
-      {
-        id: action.id,
-        title: action.title,
-        description: action.description,
-        startDate: action.startDate,
-        endDate: action.endDate,
-        executor: action.executor,
-        executorId: action.executorId,
-        progress: action.progress,
-        status: action.status,
-        previouslyCompleted:
-          action.status === "COMPLETED" || Boolean(action.completedAt),
-        completedAt: action.completedAt,
-        order: action.order,
-        prerequisiteActionId: action.prerequisiteActionId,
-        prerequisiteAction: action.prerequisiteAction,
-        createdAt: action.createdAt,
-        updatedAt: action.updatedAt,
-      },
-      now,
-    ),
+    formatActionResponse(action, plan.status, now),
   );
 
   const summary = calculateControlSummary(plan.actions, now);
@@ -253,6 +265,10 @@ const formatPlanResponse = (plan, now = new Date()) => {
     overallProgress: summary.overallProgress,
     expectedOverallProgress: summary.expectedOverallProgress,
     scheduleStatus: calculatePlanScheduleStatus(plan.actions, now),
+    totalActions: summary.totalActions,
+    completedActions: summary.completedActions,
+    delayedActions: summary.delayedActions,
+    atRiskActions: summary.atRiskActions,
     controlSummary: summary,
   };
 };
@@ -291,14 +307,37 @@ const assertPlanNotCompleted = (plan) => {
   }
 };
 
-const assertPlanAllowsActionCompletions = (plan) => {
-  if (plan.status === "COMPLETED") {
-    createBadRequestError("برنامه تکمیل‌شده قابل ویرایش نیست", 400);
+const assertPlanAllowsProgressUpdates = (plan) => {
+  assertPlanNotCompleted(plan);
+
+  if (plan.status === "DRAFT") {
+    createBadRequestError(
+      "به‌روزرسانی پیشرفت پس از قفل شدن برنامه مجاز است",
+      400,
+    );
   }
 
   if (!["LOCKED", "IN_PROGRESS"].includes(plan.status)) {
     createBadRequestError(
-      "تکمیل اقدامات فقط پس از قفل شدن برنامه مجاز است",
+      "به‌روزرسانی پیشرفت در وضعیت فعلی برنامه مجاز نیست",
+      400,
+    );
+  }
+};
+
+const assertPlanAllowsDescriptionUpdates = (plan) => {
+  assertPlanNotCompleted(plan);
+
+  if (plan.status === "DRAFT") {
+    createBadRequestError(
+      "ویرایش توضیحات فقط پس از قفل شدن برنامه مجاز است",
+      400,
+    );
+  }
+
+  if (!["LOCKED", "IN_PROGRESS"].includes(plan.status)) {
+    createBadRequestError(
+      "ویرایش توضیحات در وضعیت فعلی برنامه مجاز نیست",
       400,
     );
   }
@@ -309,8 +348,6 @@ const syncPlanStatusFromActions = async (planId, tx = prisma) => {
     where: { planId },
     select: {
       progress: true,
-      status: true,
-      completedAt: true,
     },
   });
 
@@ -327,8 +364,7 @@ const syncPlanStatusFromActions = async (planId, tx = prisma) => {
     return;
   }
 
-  const allCompleted = actions.every(isActionCompleted);
-  const someCompleted = actions.some(isActionCompleted);
+  const allCompleted = actions.every((action) => (action.progress ?? 0) >= 100);
 
   if (allCompleted) {
     await tx.projectPlan.update({
@@ -338,7 +374,7 @@ const syncPlanStatusFromActions = async (planId, tx = prisma) => {
     return;
   }
 
-  if (someCompleted && plan.status === "LOCKED") {
+  if (plan.status === "COMPLETED") {
     await tx.projectPlan.update({
       where: { id: planId },
       data: { status: "IN_PROGRESS" },
@@ -346,15 +382,13 @@ const syncPlanStatusFromActions = async (planId, tx = prisma) => {
     return;
   }
 
-  if (!someCompleted && plan.status === "IN_PROGRESS") {
+  if (plan.status === "LOCKED") {
     await tx.projectPlan.update({
       where: { id: planId },
-      data: { status: "LOCKED" },
+      data: { status: "IN_PROGRESS" },
     });
   }
 };
-
-const syncPlanCompletionStatus = syncPlanStatusFromActions;
 
 const createProjectPlan = async (user, projectId) => {
   assertCompanyManager(user);
@@ -538,6 +572,13 @@ const createPlanAction = async (user, planId, payload) => {
     createBadRequestError("عنوان اقدام الزامی است", 400);
   }
 
+  if (description !== undefined && description !== null && String(description).trim()) {
+    createBadRequestError(
+      "ویرایش توضیحات فقط پس از قفل شدن برنامه مجاز است",
+      400,
+    );
+  }
+
   validateDateRange(startDate, endDate);
   if (executorId) {
     await validateExecutor(executorId, plan.project.companyId);
@@ -558,7 +599,7 @@ const createPlanAction = async (user, planId, payload) => {
     data: {
       planId,
       title: title.trim(),
-      description: description?.trim() || null,
+      description: null,
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
       executorId: executorId || null,
@@ -601,7 +642,10 @@ const updatePlanAction = async (user, actionId, payload) => {
   }
 
   if (payload.description !== undefined) {
-    data.description = payload.description?.trim() || null;
+    createBadRequestError(
+      "ویرایش توضیحات فقط پس از قفل شدن برنامه مجاز است",
+      400,
+    );
   }
 
   const nextStartDate =
@@ -734,10 +778,14 @@ const lockProjectPlan = async (user, planId) => {
 
   await validatePlanForLock(plan);
 
+  const allAlreadyCompleted = plan.actions.every(
+    (action) => (action.progress ?? 0) >= 100,
+  );
+
   const lockedPlan = await prisma.projectPlan.update({
     where: { id: planId },
     data: {
-      status: "LOCKED",
+      status: allAlreadyCompleted ? "COMPLETED" : "IN_PROGRESS",
       lockedAt: new Date(),
     },
     include: PLAN_INCLUDE,
@@ -746,18 +794,7 @@ const lockProjectPlan = async (user, planId) => {
   return formatPlanResponse(lockedPlan);
 };
 
-const updateActionProgress = async (user, actionId, progress) => {
-  assertCompanyManager(user);
-
-  const existing = await loadActionForUser(actionId, user);
-
-  if (existing.plan.status === "DRAFT") {
-    createBadRequestError(
-      "به‌روزرسانی پیشرفت پس از قفل شدن برنامه مجاز است",
-      400,
-    );
-  }
-
+const parseAndValidateProgress = (progress) => {
   const parsedProgress = parseInt(progress, 10);
 
   if (
@@ -768,21 +805,55 @@ const updateActionProgress = async (user, actionId, progress) => {
     createBadRequestError("پیشرفت باید بین ۰ تا ۱۰۰ باشد", 400);
   }
 
+  return parsedProgress;
+};
+
+const applyActionProgressUpdate = async (
+  tx,
+  { actionId, progress, userId, planId },
+) => {
+  const parsedProgress = parseAndValidateProgress(progress);
   const status = deriveActionStatusFromProgress(parsedProgress);
   const completedAt = parsedProgress >= 100 ? new Date() : null;
 
-  const result = await prisma.$transaction(async (tx) => {
-    const action = await tx.projectPlanAction.update({
-      where: { id: actionId },
-      data: {
-        progress: parsedProgress,
-        status,
-        completedAt,
-      },
-      include: ACTION_INCLUDE,
-    });
+  const action = await tx.projectPlanAction.update({
+    where: { id: actionId },
+    data: {
+      progress: parsedProgress,
+      status,
+      completedAt,
+    },
+    include: ACTION_INCLUDE,
+  });
 
-    await syncPlanCompletionStatus(existing.planId, tx);
+  await tx.projectPlanActionProgressHistory.create({
+    data: {
+      actionId,
+      progress: parsedProgress,
+      updatedBy: userId,
+    },
+  });
+
+  await syncPlanStatusFromActions(planId, tx);
+
+  return action;
+};
+
+const updateActionProgress = async (user, actionId, progress) => {
+  assertCompanyManager(user);
+
+  const existing = await loadActionForUser(actionId, user);
+  assertPlanAllowsProgressUpdates(existing.plan);
+
+  const parsedProgress = parseAndValidateProgress(progress);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const action = await applyActionProgressUpdate(tx, {
+      actionId,
+      progress: parsedProgress,
+      userId: user.id,
+      planId: existing.planId,
+    });
 
     const plan = await tx.projectPlan.findUnique({
       where: { id: existing.planId },
@@ -798,11 +869,40 @@ const updateActionProgress = async (user, actionId, progress) => {
   return result;
 };
 
+const getActionProgressHistory = async (user, actionId) => {
+  assertCompanyManager(user);
+
+  const existing = await loadActionForUser(actionId, user);
+
+  const history = await prisma.projectPlanActionProgressHistory.findMany({
+    where: { actionId },
+    orderBy: { createdAt: "asc" },
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+        },
+      },
+    },
+  });
+
+  return {
+    actionId: existing.id,
+    planId: existing.planId,
+    history: history.map((entry) => ({
+      id: entry.id,
+      progress: entry.progress,
+      createdAt: entry.createdAt,
+      user: entry.user,
+    })),
+  };
+};
+
 const bulkUpdatePlanActionCompletions = async (user, planId, payload) => {
   assertCompanyManager(user);
 
   const plan = await loadPlanForUser(planId, user);
-  assertPlanAllowsActionCompletions(plan);
 
   const updates = payload.actions || [];
 
@@ -812,6 +912,8 @@ const bulkUpdatePlanActionCompletions = async (user, planId, payload) => {
 
   const planActionIds = new Set(plan.actions.map((action) => action.id));
   const seenActionIds = new Set();
+  let hasDescriptionUpdate = false;
+  let hasProgressUpdate = false;
 
   for (const item of updates) {
     if (!planActionIds.has(item.actionId)) {
@@ -832,44 +934,62 @@ const bulkUpdatePlanActionCompletions = async (user, planId, payload) => {
       item,
       "previouslyCompleted",
     );
+    const hasProgress = Object.prototype.hasOwnProperty.call(item, "progress");
 
-    if (!hasDescription && !hasPreviouslyCompleted) {
+    if (!hasDescription && !hasPreviouslyCompleted && !hasProgress) {
       createBadRequestError(
-        "برای هر اقدام حداقل description یا previouslyCompleted لازم است",
+        "برای هر اقدام حداقل description یا previouslyCompleted یا progress لازم است",
         400,
       );
     }
+
+    if (hasDescription) {
+      hasDescriptionUpdate = true;
+    }
+
+    if (hasPreviouslyCompleted || hasProgress) {
+      hasProgressUpdate = true;
+    }
+  }
+
+  if (hasDescriptionUpdate) {
+    assertPlanAllowsDescriptionUpdates(plan);
+  }
+
+  if (hasProgressUpdate) {
+    assertPlanAllowsProgressUpdates(plan);
   }
 
   await prisma.$transaction(async (tx) => {
     for (const item of updates) {
-      const data = {};
-
       if (Object.prototype.hasOwnProperty.call(item, "description")) {
-        data.description = item.description?.trim() || null;
+        await tx.projectPlanAction.update({
+          where: { id: item.actionId },
+          data: {
+            description: item.description?.trim() || null,
+          },
+        });
       }
 
-      if (Object.prototype.hasOwnProperty.call(item, "previouslyCompleted")) {
-        if (item.previouslyCompleted) {
-          data.completedAt = new Date();
-          data.status = "COMPLETED";
-        } else {
-          data.completedAt = null;
-          data.status = "NOT_STARTED";
-        }
-      }
-
-      if (!Object.keys(data).length) {
+      if (Object.prototype.hasOwnProperty.call(item, "progress")) {
+        await applyActionProgressUpdate(tx, {
+          actionId: item.actionId,
+          progress: item.progress,
+          userId: user.id,
+          planId,
+        });
         continue;
       }
 
-      await tx.projectPlanAction.update({
-        where: { id: item.actionId },
-        data,
-      });
+      if (Object.prototype.hasOwnProperty.call(item, "previouslyCompleted")) {
+        await applyActionProgressUpdate(tx, {
+          actionId: item.actionId,
+          progress: item.previouslyCompleted ? 100 : 0,
+          userId: user.id,
+          planId,
+        });
+      }
     }
-
-    await syncPlanStatusFromActions(planId, tx);
   });
 
   const updatedPlan = await prisma.projectPlan.findUnique({
@@ -908,4 +1028,5 @@ module.exports = {
   deleteProjectPlan,
   lockProjectPlan,
   updateActionProgress,
+  getActionProgressHistory,
 };

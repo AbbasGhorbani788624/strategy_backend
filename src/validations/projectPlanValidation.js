@@ -64,6 +64,12 @@ const bulkUpdateActionCompletionsSchema = yup.object().shape({
           .required("شناسه اقدام الزامی است"),
         description: yup.string().trim().nullable().optional(),
         previouslyCompleted: yup.boolean().optional(),
+        progress: yup
+          .number()
+          .integer("پیشرفت باید عدد صحیح باشد")
+          .min(0, "پیشرفت نمی‌تواند کمتر از ۰ باشد")
+          .max(100, "پیشرفت نمی‌تواند بیشتر از ۱۰۰ باشد")
+          .optional(),
       }),
     )
     .min(1, "حداقل یک اقدام برای به‌روزرسانی لازم است")

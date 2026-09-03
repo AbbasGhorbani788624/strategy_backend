@@ -3,6 +3,10 @@ const {
   buildProfileStatus,
   COMPANY_PROFILE_INCLUDE,
 } = require("../utils/profileStatus");
+const {
+  getRequiredItemTitle,
+  isRequiredItemCompleted,
+} = require("../utils/multiAnalysisRequiredFormUtils");
 
 
 
@@ -185,6 +189,12 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
               title: true,
             },
           },
+          requiredMultiAnalysisForm: {
+            select: {
+              id: true,
+              title: true,
+            },
+          },
         },
       },
       goals: {
@@ -208,7 +218,7 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
 
   if (!multiForms.length) return [];
 
-  const completedProjects = await prisma.project.findMany({
+  const completedSingleProjects = await prisma.project.findMany({
     where: {
       creatorId: userId?.userId,
       companyId,
@@ -220,16 +230,37 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
     },
   });
 
-  const completedFormIds = new Set(completedProjects.map((p) => p.formId));
+  const completedMultiProjects = await prisma.project.findMany({
+    where: {
+      creatorId: userId?.userId,
+      companyId,
+      mode: "MULTI",
+      status: "FINAL_ANALYSIS",
+    },
+    select: {
+      multiAnalysisFormId: true,
+    },
+  });
+
+  const completedFormIds = new Set(
+    completedSingleProjects.map((p) => p.formId).filter(Boolean),
+  );
+  const completedMultiFormIds = new Set(
+    completedMultiProjects.map((p) => p.multiAnalysisFormId).filter(Boolean),
+  );
 
   const mappedForms = multiForms.map((multiForm) => {
-    const requiredAnalysisTitles = multiForm.requiredForms.map(
-      (r) => r.form.title,
-    );
+    const requiredAnalysisTitles = multiForm.requiredForms
+      .map((r) => getRequiredItemTitle(r))
+      .filter(Boolean);
 
     const missingAnalysisTitles = multiForm.requiredForms
-      .filter((r) => !completedFormIds.has(r.formId))
-      .map((r) => r.form.title);
+      .filter(
+        (r) =>
+          !isRequiredItemCompleted(r, completedFormIds, completedMultiFormIds),
+      )
+      .map((r) => getRequiredItemTitle(r))
+      .filter(Boolean);
 
     return {
       id: multiForm.id,

@@ -1,5 +1,13 @@
 const { createBadRequestError, buildProjectAccessWhere } = require("../utils");
 const { buildAnalysisStatusPayload } = require("../utils/analysisFailure");
+const {
+  getRequiredItemKey,
+  getSelectionKey,
+  getRequiredItemTitle,
+  buildCompletedProjectWhereForRequiredItem,
+  isMultiRequiredItem,
+  matchesSelectedProject,
+} = require("../utils/multiAnalysisRequiredFormUtils");
 const prisma = require("../prismaClient");
 const crypto = require("crypto");
 
@@ -276,12 +284,75 @@ const getProjectTabsService = async (
   return allTabs.sort((a, b) => b.projectCount - a.projectCount);
 };
 
+const buildSelectableProjectCard = (project) => ({
+  id: project.id,
+  title: project.title,
+  status: project.status,
+  mode: project.mode,
+  formId: project.formId,
+  multiAnalysisFormId: project.multiAnalysisFormId,
+  createdAt: project.createdAt,
+  updatedAt: project.updatedAt,
+  creator: project.creator,
+  hasInitialAnalysis: !!project.initialAnalysis,
+  hasRiskAnalysis: !!project.riskAnalysis,
+  hasFinalAnalysis: !!project.finalAnalysis,
+  averageRating: project.averageRating,
+  ratingCount: project.ratingCount,
+  isBookmarked: (project.bookmarks?.length ?? 0) > 0,
+});
+
+const resolveActiveRequiredForm = (
+  requiredForms,
+  { activeFormId, activeMultiAnalysisFormId },
+) => {
+  if (activeFormId && activeMultiAnalysisFormId) {
+    createBadRequestError(
+      "فقط یکی از formId یا multiAnalysisFormId باید برای tab فعال ارسال شود",
+    );
+  }
+
+  if (activeFormId) {
+    const matched = requiredForms.find(
+      (item) => item.type === "SINGLE" && item.formId === activeFormId,
+    );
+
+    if (!matched) {
+      createBadRequestError("tab پیش‌نیاز تکی یافت نشد");
+    }
+
+    return matched;
+  }
+
+  if (activeMultiAnalysisFormId) {
+    const matched = requiredForms.find(
+      (item) =>
+        item.type === "MULTI" &&
+        item.requiredMultiAnalysisFormId === activeMultiAnalysisFormId,
+    );
+
+    if (!matched) {
+      createBadRequestError("tab پیش‌نیاز چندگانه یافت نشد");
+    }
+
+    return matched;
+  }
+
+  return requiredForms[0];
+};
+
 const getSelectableProjectsForMultiAnalysisService = async (
   currentUser,
   multiAnalysisFormId,
   options = {},
 ) => {
-  const { page = 1, limit = 10, search } = options;
+  const {
+    page = 1,
+    limit = 10,
+    search,
+    formId: activeFormId = null,
+    multiAnalysisFormId: activeMultiAnalysisFormId = null,
+  } = options;
 
   if (!multiAnalysisFormId) {
     createBadRequestError("شناسه تحلیل چندمرحله‌ای الزامی است");
@@ -309,6 +380,14 @@ const getSelectableProjectsForMultiAnalysisService = async (
             select: {
               id: true,
               title: true,
+              info: true,
+            },
+          },
+          requiredMultiAnalysisForm: {
+            select: {
+              id: true,
+              title: true,
+              description: true,
             },
           },
         },
@@ -321,14 +400,14 @@ const getSelectableProjectsForMultiAnalysisService = async (
   }
 
   const requiredForms = multiForm.requiredForms || [];
-  const requiredFormIds = requiredForms.map((item) => item.formId);
 
-  if (requiredFormIds.length === 0) {
+  if (requiredForms.length === 0) {
     return {
       multiAnalysisFormId: multiForm.id,
       title: multiForm.title,
       isReady: false,
       missingForms: [],
+      activeTab: null,
       pagination: {
         page: normalizedPage,
         limit: normalizedLimit,
@@ -338,10 +417,15 @@ const getSelectableProjectsForMultiAnalysisService = async (
     };
   }
 
+  const activeRequiredForm = resolveActiveRequiredForm(requiredForms, {
+    activeFormId,
+    activeMultiAnalysisFormId,
+  });
+  const activeTabKey = getRequiredItemKey(activeRequiredForm);
+
   const baseProjectWhere = {
     creatorId: currentUser.id,
     companyId: currentUser.companyId,
-    mode: "SINGLE",
     status: "FINAL_ANALYSIS",
   };
 
@@ -355,16 +439,46 @@ const getSelectableProjectsForMultiAnalysisService = async (
 
   const tabs = await Promise.all(
     requiredForms.map(async (requiredForm) => {
-      const formId = requiredForm.formId;
+      const whereWithoutSearch = buildCompletedProjectWhereForRequiredItem(
+        requiredForm,
+        baseProjectWhere,
+      );
 
-      const whereWithoutSearch = {
-        ...baseProjectWhere,
-        formId,
+      const formTitle = getRequiredItemTitle(requiredForm);
+      const tabKey = getRequiredItemKey(requiredForm);
+      const isActive = tabKey === activeTabKey;
+
+      const tabBase = {
+        type: requiredForm.type,
+        formId: requiredForm.formId,
+        multiAnalysisFormId: requiredForm.requiredMultiAnalysisFormId,
+        formTitle,
+        formDescription: isMultiRequiredItem(requiredForm)
+          ? requiredForm.requiredMultiAnalysisForm?.description
+          : requiredForm.form?.info,
+        order: requiredForm.order,
+        isActive,
       };
 
+      if (!isActive) {
+        const availableCount = await prisma.project.count({
+          where: whereWithoutSearch,
+        });
+
+        return {
+          ...tabBase,
+          availableCount,
+          filteredCount: availableCount,
+          count: 0,
+          hasAnyProject: availableCount > 0,
+          hasSearchResult: availableCount > 0,
+          pagination: null,
+          projects: [],
+        };
+      }
+
       const whereWithSearch = {
-        ...baseProjectWhere,
-        formId,
+        ...whereWithoutSearch,
         ...searchWhere,
       };
 
@@ -384,6 +498,8 @@ const getSelectableProjectsForMultiAnalysisService = async (
               id: true,
               title: true,
               formId: true,
+              multiAnalysisFormId: true,
+              mode: true,
               status: true,
               createdAt: true,
               updatedAt: true,
@@ -396,6 +512,14 @@ const getSelectableProjectsForMultiAnalysisService = async (
                 select: {
                   id: true,
                   username: true,
+                },
+              },
+              bookmarks: {
+                where: {
+                  userId: currentUser.id,
+                },
+                select: {
+                  id: true,
                 },
               },
             },
@@ -412,18 +536,12 @@ const getSelectableProjectsForMultiAnalysisService = async (
         filteredCount > 0 ? Math.ceil(filteredCount / normalizedLimit) : 0;
 
       return {
-        formId: requiredForm.form.id,
-        formTitle: requiredForm.form.title,
-        formDescription: requiredForm.form.description,
-        order: requiredForm.order,
-
+        ...tabBase,
         availableCount,
         filteredCount,
         count: relatedProjects.length,
-
         hasAnyProject: availableCount > 0,
         hasSearchResult: filteredCount > 0,
-
         pagination: {
           page: normalizedPage,
           limit: normalizedLimit,
@@ -432,20 +550,7 @@ const getSelectableProjectsForMultiAnalysisService = async (
           hasNextPage: normalizedPage < totalPages,
           hasPrevPage: normalizedPage > 1,
         },
-
-        projects: relatedProjects.map((project) => ({
-          id: project.id,
-          title: project.title,
-          status: project.status,
-          createdAt: project.createdAt,
-          updatedAt: project.updatedAt,
-          creator: project.creator,
-          hasInitialAnalysis: !!project.initialAnalysis,
-          hasRiskAnalysis: !!project.riskAnalysis,
-          hasFinalAnalysis: !!project.finalAnalysis,
-          averageRating: project.averageRating,
-          ratingCount: project.ratingCount,
-        })),
+        projects: relatedProjects.map(buildSelectableProjectCard),
       };
     }),
   );
@@ -453,7 +558,9 @@ const getSelectableProjectsForMultiAnalysisService = async (
   const missingForms = tabs
     .filter((tab) => !tab.hasAnyProject)
     .map((tab) => ({
+      type: tab.type,
       formId: tab.formId,
+      multiAnalysisFormId: tab.multiAnalysisFormId,
       formTitle: tab.formTitle,
       order: tab.order,
     }));
@@ -465,6 +572,12 @@ const getSelectableProjectsForMultiAnalysisService = async (
 
     isReady: missingForms.length === 0,
     missingForms,
+
+    activeTab: {
+      type: activeRequiredForm.type,
+      formId: activeRequiredForm.formId,
+      multiAnalysisFormId: activeRequiredForm.requiredMultiAnalysisFormId,
+    },
 
     pagination: {
       page: normalizedPage,
@@ -696,22 +809,28 @@ const createStepAnalysisProjectService = async (
   }
 
   const requiredForms = multiForm.requiredForms;
-  const requiredFormIds = requiredForms.map((item) => item.formId);
+  const requiredKeys = requiredForms.map(getRequiredItemKey);
 
-  const uniqueSelectedFormIds = [
-    ...new Set(selectedProjects.map((p) => p.formId)),
-  ];
+  const selectedKeys = selectedProjects.map(getSelectionKey);
 
-  if (uniqueSelectedFormIds.length !== selectedProjects.length) {
+  if (selectedKeys.some((key) => !key)) {
+    createBadRequestError(
+      "هر پروژه انتخاب‌شده باید formId یا multiAnalysisFormId داشته باشد",
+    );
+  }
+
+  const uniqueSelectedKeys = [...new Set(selectedKeys)];
+
+  if (uniqueSelectedKeys.length !== selectedProjects.length) {
     createBadRequestError("برای هر فرم فقط یک پروژه باید انتخاب شود");
   }
 
-  if (requiredFormIds.length !== selectedProjects.length) {
+  if (requiredKeys.length !== selectedProjects.length) {
     createBadRequestError("باید برای تمام فرم‌های الزامی یک پروژه انتخاب شود");
   }
 
-  for (const formId of requiredFormIds) {
-    const exists = selectedProjects.some((p) => p.formId === formId);
+  for (const requiredKey of requiredKeys) {
+    const exists = selectedKeys.includes(requiredKey);
     if (!exists) {
       createBadRequestError(
         "برای برخی فرم‌های الزامی پروژه‌ای انتخاب نشده است",
@@ -726,7 +845,6 @@ const createStepAnalysisProjectService = async (
       id: { in: selectedProjectIds },
       creatorId: currentUser.id,
       companyId: currentUser.companyId,
-      mode: "SINGLE",
       status: {
         in: ["FINAL_ANALYSIS"],
       },
@@ -734,6 +852,8 @@ const createStepAnalysisProjectService = async (
     select: {
       id: true,
       formId: true,
+      multiAnalysisFormId: true,
+      mode: true,
       title: true,
       status: true,
     },
@@ -752,7 +872,7 @@ const createStepAnalysisProjectService = async (
       createBadRequestError("یکی از پروژه‌های انتخاب‌شده یافت نشد");
     }
 
-    if (matchedProject.formId !== selected.formId) {
+    if (!matchesSelectedProject(selected, matchedProject)) {
       createBadRequestError("پروژه انتخاب‌شده با فرم مورد انتظار مطابقت ندارد");
     }
   }
@@ -775,7 +895,8 @@ const createStepAnalysisProjectService = async (
 
       selectedSourceProjects: {
         create: selectedProjects.map((item) => ({
-          formId: item.formId,
+          formId: item.formId ?? null,
+          multiAnalysisFormId: item.multiAnalysisFormId ?? null,
           sourceProjectId: item.projectId,
         })),
       },

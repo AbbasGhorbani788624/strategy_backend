@@ -10,7 +10,7 @@ const {
   parsePeriodIndex,
   resolveMeasureIdForActivePlan,
 } = require("../utils/strategyPlanResolve");
-const { generateMonitoringPeriods } = require("../utils/measurePeriodUtils");
+const { generateMonitoringPeriods, formatMonitoringDuration } = require("../utils/measurePeriodUtils");
 
 const MONITORING_MEASURE_INCLUDE = {
   strategyPlan: {
@@ -209,11 +209,14 @@ const formatMeasureListItem = (measure, index = null) => ({
   metric: measure.name,
   unit: measure.unit,
   frequency: measure.frequency,
+  measurementPeriodLabel: measure.measurementPeriodLabel,
+  periodSplitBy: measure.periodSplitBy,
   formula: measure.formula,
   description: measure.description,
   strategicObjective: measure.description,
   status: measure.status,
   monitoringStatus: measure.monitoringStatus,
+  duration: formatMonitoringDuration(measure),
   finalTarget:
     measure.finalTarget !== null && measure.finalTarget !== undefined
       ? Number(measure.finalTarget)
@@ -253,11 +256,13 @@ const formatMonitoringResponse = (measure, measureIndex = null) => {
       name: measure.name,
       unit: measure.unit,
       frequency: measure.frequency,
+      measurementPeriodLabel: measure.measurementPeriodLabel,
+      periodSplitBy: measure.periodSplitBy,
       formula: measure.formula,
       description: measure.description,
     },
     startDate: measure.monitoringStartDate,
-    duration: measure.monitoringDurationMonths,
+    duration: formatMonitoringDuration(measure),
     owner: formatOwner(measure.owner),
     finalTarget:
       measure.finalTarget !== null && measure.finalTarget !== undefined
@@ -401,13 +406,14 @@ const startMonitoringService = async (user, measureId, measureIndex = null) => {
   }
 
   const startDate = measure.monitoringStartDate || new Date();
-  const durationMonths = measure.monitoringDurationMonths || 6;
   const periods = generateMonitoringPeriods({
     startDate,
-    durationMonths,
-    frequency: measure.frequency || "MONTHLY",
+    splitBy: measure.periodSplitBy,
+    durationMonths: measure.monitoringDurationMonths,
+    durationDays: measure.monitoringDurationDays,
+    frequency: measure.frequency,
+    measurementPeriodLabel: measure.measurementPeriodLabel,
   });
-
   try {
     measure = await runTransactionWithRetry(async () =>
       prisma.$transaction(async (tx) => {
@@ -450,7 +456,8 @@ const startMonitoringService = async (user, measureId, measureIndex = null) => {
           data: {
             monitoringStatus: "DRAFT",
             monitoringStartDate: startDate,
-            monitoringDurationMonths: durationMonths,
+            monitoringDurationMonths: measure.monitoringDurationMonths,
+            monitoringDurationDays: measure.monitoringDurationDays,
           },
         });
 

@@ -323,7 +323,10 @@ const handleConversationStepService = async (
           profileFields: true,
           requiredForms: {
             orderBy: { order: "asc" },
-            include: { form: true },
+            include: {
+              form: true,
+              requiredMultiAnalysisForm: true,
+            },
           },
           promptDefinition: {
             include: {
@@ -348,6 +351,7 @@ const handleConversationStepService = async (
       selectedSourceProjects: {
         include: {
           form: true,
+          multiAnalysisForm: true,
           sourceProject: { select: { summaryAnalysis: true } },
         },
       },

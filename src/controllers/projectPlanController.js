@@ -125,3 +125,28 @@ exports.deleteProjectPlan = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.updateActionProgress = async (req, res, next) => {
+  try {
+    const result = await projectPlanService.updateActionProgress(
+      req.user,
+      req.params.actionId,
+      req.body.progress,
+    );
+    return successResponse(res, 200, result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getActionProgressHistory = async (req, res, next) => {
+  try {
+    const result = await projectPlanService.getActionProgressHistory(
+      req.user,
+      req.params.actionId,
+    );
+    return successResponse(res, 200, result);
+  } catch (err) {
+    next(err);
+  }
+};

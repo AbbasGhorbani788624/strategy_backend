@@ -1,5 +1,30 @@
 const yup = require("yup");
 
+const requiredFormItemSchema = yup.object().shape({
+  type: yup
+    .string()
+    .oneOf(["SINGLE", "MULTI"], "type باید SINGLE یا MULTI باشد")
+    .required("type الزامی است"),
+
+  formId: yup.string().when("type", {
+    is: "SINGLE",
+    then: (schema) => schema.required("formId الزامی است"),
+    otherwise: (schema) => schema.nullable(),
+  }),
+
+  requiredMultiAnalysisFormId: yup.string().when("type", {
+    is: "MULTI",
+    then: (schema) => schema.required("requiredMultiAnalysisFormId الزامی است"),
+    otherwise: (schema) => schema.nullable(),
+  }),
+
+  order: yup
+    .number()
+    .required("order الزامی است")
+    .integer("order باید عدد صحیح باشد")
+    .min(1, "order باید حداقل 1 باشد"),
+});
+
 const schema = yup.object().shape({
   title: yup
     .string()
@@ -8,17 +33,7 @@ const schema = yup.object().shape({
 
   requiredForms: yup
     .array()
-    .of(
-      yup.object().shape({
-        formId: yup.string().required("formId الزامی است"),
-
-        order: yup
-          .number()
-          .required("order الزامی است")
-          .integer("order باید عدد صحیح باشد")
-          .min(1, "order باید حداقل 1 باشد"),
-      }),
-    )
+    .of(requiredFormItemSchema)
     .required("requiredForms الزامی است")
     .min(1, "حداقل یک آیتم در requiredForms لازم است"),
 

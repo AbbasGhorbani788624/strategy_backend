@@ -1,9 +1,8 @@
 const prisma = require("../prismaClient");
 const {
   mapMeasurementPeriodText,
+  parseMeasurementPeriodConfig,
 } = require("../utils/measurePeriodUtils");
-
-const DEFAULT_MONITORING_DURATION_MONTHS = 6;
 
 const isKpiRow = (row) =>
   Boolean(row?.metric || row?.name) && !Array.isArray(row?.kpis);
@@ -135,6 +134,8 @@ const syncBscMeasuresFromKpiTable = async (tx, strategyPlanId, kpiTable) => {
       const metric = kpi?.metric || kpi?.name;
       if (!metric) continue;
 
+      const periodConfig = parseMeasurementPeriodConfig(kpi?.measurementPeriod);
+
       const measure = await tx.strategyMeasure.create({
         data: {
           strategyPlanId,
@@ -143,7 +144,10 @@ const syncBscMeasuresFromKpiTable = async (tx, strategyPlanId, kpiTable) => {
           formula: kpi?.formula || null,
           unit: kpi?.unit || null,
           frequency: mapMeasurementPeriodText(kpi?.measurementPeriod),
-          monitoringDurationMonths: DEFAULT_MONITORING_DURATION_MONTHS,
+          measurementPeriodLabel: periodConfig.label,
+          periodSplitBy: periodConfig.splitBy,
+          monitoringDurationMonths: periodConfig.durationMonths,
+          monitoringDurationDays: periodConfig.durationDays,
           monitoringStartDate: new Date(),
           status: "APPROVED",
         },

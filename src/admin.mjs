@@ -2,7 +2,6 @@
 import "dotenv/config";
 import "./admin-env.mjs";
 import express from "express";
-import session from "express-session";
 import bcrypt from "bcrypt";
 import { actions, ValidationError, flat, ListAction, Filter } from "adminjs";
 import AdminJS from "adminjs";
@@ -191,6 +190,94 @@ const followUpStatusValues = [
   { value: "PENDING", label: "در انتظار" },
   { value: "ANSWERED", label: "پاسخ داده شده" },
 ];
+
+const strategyNavigation = {
+  name: "استراتژی",
+  icon: "Target",
+};
+
+const strategyFrameworkValues = [
+  { value: "BSC", label: "BSC" },
+  { value: "OKR", label: "OKR" },
+];
+
+const strategyStatusValues = [
+  { value: "DRAFT", label: "پیش‌نویس" },
+  { value: "IN_PROGRESS", label: "در حال انجام" },
+  { value: "APPROVED", label: "تأیید شده" },
+  { value: "ACTIVE", label: "فعال" },
+  { value: "COMPLETED", label: "تکمیل شده" },
+  { value: "ARCHIVED", label: "بایگانی" },
+];
+
+const strategyStateValues = [
+  { value: "STRATEGY_TRANSLATION", label: "ترجمه استراتژی" },
+  { value: "MAP_GENERATION", label: "تولید نقشه" },
+  { value: "MAP_VALIDATION", label: "اعتبارسنجی نقشه" },
+  { value: "KPI_GENERATION", label: "تولید KPI" },
+  { value: "KPI_VALIDATION", label: "اعتبارسنجی KPI" },
+  { value: "TABLE_GENERATION", label: "تولید جدول" },
+  { value: "TABLE_VALIDATION", label: "اعتبارسنجی جدول" },
+  { value: "READY_FOR_MONITORING", label: "آماده پایش" },
+  { value: "MONITORING", label: "پایش" },
+  { value: "FAILED", label: "ناموفق" },
+];
+
+const strategyMapStatusValues = [
+  { value: "DRAFT", label: "پیش‌نویس" },
+  { value: "VALIDATING", label: "در حال اعتبارسنجی" },
+  { value: "APPROVED", label: "تأیید شده" },
+];
+
+const strategyMeasureStatusValues = [
+  { value: "DRAFT", label: "پیش‌نویس" },
+  { value: "VALIDATING", label: "در حال اعتبارسنجی" },
+  { value: "APPROVED", label: "تأیید شده" },
+];
+
+const strategyMonitoringStatusValues = [
+  { value: "DRAFT", label: "پیش‌نویس" },
+  { value: "LOCKED", label: "قفل شده" },
+];
+
+const measurementFrequencyValues = [
+  { value: "DAILY", label: "روزانه" },
+  { value: "WEEKLY", label: "هفتگی" },
+  { value: "MONTHLY", label: "ماهانه" },
+  { value: "QUARTERLY", label: "فصلی" },
+  { value: "YEARLY", label: "سالانه" },
+];
+
+const bscPerspectiveValues = [
+  { value: "FINANCIAL", label: "مالی" },
+  { value: "CUSTOMER", label: "مشتری" },
+  { value: "INTERNAL_PROCESS", label: "فرآیند داخلی" },
+  { value: "LEARNING_GROWTH", label: "یادگیری و رشد" },
+];
+
+const learningGrowthCategoryValues = [
+  { value: "HUMAN_CAPITAL", label: "سرمایه انسانی" },
+  { value: "INFORMATION_CAPITAL", label: "سرمایه اطلاعاتی" },
+  { value: "ORGANIZATIONAL_CAPITAL", label: "سرمایه سازمانی" },
+];
+
+const strategyApprovalTypeValues = [
+  { value: "MAP", label: "نقشه" },
+  { value: "MEASURES", label: "سنجه‌ها" },
+];
+
+const projectPlanStatusValues = [
+  { value: "DRAFT", label: "پیش‌نویس" },
+  { value: "LOCKED", label: "قفل شده" },
+  { value: "IN_PROGRESS", label: "در حال انجام" },
+  { value: "COMPLETED", label: "تکمیل شده" },
+];
+
+const projectPlanActionStatusValues = [
+  { value: "NOT_STARTED", label: "شروع نشده" },
+  { value: "IN_PROGRESS", label: "در حال انجام" },
+  { value: "COMPLETED", label: "تکمیل شده" },
+];
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -353,6 +440,77 @@ function validateAdminProfileFieldPayload(request) {
       },
     });
   }
+}
+
+function validateMultiAnalysisRequiredFormPayload(request) {
+  if (request.method !== "post") {
+    return;
+  }
+
+  const payload = request.payload || {};
+  const type = payload.type || "SINGLE";
+
+  const multiAnalysisFormId = String(
+    payload.multiAnalysisFormId || payload.multiAnalysisForm || "",
+  ).trim();
+  const formId = String(payload.formId || payload.form || "").trim();
+  const requiredMultiAnalysisFormId = String(
+    payload.requiredMultiAnalysisFormId ||
+      payload.requiredMultiAnalysisForm ||
+      "",
+  ).trim();
+
+  const errors = {};
+
+  if (!multiAnalysisFormId) {
+    errors.multiAnalysisForm = { message: "تحلیل چندگانه والد الزامی است" };
+  }
+
+  if (type === "SINGLE") {
+    if (!formId) {
+      errors.form = { message: "تحلیل تکی الزامی است" };
+    }
+  } else if (type === "MULTI") {
+    if (!requiredMultiAnalysisFormId) {
+      errors.requiredMultiAnalysisForm = {
+        message: "تحلیل چندگانه الزامی است",
+      };
+    }
+
+    if (
+      requiredMultiAnalysisFormId &&
+      multiAnalysisFormId &&
+      requiredMultiAnalysisFormId === multiAnalysisFormId
+    ) {
+      errors.requiredMultiAnalysisForm = {
+        message: "تحلیل چندگانه نمی‌تواند به خودش وابسته باشد",
+      };
+    }
+  } else {
+    errors.type = { message: "نوع الزامی باید SINGLE یا MULTI باشد" };
+  }
+
+  if (Object.keys(errors).length > 0) {
+    throw new ValidationError(errors);
+  }
+
+  payload.multiAnalysisForm = multiAnalysisFormId;
+  payload.multiAnalysisFormId = multiAnalysisFormId;
+  payload.type = type;
+
+  if (type === "SINGLE") {
+    payload.form = formId;
+    payload.formId = formId;
+    payload.requiredMultiAnalysisForm = null;
+    payload.requiredMultiAnalysisFormId = null;
+  } else {
+    payload.requiredMultiAnalysisForm = requiredMultiAnalysisFormId;
+    payload.requiredMultiAnalysisFormId = requiredMultiAnalysisFormId;
+    payload.form = null;
+    payload.formId = null;
+  }
+
+  request.payload = payload;
 }
 
 const enrichFollowUpRequestRecord = async (recordJson) => {
@@ -6254,11 +6412,28 @@ const admin = new AdminJS({
           position: 1,
         },
 
-        form: {
-          reference: "AnalysisForm",
+        type: {
+          availableValues: [
+            { value: "SINGLE", label: "تحلیل تکی" },
+            { value: "MULTI", label: "تحلیل چندگانه" },
+          ],
           isRequired: true,
           isVisible: { list: true, filter: true, show: true, edit: true },
           position: 2,
+        },
+
+        form: {
+          reference: "AnalysisForm",
+          isRequired: false,
+          isVisible: { list: true, filter: true, show: true, edit: true },
+          position: 3,
+        },
+
+        requiredMultiAnalysisForm: {
+          reference: "MultiAnalysisForm",
+          isRequired: false,
+          isVisible: { list: true, filter: true, show: true, edit: true },
+          position: 4,
         },
 
         multiAnalysisFormId: {
@@ -6269,9 +6444,13 @@ const admin = new AdminJS({
           isVisible: false,
         },
 
+        requiredMultiAnalysisFormId: {
+          isVisible: false,
+        },
+
         order: {
           isRequired: true,
-          position: 3,
+          position: 5,
         },
 
         createdAt: {
@@ -6283,12 +6462,22 @@ const admin = new AdminJS({
         },
       },
 
-      listProperties: ["id", "multiAnalysisForm", "form", "order", "createdAt"],
+      listProperties: [
+        "id",
+        "multiAnalysisForm",
+        "type",
+        "form",
+        "requiredMultiAnalysisForm",
+        "order",
+        "createdAt",
+      ],
 
       filterProperties: [
         "id",
         "multiAnalysisForm",
+        "type",
         "form",
+        "requiredMultiAnalysisForm",
         "order",
         "createdAt",
       ],
@@ -6296,13 +6485,37 @@ const admin = new AdminJS({
       showProperties: [
         "id",
         "multiAnalysisForm",
+        "type",
         "form",
+        "requiredMultiAnalysisForm",
         "order",
         "createdAt",
         "updatedAt",
       ],
 
-      editProperties: ["multiAnalysisForm", "form", "order"],
+      editProperties: [
+        "multiAnalysisForm",
+        "type",
+        "form",
+        "requiredMultiAnalysisForm",
+        "order",
+      ],
+
+      actions: {
+        new: {
+          before: async (request) => {
+            validateMultiAnalysisRequiredFormPayload(request);
+            return request;
+          },
+        },
+
+        edit: {
+          before: async (request) => {
+            validateMultiAnalysisRequiredFormPayload(request);
+            return request;
+          },
+        },
+      },
     }),
     prismaResource("MultiAnalysisForm", {
       navigation: {
@@ -9512,6 +9725,442 @@ const admin = new AdminJS({
           },
         },
       },
+    }),
+    prismaResource("StrategyPlan", {
+      navigation: strategyNavigation,
+      properties: {
+        id: { isTitle: true },
+        project: { reference: "Project", label: "پروژه" },
+        company: { reference: "Company", label: "شرکت" },
+        framework: { availableValues: strategyFrameworkValues, label: "چارچوب" },
+        status: { availableValues: strategyStatusValues, label: "وضعیت" },
+        state: { availableValues: strategyStateValues, label: "مرحله" },
+        strategyText: { type: "textarea", label: "متن استراتژی" },
+        companyProfile: { type: "mixed", label: "پروفایل شرکت" },
+      },
+      listProperties: [
+        "id",
+        "project",
+        "company",
+        "framework",
+        "status",
+        "state",
+        "createdAt",
+      ],
+      showProperties: [
+        "id",
+        "project",
+        "company",
+        "framework",
+        "status",
+        "state",
+        "strategyText",
+        "companyProfile",
+        "createdAt",
+        "updatedAt",
+      ],
+      editProperties: [
+        "project",
+        "company",
+        "framework",
+        "status",
+        "state",
+        "strategyText",
+        "companyProfile",
+      ],
+      filterProperties: ["project", "company", "framework", "status", "state"],
+    }),
+    prismaResource("StrategyMap", {
+      navigation: strategyNavigation,
+      properties: {
+        id: { isTitle: true },
+        strategyPlan: { reference: "StrategyPlan", label: "برنامه استراتژی" },
+        version: { label: "نسخه" },
+        status: { availableValues: strategyMapStatusValues, label: "وضعیت" },
+        initialData: { type: "mixed", label: "داده اولیه AI" },
+        editedData: { type: "mixed", label: "داده ویرایش‌شده" },
+        finalData: { type: "mixed", label: "داده نهایی" },
+        approvedBy: { reference: "User", label: "تأییدکننده" },
+      },
+      listProperties: ["id", "strategyPlan", "version", "status", "approvedAt"],
+      showProperties: [
+        "id",
+        "strategyPlan",
+        "version",
+        "status",
+        "initialData",
+        "editedData",
+        "finalData",
+        "approvedAt",
+        "approvedBy",
+        "createdAt",
+        "updatedAt",
+      ],
+      editProperties: [
+        "strategyPlan",
+        "version",
+        "status",
+        "initialData",
+        "editedData",
+        "finalData",
+        "approvedAt",
+        "approvedBy",
+      ],
+      filterProperties: ["strategyPlan", "status", "approvedAt"],
+    }),
+    prismaResource("StrategyObjective", {
+      navigation: strategyNavigation,
+      properties: {
+        title: { isTitle: true, label: "عنوان" },
+        strategyPlan: { reference: "StrategyPlan", label: "برنامه استراتژی" },
+        map: { reference: "StrategyMap", label: "نقشه" },
+        parent: { reference: "StrategyObjective", label: "هدف والد" },
+        description: { type: "textarea", label: "توضیحات" },
+        perspective: { availableValues: bscPerspectiveValues, label: "منظر" },
+        learningGrowthCategory: {
+          availableValues: learningGrowthCategoryValues,
+          label: "دسته یادگیری و رشد",
+        },
+      },
+      listProperties: [
+        "id",
+        "strategyPlan",
+        "title",
+        "perspective",
+        "sortOrder",
+        "createdAt",
+      ],
+      showProperties: [
+        "id",
+        "strategyPlan",
+        "map",
+        "code",
+        "title",
+        "description",
+        "perspective",
+        "learningGrowthCategory",
+        "priority",
+        "sortOrder",
+        "parent",
+        "createdAt",
+        "updatedAt",
+      ],
+      editProperties: [
+        "strategyPlan",
+        "map",
+        "code",
+        "title",
+        "description",
+        "perspective",
+        "learningGrowthCategory",
+        "priority",
+        "sortOrder",
+        "parent",
+      ],
+      filterProperties: ["strategyPlan", "map", "perspective", "parent"],
+    }),
+    prismaResource("StrategyObjectiveRelation", {
+      navigation: strategyNavigation,
+      properties: {
+        fromObjective: {
+          reference: "StrategyObjective",
+          label: "هدف مبدأ",
+        },
+        toObjective: {
+          reference: "StrategyObjective",
+          label: "هدف مقصد",
+        },
+      },
+      listProperties: ["id", "fromObjective", "toObjective", "createdAt"],
+      showProperties: ["id", "fromObjective", "toObjective", "createdAt"],
+      editProperties: ["fromObjective", "toObjective"],
+      filterProperties: ["fromObjective", "toObjective", "createdAt"],
+    }),
+    prismaResource("StrategyMeasure", {
+      navigation: strategyNavigation,
+      properties: {
+        name: { isTitle: true, label: "نام سنجه" },
+        strategyPlan: { reference: "StrategyPlan", label: "برنامه استراتژی" },
+        objective: { reference: "StrategyObjective", label: "هدف" },
+        description: { type: "textarea", label: "توضیحات" },
+        formula: { type: "textarea", label: "فرمول" },
+        frequency: {
+          availableValues: measurementFrequencyValues,
+          label: "دوره اندازه‌گیری",
+        },
+        status: {
+          availableValues: strategyMeasureStatusValues,
+          label: "وضعیت",
+        },
+        monitoringStatus: {
+          availableValues: strategyMonitoringStatusValues,
+          label: "وضعیت پایش",
+        },
+        owner: { reference: "User", label: "مالک" },
+        approvedBy: { reference: "User", label: "تأییدکننده" },
+      },
+      listProperties: [
+        "id",
+        "strategyPlan",
+        "name",
+        "status",
+        "frequency",
+        "monitoringStatus",
+      ],
+      showProperties: [
+        "id",
+        "strategyPlan",
+        "objective",
+        "name",
+        "description",
+        "unit",
+        "frequency",
+        "baseline",
+        "finalTarget",
+        "formula",
+        "monitoringStartDate",
+        "monitoringDurationMonths",
+        "monitoringStatus",
+        "owner",
+        "status",
+        "approvedAt",
+        "approvedBy",
+        "createdAt",
+        "updatedAt",
+      ],
+      editProperties: [
+        "strategyPlan",
+        "objective",
+        "name",
+        "description",
+        "unit",
+        "frequency",
+        "baseline",
+        "finalTarget",
+        "formula",
+        "monitoringStartDate",
+        "monitoringDurationMonths",
+        "monitoringStatus",
+        "owner",
+        "status",
+        "approvedAt",
+        "approvedBy",
+      ],
+      filterProperties: ["strategyPlan", "objective", "status", "owner"],
+    }),
+    prismaResource("StrategyMeasureTarget", {
+      navigation: strategyNavigation,
+      properties: {
+        measure: { reference: "StrategyMeasure", label: "سنجه" },
+        periodLabel: { label: "برچسب دوره" },
+      },
+      listProperties: [
+        "id",
+        "measure",
+        "periodStart",
+        "periodEnd",
+        "targetValue",
+      ],
+      showProperties: [
+        "id",
+        "measure",
+        "periodStart",
+        "periodEnd",
+        "periodLabel",
+        "targetValue",
+        "createdAt",
+        "updatedAt",
+      ],
+      editProperties: [
+        "measure",
+        "periodStart",
+        "periodEnd",
+        "periodLabel",
+        "targetValue",
+      ],
+      filterProperties: ["measure", "periodStart", "periodEnd"],
+    }),
+    prismaResource("StrategyMeasureMeasurement", {
+      navigation: strategyNavigation,
+      properties: {
+        measure: { reference: "StrategyMeasure", label: "سنجه" },
+        note: { type: "textarea", label: "یادداشت" },
+        submittedBy: { reference: "User", label: "ثبت‌کننده" },
+      },
+      listProperties: [
+        "id",
+        "measure",
+        "periodStart",
+        "periodEnd",
+        "actualValue",
+        "submittedAt",
+      ],
+      showProperties: [
+        "id",
+        "measure",
+        "periodStart",
+        "periodEnd",
+        "actualValue",
+        "note",
+        "submittedBy",
+        "submittedAt",
+        "createdAt",
+        "updatedAt",
+      ],
+      editProperties: [
+        "measure",
+        "periodStart",
+        "periodEnd",
+        "actualValue",
+        "note",
+        "submittedBy",
+      ],
+      filterProperties: ["measure", "submittedBy", "periodStart", "periodEnd"],
+    }),
+    prismaResource("StrategyAiRun", {
+      navigation: strategyNavigation,
+      properties: {
+        strategyPlan: { reference: "StrategyPlan", label: "برنامه استراتژی" },
+        framework: { availableValues: strategyFrameworkValues, label: "چارچوب" },
+        state: { availableValues: strategyStateValues, label: "مرحله" },
+        requestPayload: { type: "mixed", label: "درخواست" },
+        responsePayload: { type: "mixed", label: "پاسخ" },
+        errorMessage: { type: "textarea", label: "پیام خطا" },
+      },
+      listProperties: [
+        "id",
+        "strategyPlan",
+        "framework",
+        "state",
+        "success",
+        "startedAt",
+      ],
+      showProperties: [
+        "id",
+        "strategyPlan",
+        "framework",
+        "state",
+        "requestPayload",
+        "responsePayload",
+        "success",
+        "errorMessage",
+        "startedAt",
+        "finishedAt",
+        "createdAt",
+      ],
+      editProperties: [
+        "strategyPlan",
+        "framework",
+        "state",
+        "requestPayload",
+        "responsePayload",
+        "success",
+        "errorMessage",
+        "startedAt",
+        "finishedAt",
+      ],
+      filterProperties: ["strategyPlan", "framework", "state", "success"],
+    }),
+    prismaResource("StrategyApproval", {
+      navigation: strategyNavigation,
+      properties: {
+        strategyPlan: { reference: "StrategyPlan", label: "برنامه استراتژی" },
+        type: { availableValues: strategyApprovalTypeValues, label: "نوع" },
+        version: { label: "نسخه" },
+      },
+      listProperties: ["id", "strategyPlan", "type", "version", "approvedAt"],
+      showProperties: ["id", "strategyPlan", "type", "version", "approvedAt", "createdAt"],
+      editProperties: ["strategyPlan", "type", "version", "approvedAt"],
+      filterProperties: ["strategyPlan", "type", "approvedAt"],
+    }),
+    prismaResource("ProjectPlan", {
+      navigation: {
+        name: "پروژه‌ها",
+        icon: "Folder",
+      },
+      properties: {
+        project: { reference: "Project", label: "پروژه", isTitle: true },
+        status: { availableValues: projectPlanStatusValues, label: "وضعیت" },
+      },
+      listProperties: ["id", "project", "status", "lockedAt", "createdAt"],
+      showProperties: ["id", "project", "status", "lockedAt", "createdAt", "updatedAt"],
+      editProperties: ["project", "status", "lockedAt"],
+      filterProperties: ["project", "status", "lockedAt"],
+    }),
+    prismaResource("ProjectPlanAction", {
+      navigation: {
+        name: "پروژه‌ها",
+        icon: "Folder",
+      },
+      properties: {
+        title: { isTitle: true, type: "textarea", label: "عنوان" },
+        plan: { reference: "ProjectPlan", label: "برنامه پروژه" },
+        description: { type: "textarea", label: "توضیحات" },
+        executor: { reference: "User", label: "مجری" },
+        prerequisiteAction: {
+          reference: "ProjectPlanAction",
+          label: "اقدام پیش‌نیاز",
+        },
+        status: {
+          availableValues: projectPlanActionStatusValues,
+          label: "وضعیت",
+        },
+      },
+      listProperties: [
+        "id",
+        "plan",
+        "title",
+        "status",
+        "progress",
+        "executor",
+        "startDate",
+        "endDate",
+      ],
+      showProperties: [
+        "id",
+        "plan",
+        "title",
+        "description",
+        "startDate",
+        "endDate",
+        "executor",
+        "progress",
+        "status",
+        "completedAt",
+        "order",
+        "prerequisiteAction",
+        "createdAt",
+        "updatedAt",
+      ],
+      editProperties: [
+        "plan",
+        "title",
+        "description",
+        "startDate",
+        "endDate",
+        "executor",
+        "progress",
+        "status",
+        "completedAt",
+        "order",
+        "prerequisiteAction",
+      ],
+      filterProperties: ["plan", "executor", "status", "startDate", "endDate"],
+    }),
+    prismaResource("ProjectPlanActionProgressHistory", {
+      navigation: {
+        name: "پروژه‌ها",
+        icon: "Folder",
+      },
+      properties: {
+        action: { reference: "ProjectPlanAction", label: "اقدام" },
+        user: { reference: "User", label: "کاربر" },
+        progress: { label: "پیشرفت" },
+      },
+      listProperties: ["id", "action", "progress", "user", "createdAt"],
+      showProperties: ["id", "action", "progress", "user", "createdAt"],
+      editProperties: ["action", "progress", "user"],
+      filterProperties: ["action", "user", "createdAt"],
     }),
   ],
 });
