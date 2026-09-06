@@ -92,11 +92,13 @@ const MOCK_BSC_KPI_TABLE = [
         metric: "سود ناخالص",
         formula: "درآمد - هزینه",
         measurementPeriod: "شش ماهه",
+        desirability: "INCREASING",
       },
       {
         metric: "نسبت اهرمی",
         formula: "ROE = (سود خالص / فروش) × (فروش / دارایی) × (دارایی / حقوق صاحبان سهام)",
         measurementPeriod: "شش ماهه",
+        desirability: "INCREASING",
       },
     ],
   },

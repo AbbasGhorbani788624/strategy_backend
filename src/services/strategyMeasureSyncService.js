@@ -3,6 +3,18 @@ const {
   mapMeasurementPeriodText,
   parseMeasurementPeriodConfig,
 } = require("../utils/measurePeriodUtils");
+const {
+  parseMeasureDesirability,
+  pickKpiDesirabilityInput,
+} = require("../utils/measureDesirabilityUtils");
+
+const pickNormalizedKpi = (kpi) => ({
+  metric: kpi?.metric || kpi?.name,
+  formula: kpi?.formula,
+  measurementPeriod: kpi?.measurementPeriod,
+  unit: kpi?.unit,
+  desirability: parseMeasureDesirability(pickKpiDesirabilityInput(kpi)),
+});
 
 const isKpiRow = (row) =>
   Boolean(row?.metric || row?.name) && !Array.isArray(row?.kpis);
@@ -49,12 +61,7 @@ const normalizeBscKpiTable = (input) => {
         {
           strategicObjective: table.strategicObjective || table.objective || null,
           kpis: [
-            {
-              metric: table.metric || table.name,
-              formula: table.formula,
-              measurementPeriod: table.measurementPeriod,
-              unit: table.unit,
-            },
+            pickNormalizedKpi(table),
           ],
         },
       ];
@@ -70,14 +77,7 @@ const normalizeBscKpiTable = (input) => {
   if (table.every(isKpiRow)) {
     return table.map((item) => ({
       strategicObjective: item.strategicObjective || item.objective || null,
-      kpis: [
-        {
-          metric: item.metric || item.name,
-          formula: item.formula,
-          measurementPeriod: item.measurementPeriod,
-          unit: item.unit,
-        },
-      ],
+      kpis: [pickNormalizedKpi(item)],
     }));
   }
 
@@ -85,18 +85,11 @@ const normalizeBscKpiTable = (input) => {
     strategicObjective: row?.strategicObjective || row?.objective || null,
     objective: row?.objective || row?.strategicObjective || null,
     kpis: Array.isArray(row?.kpis)
-      ? row.kpis
+      ? row.kpis.map(pickNormalizedKpi)
       : Array.isArray(row?.metrics)
-        ? row.metrics
+        ? row.metrics.map(pickNormalizedKpi)
         : isKpiRow(row)
-          ? [
-              {
-                metric: row.metric || row.name,
-                formula: row.formula,
-                measurementPeriod: row.measurementPeriod,
-                unit: row.unit,
-              },
-            ]
+          ? [pickNormalizedKpi(row)]
           : [],
   }));
 };
@@ -148,6 +141,7 @@ const syncBscMeasuresFromKpiTable = async (tx, strategyPlanId, kpiTable) => {
           periodSplitBy: periodConfig.splitBy,
           monitoringDurationMonths: periodConfig.durationMonths,
           monitoringDurationDays: periodConfig.durationDays,
+          desirability: kpi.desirability,
           monitoringStartDate: new Date(),
           status: "APPROVED",
         },
@@ -227,4 +221,5 @@ module.exports = {
   syncBscMeasuresFromKpiTable,
   syncOkrMeasuresFromTable,
   ensureMeasuresSyncedForPlan,
+  pickNormalizedKpi,
 };

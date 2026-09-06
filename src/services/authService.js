@@ -182,8 +182,8 @@ const changeCredentialsService = async ({
     createBadRequestError("کاربر یافت نشد", 404);
   }
 
-  // USER فقط خودش
-  if (currentUser.role === "USER" && currentUser.id !== user.id) {
+  // MEMBER فقط خودش
+  if (currentUser.role === "MEMBER" && currentUser.id !== user.id) {
     createBadRequestError("شما اجازه تغییر اطلاعات این کاربر را ندارید", 403);
   }
 

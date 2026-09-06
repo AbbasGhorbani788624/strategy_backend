@@ -57,6 +57,7 @@ exports.update = async (req, res, next) => {
     const result = await service.update(
       req.params.section,
       req.params.id,
+      req.user.id,
       data,
     );
 
@@ -68,7 +69,7 @@ exports.update = async (req, res, next) => {
 
 exports.remove = async (req, res, next) => {
   try {
-    await service.remove(req.params.section, req.params.id);
+    await service.remove(req.params.section, req.params.id, req.user.id);
 
     res.sendStatus(204);
   } catch (err) {

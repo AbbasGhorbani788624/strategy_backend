@@ -3,14 +3,22 @@ const prisma = require("../prismaClient");
 const { createBadRequestError } = require("../utils");
 
 const addBookmarkService = async (userId, projectId) => {
-  const project = await prisma.project.findUnique({
+  const project = await prisma.project.findFirst({
     where: {
       id: projectId,
+      OR: [
+        { creatorId: userId },
+        {
+          accesses: {
+            some: { userId },
+          },
+        },
+      ],
     },
   });
 
   if (!project) {
-    createBadRequestError("پروژه مورد نظر یافت نشد", 404);
+    createBadRequestError("دسترسی به پروژه ندارید", 403);
   }
 
   return prisma.projectBookmark.upsert({

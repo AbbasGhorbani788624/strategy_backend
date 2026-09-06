@@ -3,10 +3,10 @@ const router = express.Router();
 const auth = require("../middleware/auth");
 const { roleGuard } = require("../middleware/roleGuard");
 const {
-  createFollowUpForm,
   getActiveFollowUpForm,
   createProjectFollowUpRequest,
   getMyFollowUpsController,
+  getFollowUpDetailController,
 } = require("../controllers/followupsController");
 
 router.get("/", auth, getMyFollowUpsController);
@@ -18,6 +18,6 @@ router.get("/forms/active", auth, getActiveFollowUpForm);
 router.post("/:id/follow-ups", auth, createProjectFollowUpRequest);
 
 //جزئیات یک پیگیری برای کاربر
-router.get("/follow-ups/:id", auth);
+router.get("/follow-ups/:id", auth, getFollowUpDetailController);
 
 module.exports = router;

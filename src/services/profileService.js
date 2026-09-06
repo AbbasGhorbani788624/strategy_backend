@@ -63,7 +63,7 @@ exports.create = async (userId, section, data) => {
   });
 };
 
-exports.update = async (section, id, data) => {
+exports.update = async (section, id, userId, data) => {
   return await prisma.$transaction(async (tx) => {
     const model = getModel(tx, section);
 
@@ -77,16 +77,25 @@ exports.update = async (section, id, data) => {
       createBadRequestError("رکورد موردنظر یافت نشد.", 404);
     }
 
+    if (current.userId !== userId) {
+      createBadRequestError("دسترسی غیرمجاز", 403);
+    }
+
+    const sanitized = { ...data };
+    for (const field of ["userId", "id", "createdAt", "updatedAt"]) {
+      delete sanitized[field];
+    }
+
     return await model.update({
       where: {
         id,
       },
-      data,
+      data: sanitized,
     });
   });
 };
 
-exports.remove = async (section, id) => {
+exports.remove = async (section, id, userId) => {
   return await prisma.$transaction(async (tx) => {
     const model = getModel(tx, section);
 
@@ -98,6 +107,10 @@ exports.remove = async (section, id) => {
 
     if (!current) {
       createBadRequestError("رکورد موردنظر یافت نشد.", 404);
+    }
+
+    if (current.userId !== userId) {
+      createBadRequestError("دسترسی غیرمجاز", 403);
     }
 
     await model.delete({

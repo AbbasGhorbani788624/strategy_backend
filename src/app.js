@@ -24,6 +24,7 @@ const strategyPlanRoutes = require("./routes/strategyPlanRoutes");
 const strategyMonitoringRoutes = require("./routes/strategyMonitoringRoutes");
 const projectPlanRoutes = require("./routes/projectPlanRoutes");
 const projectPlanActionRoutes = require("./routes/projectPlanActionRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
 
 
 const limiter = rateLimit({
@@ -50,7 +51,7 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        callback(new Error("Not allowed by CORS"));
+        callback(null, false);
       }
     },
     credentials: true,
@@ -90,6 +91,7 @@ app.use("/api/strategy-plans", strategyPlanRoutes);
 app.use("/api/strategy", strategyMonitoringRoutes);
 app.use("/api/project-plans", projectPlanRoutes);
 app.use("/api/project-plan-actions", projectPlanActionRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 
 app.use((req, res) => {

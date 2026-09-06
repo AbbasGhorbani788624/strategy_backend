@@ -10,7 +10,11 @@ const {
   parsePeriodIndex,
   resolveMeasureIdForActivePlan,
 } = require("../utils/strategyPlanResolve");
-const { generateMonitoringPeriods, formatMonitoringDuration } = require("../utils/measurePeriodUtils");
+const {
+  generateMonitoringPeriods,
+  formatMonitoringDuration,
+} = require("../utils/measurePeriodUtils");
+const { formatDesirabilityResponse } = require("../utils/measureDesirabilityUtils");
 
 const MONITORING_MEASURE_INCLUDE = {
   strategyPlan: {
@@ -212,6 +216,7 @@ const formatMeasureListItem = (measure, index = null) => ({
   measurementPeriodLabel: measure.measurementPeriodLabel,
   periodSplitBy: measure.periodSplitBy,
   formula: measure.formula,
+  desirability: formatDesirabilityResponse(measure.desirability),
   description: measure.description,
   strategicObjective: measure.description,
   status: measure.status,
@@ -259,6 +264,7 @@ const formatMonitoringResponse = (measure, measureIndex = null) => {
       measurementPeriodLabel: measure.measurementPeriodLabel,
       periodSplitBy: measure.periodSplitBy,
       formula: measure.formula,
+      desirability: formatDesirabilityResponse(measure.desirability),
       description: measure.description,
     },
     startDate: measure.monitoringStartDate,

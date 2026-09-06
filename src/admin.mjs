@@ -248,6 +248,12 @@ const measurementFrequencyValues = [
   { value: "YEARLY", label: "سالانه" },
 ];
 
+const measureDesirabilityValues = [
+  { value: "INCREASING", label: "افزایشی" },
+  { value: "DECREASING", label: "کاهشی" },
+  { value: "ON_TARGET", label: "تطابق با هدف" },
+];
+
 const bscPerspectiveValues = [
   { value: "FINANCIAL", label: "مالی" },
   { value: "CUSTOMER", label: "مشتری" },
@@ -4046,6 +4052,7 @@ const admin = new AdminJS({
         title: {
           isTitle: true,
         },
+        titleFa: {},
         checklistTitle: {},
 
         category: {
@@ -4078,6 +4085,7 @@ const admin = new AdminJS({
       listProperties: [
         "id",
         "title",
+        "titleFa",
         "category",
         "isActive",
         "order",
@@ -4097,6 +4105,7 @@ const admin = new AdminJS({
       showProperties: [
         "id",
         "title",
+        "titleFa",
         "checklistTitle",
         "category",
         "info",
@@ -4109,6 +4118,7 @@ const admin = new AdminJS({
 
       editProperties: [
         "title",
+        "titleFa",
         "category",
         "checklistTitle",
         "info",
@@ -6527,6 +6537,7 @@ const admin = new AdminJS({
         title: {
           isTitle: true,
         },
+        titleFa: {},
         checklistTitle: {},
         category: {
           reference: "AnalysisCategory",
@@ -6556,6 +6567,7 @@ const admin = new AdminJS({
       listProperties: [
         "id",
         "title",
+        "titleFa",
         "description",
         "isActive",
         "order",
@@ -6575,6 +6587,7 @@ const admin = new AdminJS({
       showProperties: [
         "id",
         "title",
+        "titleFa",
         "checklistTitle",
         "description",
         "isActive",
@@ -6587,6 +6600,7 @@ const admin = new AdminJS({
 
       editProperties: [
         "title",
+        "titleFa",
         "category",
         "checklistTitle",
         "description",
@@ -9888,6 +9902,10 @@ const admin = new AdminJS({
           availableValues: measurementFrequencyValues,
           label: "دوره اندازه‌گیری",
         },
+        desirability: {
+          availableValues: measureDesirabilityValues,
+          label: "مطلوبیت",
+        },
         status: {
           availableValues: strategyMeasureStatusValues,
           label: "وضعیت",
@@ -9905,6 +9923,7 @@ const admin = new AdminJS({
         "name",
         "status",
         "frequency",
+        "desirability",
         "monitoringStatus",
       ],
       showProperties: [
@@ -9918,6 +9937,7 @@ const admin = new AdminJS({
         "baseline",
         "finalTarget",
         "formula",
+        "desirability",
         "monitoringStartDate",
         "monitoringDurationMonths",
         "monitoringStatus",
@@ -9938,6 +9958,7 @@ const admin = new AdminJS({
         "baseline",
         "finalTarget",
         "formula",
+        "desirability",
         "monitoringStartDate",
         "monitoringDurationMonths",
         "monitoringStatus",

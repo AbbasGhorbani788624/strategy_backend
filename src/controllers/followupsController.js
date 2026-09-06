@@ -2,6 +2,7 @@ const {
   getActiveFollowUpFormService,
   createProjectFollowUpRequestService,
   getMyFollowUps,
+  getFollowUpDetailService,
 } = require("../services/followupsService");
 const { successResponse } = require("../utils/responses");
 
@@ -28,6 +29,19 @@ exports.createProjectFollowUpRequest = async (req, res, next) => {
     return successResponse(res, 201, {
       message: "درخواست پیگیری با موفقیت ارسال شد",
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getFollowUpDetailController = async (req, res, next) => {
+  try {
+    const followUp = await getFollowUpDetailService(
+      req.params.id,
+      req.user.id,
+    );
+
+    return successResponse(res, 200, followUp);
   } catch (error) {
     next(error);
   }

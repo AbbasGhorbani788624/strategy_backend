@@ -3,9 +3,6 @@ const prisma = require("../prismaClient");
 const INDUSTRY_INSIGHT_API_URL = "https://strategy.ratorai.com/ai/industry";
 
 const syncIndustryInsightService = async (companyId) => {
-  console.log("========================================");
-  console.log("[IndustryInsight] SERVICE START");
-  console.log("[IndustryInsight] companyId:", companyId);
 
   if (!companyId) {
     console.log("[IndustryInsight] companyId is missing");

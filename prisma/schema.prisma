@@ -160,6 +160,12 @@ enum MonitoringPeriodSplit {
   MONTH
 }
 
+enum MeasureDesirability {
+  INCREASING
+  DECREASING
+  ON_TARGET
+}
+
 enum BscPerspective {
   FINANCIAL
   CUSTOMER
@@ -478,7 +484,8 @@ model AnalysisCategory {
 
 model AnalysisForm {
   id                      String                       @id @default(uuid())
-  title                   String
+  title                   String                      @db.VarChar(500)
+  titleFa                 String?                      @db.VarChar(500)
   info                    String?                     @db.Text
   order                   Int?
   isActive                Boolean                      @default(true)
@@ -728,7 +735,8 @@ model MultiAnalysisProjectSource {
 
 model MultiAnalysisForm {
   id             String            @id @default(uuid())
-  title          String
+  title          String            @db.VarChar(500)
+  titleFa                 String?                      @db.VarChar(500)
   description    String?           @db.Text
   isActive       Boolean           @default(true)
   order          Int?
@@ -1551,6 +1559,11 @@ model StrategyMeasure {
    * نحوه تقسیم دوره‌های target در پایش
    */
   periodSplitBy MonitoringPeriodSplit?
+
+  /**
+   * مطلوبیت سنجه: افزایشی، کاهشی، تطابق با هدف
+   */
+  desirability MeasureDesirability?
 
   /**
    * وضعیت Planning / Monitoring

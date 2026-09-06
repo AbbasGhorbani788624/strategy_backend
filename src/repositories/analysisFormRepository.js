@@ -129,6 +129,7 @@ const getSingleForms = async (companyId) => {
   const mappedForms = forms.map((form) => ({
     id: form.id,
     title: form.title,
+    titleFa: form.titleFa,
     order: form.order,
     isActive: form.isActive,
     goals: form.goals,
@@ -265,12 +266,15 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
     return {
       id: multiForm.id,
       title: multiForm.title,
+      titleFa: multiForm.titleFa,
       description: multiForm.description,
       goals: multiForm.goals,
       requiredAnalysisTitles,
       missingAnalysisTitles,
       hasForm: multiForm.categories.some((c) => c._count.questions > 0),
-      isAvailable: missingAnalysisTitles.length === 0,
+      isAvailable:
+        requiredAnalysisTitles.length === 0 ||
+        missingAnalysisTitles.length < requiredAnalysisTitles.length,
       category: multiForm.category,
       info:multiForm?.description
     };

@@ -11,6 +11,10 @@
     "test:enqueue-duplicate": "node --test tests/conversationEnqueueDuplicate.test.js",
     "test:analysis-flow": "node --test tests/conversationAnalysisFlow.test.js tests/conversationEnqueueDuplicate.test.js",
     "test:project-plan": "node --test tests/projectPlan.test.js",
+    "test:unit": "node --test tests/measureDesirability.test.js tests/measurePeriodUtils.test.js tests/multiAnalysisRequiredFormUtils.test.js tests/projectPlan.test.js tests/conversationAnalysisFlow.test.js tests/conversationEnqueueDuplicate.test.js tests/conversationAnalysisFailure.test.js",
+    "test:integration": "node --test --test-concurrency=1 --test-force-exit tests/auth/*.test.js tests/security/*.test.js",
+    "test:all": "node --test --test-concurrency=1 --test-force-exit tests/**/*.test.js",
+    "test:coverage": "node --experimental-test-coverage --test --test-concurrency=1 --test-force-exit tests/**/*.test.js",
     "admin": "node src/admin.mjs",
     "admin:build": "NODE_ENV=production node src/admin-build.mjs",
     "prisma:generate": "prisma generate",
@@ -48,5 +52,8 @@
     "uuid": "^14.0.0",
     "winston": "^3.19.0",
     "yup": "^1.7.1"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2"
   }
 }

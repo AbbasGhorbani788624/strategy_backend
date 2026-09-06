@@ -1134,6 +1134,23 @@ const createStrategyPlanService = async (
   };
 };
 
+const STRATEGY_QUICK_ACCESS_INCLUDE = {
+  project: {
+    select: {
+      id: true,
+      title: true,
+      companyId: true,
+      creatorId: true,
+      accesses: {
+        select: { userId: true },
+      },
+    },
+  },
+  approvals: {
+    orderBy: { approvedAt: "desc" },
+  },
+};
+
 const getActiveStrategyPlanService = async (user, framework) => {
   const plan = await findActiveStrategyPlanForCompany(
     user,
@@ -1159,6 +1176,44 @@ const getActiveStrategyPlanService = async (user, framework) => {
     ...payload,
     projectTitle: plan.project?.title || null,
     message: buildResumeMessage(plan.framework, payload.continueAction),
+  };
+};
+
+const getStrategyQuickAccessService = async (user, framework) => {
+  const plan = await findActiveStrategyPlanForCompany(user, framework, {
+    include: STRATEGY_QUICK_ACCESS_INCLUDE,
+  });
+
+  if (!plan) {
+    return {
+      exists: false,
+      canCreateNew: true,
+      canRestart: true,
+    };
+  }
+
+  assertStrategyPlanAccess(plan, user);
+
+  const hasMeasuresApproval = plan.approvals?.some(
+    (approval) => approval.type === "MEASURES",
+  );
+  const continueAction = resolveContinueAction(plan.state);
+  const { stage, stageLabel } = resolveStageInfo(
+    plan.state,
+    hasMeasuresApproval,
+  );
+
+  return {
+    exists: true,
+    canRestart: true,
+    canCreateNew: false,
+    strategyPlan: formatStrategyPlan(plan),
+    continueAction,
+    stage,
+    stageLabel,
+    hasMeasuresApproval,
+    projectTitle: plan.project?.title || null,
+    message: buildResumeMessage(plan.framework, continueAction),
   };
 };
 
@@ -2127,6 +2182,7 @@ module.exports = {
   createStrategyPlanService,
   translateStrategyAnalysisService,
   getActiveStrategyPlanService,
+  getStrategyQuickAccessService,
   getStrategyPlanByProjectService,
   getStrategyPlanService,
   validateBscMapService,

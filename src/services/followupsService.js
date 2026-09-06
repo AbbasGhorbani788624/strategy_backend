@@ -1,5 +1,44 @@
 const prisma = require("../prismaClient");
-const { createBadRequestError } = require("../utils");
+const { createBadRequestError, isUuid } = require("../utils");
+
+const followUpDetailSelect = {
+  id: true,
+  title: true,
+  status: true,
+  extraDescription: true,
+  adminAnswer: true,
+  answeredAt: true,
+  responses: true,
+  createdAt: true,
+  userId: true,
+  project: {
+    select: {
+      id: true,
+      title: true,
+      summaryAnalysis: true,
+      createdAt: true,
+    },
+  },
+  form: {
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      questions: {
+        orderBy: {
+          order: "asc",
+        },
+        select: {
+          id: true,
+          label: true,
+          type: true,
+          options: true,
+          required: true,
+        },
+      },
+    },
+  },
+};
 
 const getActiveFollowUpFormService = async () => {
   const form = await prisma.followUpForm.findFirst({
@@ -198,8 +237,36 @@ const getMyFollowUps = async (userId, query = {}) => {
   };
 };
 
+const getFollowUpDetailService = async (followUpId, currentUserId) => {
+  if (!followUpId) {
+    createBadRequestError("شناسه پیگیری الزامی است", 400);
+  }
+
+  if (!isUuid(followUpId)) {
+    createBadRequestError("شناسه پیگیری معتبر نیست", 400);
+  }
+
+  const followUp = await prisma.followUpRequest.findUnique({
+    where: { id: followUpId },
+    select: followUpDetailSelect,
+  });
+
+  if (!followUp) {
+    createBadRequestError("درخواست پیگیری یافت نشد", 404);
+  }
+
+  if (followUp.userId !== currentUserId) {
+    createBadRequestError("اجازه دسترسی به این درخواست پیگیری را ندارید", 403);
+  }
+
+  const { userId, ...followUpData } = followUp;
+
+  return followUpData;
+};
+
 module.exports = {
   getActiveFollowUpFormService,
   createProjectFollowUpRequestService,
   getMyFollowUps,
+  getFollowUpDetailService,
 };

@@ -570,7 +570,8 @@ const getSelectableProjectsForMultiAnalysisService = async (
     title: multiForm.title,
     description: multiForm.description,
 
-    isReady: missingForms.length === 0,
+    isReady: tabs.some((tab) => tab.hasAnyProject),
+    isFullyReady: missingForms.length === 0,
     missingForms,
 
     activeTab: {
@@ -825,15 +826,16 @@ const createStepAnalysisProjectService = async (
     createBadRequestError("برای هر فرم فقط یک پروژه باید انتخاب شود");
   }
 
-  if (requiredKeys.length !== selectedProjects.length) {
-    createBadRequestError("باید برای تمام فرم‌های الزامی یک پروژه انتخاب شود");
+  if (selectedProjects.length === 0) {
+    createBadRequestError(
+      "حداقل برای یکی از تحلیل‌های الزامی پروژه انتخاب کنید",
+    );
   }
 
-  for (const requiredKey of requiredKeys) {
-    const exists = selectedKeys.includes(requiredKey);
-    if (!exists) {
+  for (const selectedKey of selectedKeys) {
+    if (!requiredKeys.includes(selectedKey)) {
       createBadRequestError(
-        "برای برخی فرم‌های الزامی پروژه‌ای انتخاب نشده است",
+        "پروژه انتخاب‌شده مربوط به یکی از تحلیل‌های الزامی این فرم نیست",
       );
     }
   }
