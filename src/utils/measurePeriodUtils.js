@@ -402,22 +402,18 @@ const generateDaySplitPeriods = (startDate, durationDays = 7) => {
   return periods;
 };
 
-const generateWeekSplitPeriods = (startDate) => {
+const WEEKS_PER_MONTH = 4;
+
+const generateWeekSplitPeriods = (startDate, durationMonths = 1) => {
   const periods = [];
   const start = startOfDay(startDate);
-  const { year, month } = dateToJalali(start);
-  const monthEnd = getJalaliMonthEnd(year, month);
+  const weekCount = Math.max(1, (durationMonths || 1) * WEEKS_PER_MONTH);
   let cursor = new Date(start);
-  let weekIndex = 1;
 
-  while (cursor <= monthEnd) {
+  for (let weekIndex = 1; weekIndex <= weekCount; weekIndex += 1) {
     const periodStart = new Date(cursor);
     const periodEnd = endOfDay(new Date(cursor));
     periodEnd.setDate(periodEnd.getDate() + 6);
-
-    if (periodEnd > monthEnd) {
-      periodEnd.setTime(monthEnd.getTime());
-    }
 
     periods.push({
       periodStart,
@@ -425,7 +421,6 @@ const generateWeekSplitPeriods = (startDate) => {
       periodLabel: `هفته ${weekIndex}`,
     });
 
-    weekIndex += 1;
     cursor = new Date(periodEnd);
     cursor.setDate(cursor.getDate() + 1);
     cursor = startOfDay(cursor);
@@ -484,7 +479,7 @@ const generateMonitoringPeriods = ({
   }
 
   if (splitBy === "WEEK") {
-    return generateWeekSplitPeriods(start);
+    return generateWeekSplitPeriods(start, durationMonths || 1);
   }
 
   if (splitBy === "MONTH") {
@@ -495,7 +490,7 @@ const generateMonitoringPeriods = ({
   const legacyMonths = durationMonths || 6;
 
   if (legacyFrequency === "WEEKLY") {
-    return generateWeekSplitPeriods(start);
+    return generateWeekSplitPeriods(start, durationMonths || 1);
   }
 
   if (legacyFrequency === "DAILY") {

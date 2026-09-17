@@ -14,6 +14,7 @@ const {
   listPlansQuerySchema,
   createActionSchema,
   bulkUpdateActionCompletionsSchema,
+  lockPlanSchema,
 } = require("../validations/projectPlanValidation");
 
 const companyOnly = roleGuard(["COMPANY", "SUPER_ADMIN"]);
@@ -46,7 +47,7 @@ router.post(
   createPlanAction,
 );
 
-router.post("/:planId/lock", auth, companyOnly, lockProjectPlan);
+router.post("/:planId/lock", auth, companyOnly, lockPlanSchema, lockProjectPlan);
 
 router.delete("/:planId", auth, companyOnly, deleteProjectPlan);
 

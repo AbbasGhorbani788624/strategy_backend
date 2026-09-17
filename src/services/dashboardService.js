@@ -1,13 +1,16 @@
-const { getCompanyAnalysisStatisticsService } = require("./analysisFormService");
+const {
+  getCompanyAnalysisStatisticsService,
+} = require("./analysisFormService");
 const { getAnalysisCategoriesService } = require("./analysisCategoryService");
 const { featuredAnalysisService } = require("./featuredAnalysisService");
-const {
-  getTopRatedProjectsByUser,
-  getAccessibleProjectsService,
-  getMostCommentedProjectsService,
-} = require("./projectService");
+
 const { getStrategyQuickAccessService } = require("./strategyPlanService");
-const { getLatestIndustryInsightsService } = require("./IndustryInsightService");
+const {
+  getCompanyAnalysisTiersService,
+} = require("./companyAnalysisTierService");
+const {
+  getLatestIndustryInsightsService,
+} = require("./IndustryInsightService");
 const { getCompanyInsightService } = require("./insightService");
 
 const getDashboardService = async (user, framework = "BSC") => {
@@ -17,33 +20,25 @@ const getDashboardService = async (user, framework = "BSC") => {
     analysisStatistics,
     categories,
     featuredAnalyses,
-    topRated,
-    mostCommented,
-    accessible,
     strategyQuickAccess,
     industryInsights,
+    analysisTiers,
   ] = await Promise.all([
     getCompanyAnalysisStatisticsService(userId),
     getAnalysisCategoriesService(companyId),
-    featuredAnalysisService.findAll(companyId),
-    getTopRatedProjectsByUser(userId),
-    getMostCommentedProjectsService(userId),
-    getAccessibleProjectsService(userId),
+    featuredAnalysisService.findAll(user),
     getStrategyQuickAccessService(user, framework),
     getLatestIndustryInsightsService(companyId),
+    getCompanyAnalysisTiersService(companyId),
   ]);
 
   return {
     analysisStatistics,
     categories,
     featuredAnalyses,
-    projects: {
-      topRated,
-      mostCommented,
-      accessible,
-    },
     strategyQuickAccess,
     industryInsights,
+    analysisTiers,
   };
 };
 

@@ -4,16 +4,21 @@ const {
   COMPANY_PROFILE_INCLUDE,
   buildProfileStatus,
 } = require("../utils/profileStatus");
+const {
+  getEnabledTierFormKeys,
+  isAnalysisAllowed,
+} = require("./companyAnalysisTierService");
 
-const mapForm = (company, form, type) => ({
+const mapForm = (company, form, type, enabledKeys) => ({
   id: form.id,
   title: form.title,
   type,
+  isAllowed: isAnalysisAllowed(enabledKeys, form.id, type),
   ...buildProfileStatus(company, form.profileFields),
 });
 
 const getAnalysisCategoriesService = async (companyId) => {
-  const [categories, company] = await Promise.all([
+  const [categories, company, enabledKeys] = await Promise.all([
     prisma.analysisCategory.findMany({
       select: {
         id: true,
@@ -54,14 +59,18 @@ const getAnalysisCategoriesService = async (companyId) => {
       },
       include: COMPANY_PROFILE_INCLUDE,
     }),
+
+    getEnabledTierFormKeys(companyId),
   ]);
 
   return categories.map((category) => ({
     id: category.id,
     title: category.title,
     forms: [
-      ...category.forms.map((form) => mapForm(company, form, 1)),
-      ...category.multiForms.map((form) => mapForm(company, form, 2)),
+      ...category.forms.map((form) => mapForm(company, form, 1, enabledKeys)),
+      ...category.multiForms.map((form) =>
+        mapForm(company, form, 2, enabledKeys),
+      ),
     ],
   }));
 };

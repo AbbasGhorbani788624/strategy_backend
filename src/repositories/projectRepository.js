@@ -13,6 +13,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     sortOrder = "desc",
     status,
     scoreFilter,
+    strategyCategoryOnly,
   } = query;
 
   const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
@@ -84,6 +85,20 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
 
   if (mode === "SINGLE" || mode === "MULTI") {
     filters.push({ mode });
+  }
+
+  if (strategyCategoryOnly) {
+    filters.push({
+      multiAnalysisForm: {
+        is: {
+          category: {
+            is: {
+              title: "استراتژی گذاری",
+            },
+          },
+        },
+      },
+    });
   }
 
   if (status) {
@@ -360,6 +375,8 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     summaryAnalysis: project.summaryAnalysis,
 
     status: project.status,
+    directFinalAnalysis: project.directFinalAnalysis,
+    isShowText: project.isShowText,
     averageRating: project.averageRating,
     ratingCount: project.ratingCount,
     superAdminRating,

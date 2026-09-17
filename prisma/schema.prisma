@@ -31,6 +31,13 @@ enum RequiredAnalysisType {
   MULTI
 }
 
+enum AnalysisTierLevel {
+  TIER_1
+  TIER_2
+  TIER_3
+  TIER_4
+}
+
 enum ProjectStatus {
   WAITING_FOR_FORM
   ANALYSIS_PENDING
@@ -369,7 +376,9 @@ model Project {
   multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
   promptVersion       PromptVersion?     @relation(fields: [promptVersionId], references: [id], onDelete: Cascade)
   domain              String?            @db.Text
-  
+  directFinalAnalysis Boolean            @default(false)
+  isShowText          Boolean            @default(false)
+
   initialAnalysis     String?            @db.Text
   finalAnalysis       String?            @db.Text
   summaryAnalysis     String?             @db.Text
@@ -377,7 +386,6 @@ model Project {
 
   riskAnalysis        String?            @db.Text
   keyStrategicInsights String?   @db.Text
-
 
   ratings          ProjectRatingHistory[]
   accesses         ProjectAccess[]
@@ -499,11 +507,13 @@ model AnalysisForm {
   multiProjectSources     MultiAnalysisProjectSource[]
   profileFields           AnalysisFormProfileField[]
   temperature             Float                        @default(0.7)
+  directFinalAnalysis     Boolean                      @default(false)
+  isShowText              Boolean                      @default(false)
   createdAt               DateTime                     @default(now())
   updatedAt               DateTime                     @updatedAt
   featuredAnalysis        FeaturedAnalysis?
-  categoryGroups          FormCategoryGroup[]
   checklistTitle          String?
+  companyAnalysisTierItems CompanyAnalysisTierItem[]
 
   @@index([isActive])
   @@index([order])
@@ -527,8 +537,6 @@ model FormQuestionCategory {
   children FormQuestionCategory[] @relation("QuestionCategoryTree")
 
   questions FormQuestion[]
-
-  groups FormCategoryGroupItem[]
 
   isActive Boolean @default(true)
 
@@ -571,7 +579,7 @@ model FormQuestionOption {
   question   FormQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   label String  @db.Text
-  value String
+  value String  
 
   score Int?
 
@@ -583,45 +591,13 @@ model FormQuestionOption {
   @@index([questionId])
 }
 
-model FormCategoryGroup {
-  id String @id @default(uuid())
-
-  analysisFormId String?
-  analysisForm   AnalysisForm? @relation(fields: [analysisFormId], references: [id], onDelete: Cascade)
-
-  multiAnalysisFormId String?
-  multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
-
-  title String @db.Text
-
-  order Int @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  categories FormCategoryGroupItem[]
-
-  @@index([analysisFormId])
-  @@index([multiAnalysisFormId])
-}
-
-model FormCategoryGroupItem {
-  id String @id @default(uuid())
-
-  groupId String
-  group   FormCategoryGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-
-  categoryId String
-  category   FormQuestionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-
-  @@unique([groupId, categoryId])
-}
-
 model FeaturedAnalysis {
-  id             String       @id @default(uuid())
-  analysisFormId String       @unique
-  analysisForm   AnalysisForm @relation(fields: [analysisFormId], references: [id])
-  createdAt      DateTime     @default(now())
+  id                  String             @id @default(uuid())
+  analysisFormId      String?            @unique
+  analysisForm        AnalysisForm?      @relation(fields: [analysisFormId], references: [id])
+  multiAnalysisFormId String?            @unique
+  multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id])
+  createdAt           DateTime           @default(now())
 }
 
 model FormGoal {
@@ -752,9 +728,12 @@ model MultiAnalysisForm {
   promptDefinition              PromptDefinition?
   profileFields                 MultiAnalysisFormProfileField[]
   categories                    FormQuestionCategory[]
-  categoryGroups                FormCategoryGroup[]
+  featuredAnalysis              FeaturedAnalysis?
+  companyAnalysisTierItems      CompanyAnalysisTierItem[]
 
-  temperature Float @default(0.7)
+  temperature             Float     @default(0.7)
+  directFinalAnalysis     Boolean   @default(false)
+  isShowText              Boolean                      @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -962,6 +941,50 @@ model Company {
   resourceCapabilities CompanyResourceCapability[]
 
   strategyPlans StrategyPlan[]
+  monitoringUnlockedAt DateTime?
+  analysisTierConfigs  CompanyAnalysisTierConfig[]
+  analysisTierItems    CompanyAnalysisTierItem[]
+}
+
+model CompanyAnalysisTierConfig {
+  id        String            @id @default(uuid())
+  companyId String
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  tier      AnalysisTierLevel
+  isEnabled Boolean           @default(false)
+
+  items CompanyAnalysisTierItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, tier])
+  @@index([companyId])
+}
+
+model CompanyAnalysisTierItem {
+  id        String @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  configId String
+  config   CompanyAnalysisTierConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  analysisFormId      String?
+  analysisForm        AnalysisForm?      @relation(fields: [analysisFormId], references: [id], onDelete: Cascade)
+  multiAnalysisFormId String?
+  multiAnalysisForm   MultiAnalysisForm? @relation(fields: [multiAnalysisFormId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, analysisFormId])
+  @@unique([companyId, multiAnalysisFormId])
+  @@index([configId, sortOrder])
+  @@index([companyId])
 }
 
 model CompanyBasicInfo {
@@ -1182,8 +1205,8 @@ model CompanyBalanceSheet {
   balanceFileId String?
   balanceFile   FileAttachment? @relation(fields: [balanceFileId], references: [id], onDelete: Cascade)
 
-  description String?
-  sortOrder   Int?
+  balanceSheet String? @db.Text
+  sortOrder                 Int?
 
   @@index([companyId])
   @@index([balanceFileId])
@@ -1204,8 +1227,8 @@ model CompanyIncomeStatement {
   incomeFileId String?
   incomeFile   FileAttachment? @relation(fields: [incomeFileId], references: [id], onDelete: Cascade)
 
-  description String?
-  sortOrder   Int?
+  incomeStatement String? @db.Text
+  sortOrder                    Int?
 
   @@index([companyId])
   @@index([incomeFileId])
@@ -1374,6 +1397,11 @@ model StrategyPlan {
   state  StrategyState  @default(MAP_GENERATION)
 
   strategyText String? @db.Text
+
+  /**
+   * خروجی translate تحلیل استراتژی (goal-setting)
+   */
+  strategyStatement String? @db.Text
 
   companyProfile Json?
 
@@ -1574,6 +1602,11 @@ model StrategyMeasure {
 
   owner User? @relation("StrategyMeasureOwner", fields: [ownerId], references: [id], onDelete: SetNull)
 
+  /**
+   * نام مسئول KPI وقتی از لیست اعضا انتخاب نشده (متن آزاد)
+   */
+  ownerName String? @db.VarChar(255)
+
   status StrategyMeasureStatus @default(DRAFT)
 
   approvedAt DateTime?
@@ -1706,6 +1739,7 @@ model ProjectPlanAction {
   startDate            DateTime?
   endDate              DateTime?
   executorId           String?
+  executorName         String?                 @db.VarChar(255)
   progress             Int                     @default(0)
   status               ProjectPlanActionStatus @default(NOT_STARTED)
   completedAt          DateTime?

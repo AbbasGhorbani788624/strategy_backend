@@ -3,9 +3,51 @@ const {
   createBadRequestError,
   buildCompanyAdminDataForPrompt,
 } = require("../utils");
+const {
+  buildFormKey,
+  getEnabledTierFormKeys,
+} = require("./companyAnalysisTierService");
 const axios = require("axios");
 
 const AI_INSIGHT_API_URL = "https://strategy.ratorai.com/ai/insights";
+
+const enrichSuggestedAnalysesWithTitleFa = async (
+  suggestedAnalyses,
+  enabledTierFormKeys,
+) => {
+  if (!Array.isArray(suggestedAnalyses) || suggestedAnalyses.length === 0) {
+    return suggestedAnalyses ?? [];
+  }
+
+  const forms = await prisma.analysisForm.findMany({
+    select: {
+      id: true,
+      title: true,
+      titleFa: true,
+    },
+  });
+
+  const formsById = new Map(forms.map((form) => [form.id, form]));
+  const formsByTitle = new Map(
+    forms.map((form) => [form.title.trim().toLowerCase(), form]),
+  );
+
+  return suggestedAnalyses.map((item) => {
+    let form = item.analysisId ? formsById.get(item.analysisId) : null;
+
+    if (!form && item.title) {
+      form = formsByTitle.get(item.title.trim().toLowerCase());
+    }
+
+    return {
+      ...item,
+      analysisId: form?.id ?? item.analysisId ?? null,
+      titleFa: form?.titleFa ?? item.titleFa ?? null,
+      disable:
+        !form?.id || !enabledTierFormKeys.has(buildFormKey("single", form.id)),
+    };
+  });
+};
 
 const callAIInsightAPI = async (payload) => {
   try {
@@ -85,14 +127,14 @@ const syncCompanyInsightService = async (companyId, userId = null) => {
         select: {
           year: true,
           title: true,
-          description: true,
+          balanceSheet: true,
         },
       },
       incomeStatements: {
         select: {
           year: true,
           title: true,
-          description: true,
+          incomeStatement: true,
         },
       },
       keySuppliers: {
@@ -141,6 +183,7 @@ const syncCompanyInsightService = async (companyId, userId = null) => {
     select: {
       id: true,
       title: true,
+      titleFa: true,
     },
   });
 
@@ -160,6 +203,7 @@ const syncCompanyInsightService = async (companyId, userId = null) => {
     return {
       ...item,
       analysisId: form?.id ?? null,
+      titleFa: form?.titleFa ?? null,
     };
   });
 
@@ -208,13 +252,19 @@ const getCompanyInsightService = async (companyId, userId) => {
     },
   });
 
-  if (insight) {
-    return insight;
+  if (!insight) {
+    insight = await syncCompanyInsightService(companyId, userId);
   }
 
-  insight = await syncCompanyInsightService(companyId, userId);
+  const enabledTierFormKeys = await getEnabledTierFormKeys(companyId);
 
-  return insight;
+  return {
+    ...insight,
+    suggestedAnalyses: await enrichSuggestedAnalysesWithTitleFa(
+      insight.suggestedAnalyses,
+      enabledTierFormKeys,
+    ),
+  };
 };
 
 module.exports = {

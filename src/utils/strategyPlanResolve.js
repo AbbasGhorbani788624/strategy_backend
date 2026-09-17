@@ -15,9 +15,57 @@ const PROJECT_ACCESS_SELECT = {
   },
 };
 
+const ACTIVE_STRATEGY_PLAN_PROJECT_SELECT = {
+  ...PROJECT_ACCESS_SELECT,
+  mode: true,
+  form: {
+    select: { id: true, title: true, titleFa: true },
+  },
+  multiAnalysisForm: {
+    select: { id: true, title: true, titleFa: true },
+  },
+  selectedSourceProjects: {
+    select: {
+      sourceProject: {
+        select: { id: true, title: true },
+      },
+    },
+  },
+};
+
+const formatProjectAnalysisMeta = (project) => {
+  const analysis = project.form || project.multiAnalysisForm;
+
+  return {
+    analysisTitle: analysis?.title ?? null,
+    analysisTitleFa: analysis?.titleFa ?? null,
+  };
+};
+
+const formatStrategyPlanProjectRefs = (project) => {
+  if (!project) {
+    return { sourceProject: null, inputProjects: [] };
+  }
+
+  return {
+    sourceProject: {
+      id: project.id,
+      title: project.title,
+      ...formatProjectAnalysisMeta(project),
+    },
+    inputProjects:
+      project.mode === "MULTI"
+        ? (project.selectedSourceProjects ?? []).map((link) => ({
+            id: link.sourceProject.id,
+            title: link.sourceProject.title,
+          }))
+        : [],
+  };
+};
+
 const ACTIVE_STRATEGY_PLAN_INCLUDE = {
   project: {
-    select: PROJECT_ACCESS_SELECT,
+    select: ACTIVE_STRATEGY_PLAN_PROJECT_SELECT,
   },
   maps: {
     orderBy: [{ version: "desc" }, { createdAt: "desc" }],
@@ -269,6 +317,8 @@ const resolveMeasureIdForActivePlan = async (
 
 module.exports = {
   PROJECT_ACCESS_SELECT,
+  ACTIVE_STRATEGY_PLAN_PROJECT_SELECT,
+  formatStrategyPlanProjectRefs,
   ACTIVE_STRATEGY_PLAN_INCLUDE,
   buildStrategyPlanAccessWhere,
   assertProjectAccess,

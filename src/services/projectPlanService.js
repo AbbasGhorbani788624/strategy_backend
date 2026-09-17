@@ -1,3 +1,4 @@
+const axios = require("axios");
 const prisma = require("../prismaClient");
 const { createBadRequestError } = require("../utils");
 const {
@@ -12,10 +13,41 @@ const {
   validatePrerequisiteOwnership,
   validateOrderValues,
 } = require("../utils/projectPlanDependencyUtils");
-const {
-  shouldSeedSuggestedPlanActions,
-  getMockSuggestedPlanActions,
-} = require("../mocks/projectPlanMock");
+
+const PROJECT_PLAN_AI_URL =
+  process.env.PROJECT_PLAN_AI_URL ||
+  "https://strategy.ratorai.com/ai/actions";
+
+const PROJECT_FOR_AI_INCLUDE = {
+  id: true,
+  title: true,
+  companyId: true,
+  status: true,
+  finalAnalysis: true,
+  projectPlan: {
+    select: { id: true },
+  },
+  company: {
+    select: {
+      name: true,
+      industry: true,
+      basicInfo: {
+        select: { region: true },
+      },
+      revenueCenters: {
+        select: {
+          title: true,
+          lastYearEstimatedRevenue: true,
+        },
+        orderBy: { sortOrder: "asc" },
+      },
+      resourceCapabilities: {
+        select: { capability: true },
+        orderBy: { sortOrder: "asc" },
+      },
+    },
+  },
+};
 
 const PLAN_INCLUDE = {
   project: {
@@ -24,6 +56,12 @@ const PLAN_INCLUDE = {
       title: true,
       companyId: true,
       status: true,
+      form: {
+        select: { title: true, titleFa: true },
+      },
+      multiAnalysisForm: {
+        select: { title: true, titleFa: true },
+      },
     },
   },
   actions: {
@@ -95,15 +133,7 @@ const assertCompanyOwnership = (user, projectCompanyId) => {
 const loadProjectForPlan = async (projectId) => {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: {
-      id: true,
-      title: true,
-      companyId: true,
-      status: true,
-      projectPlan: {
-        select: { id: true },
-      },
-    },
+    select: PROJECT_FOR_AI_INCLUDE,
   });
 
   if (!project) {
@@ -111,6 +141,151 @@ const loadProjectForPlan = async (projectId) => {
   }
 
   return project;
+};
+
+const formatRegion = (region) => {
+  if (region === "INTERNATIONAL") return "International";
+  return "Iran";
+};
+
+const formatFinancialCurrency = (region) =>
+  region === "INTERNATIONAL" ? "USD" : "IRR";
+
+const buildProjectPlanActionsPayload = (project) => {
+  const company = project.company;
+  const industry = company?.industry?.trim() || "";
+  const region = formatRegion(company?.basicInfo?.region);
+  const currency = formatFinancialCurrency(company?.basicInfo?.region);
+
+  const financials = (company?.revenueCenters || [])
+    .map((revenueCenter) => ({
+      title: revenueCenter.title?.trim() || "",
+      revenue: Number(revenueCenter.lastYearEstimatedRevenue) || 0,
+      currency,
+    }))
+    .filter((item) => item.revenue > 0);
+
+  return {
+    final_output: project.finalAnalysis.trim(),
+    company_profile: {
+      basicInfo: {
+        companyName: company?.name || "",
+        industry,
+        region,
+      },
+      ...(financials.length ? { financials } : {}),
+      resourceCapabilities: (company?.resourceCapabilities || []).map(
+        (item) => item.capability,
+      ),
+    },
+  };
+};
+
+const normalizeAiSuggestedActions = (data) => {
+  const rawActions =
+    data?.actions ||
+    data?.recommended_actions ||
+    data?.suggested_actions ||
+    (Array.isArray(data) ? data : []);
+
+  return rawActions
+    .map((action) => {
+      if (typeof action === "string") {
+        return { title: action.trim(), description: null };
+      }
+
+      const title =
+        action?.title || action?.name || action?.action || action?.label;
+
+      if (!title?.trim()) {
+        return null;
+      }
+
+      return {
+        title: title.trim(),
+        description:
+          action?.description?.trim() ||
+          action?.details?.trim() ||
+          action?.summary?.trim() ||
+          null,
+      };
+    })
+    .filter(Boolean);
+};
+
+const fetchAiSuggestedPlanActions = async (project) => {
+  const finalAnalysis = project.finalAnalysis?.trim();
+  if (!finalAnalysis) {
+    createBadRequestError(
+      "تحلیل نهایی پروژه موجود نیست. ابتدا تحلیل نهایی را تکمیل کنید",
+      400,
+    );
+  }
+
+  if (!project.company) {
+    createBadRequestError("شرکت مربوط به پروژه یافت نشد", 404);
+  }
+
+  const payload = buildProjectPlanActionsPayload(project);
+
+  console.log("[ProjectPlan] Preparing actions AI request");
+  console.log("[ProjectPlan] URL:", PROJECT_PLAN_AI_URL);
+  console.log(
+    "[ProjectPlan] Outgoing payload:",
+    JSON.stringify(payload, null, 2),
+  );
+
+  const startTime = Date.now();
+
+  try {
+    const response = await axios.post(PROJECT_PLAN_AI_URL, payload, {
+      timeout: 120000,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    console.log(
+      "[ProjectPlan] Actions AI request completed",
+      `${Date.now() - startTime}ms`,
+    );
+    console.log("[ProjectPlan] Status:", response.status);
+    console.log(
+      "[ProjectPlan] Response:",
+      JSON.stringify(response.data, null, 2),
+    );
+
+    const actions = normalizeAiSuggestedActions(response.data);
+
+    if (!actions.length) {
+      createBadRequestError(
+        "پاسخ سرویس اقدامات پیشنهادی معتبر نیست",
+        502,
+      );
+    }
+
+    return actions;
+  } catch (error) {
+    console.error("[ProjectPlan] Actions AI request failed");
+    console.error("[ProjectPlan] message:", error.message);
+    console.error("[ProjectPlan] status:", error.response?.status);
+    console.error(
+      "[ProjectPlan] response data:",
+      error.response?.data,
+    );
+
+    if (error.statusCode) {
+      throw error;
+    }
+
+    createBadRequestError(
+      error.response?.data?.message ||
+        error.response?.data?.detail ||
+        error.message ||
+        "خطا در دریافت اقدامات پیشنهادی از هوش مصنوعی",
+      error.response?.status || 502,
+    );
+  }
 };
 
 const loadPlanForUser = async (planId, user) => {
@@ -150,7 +325,6 @@ const validateExecutor = async (executorId, projectCompanyId) => {
     where: { id: executorId },
     select: {
       id: true,
-      role: true,
       companyId: true,
       username: true,
     },
@@ -160,15 +334,56 @@ const validateExecutor = async (executorId, projectCompanyId) => {
     createBadRequestError("مجری انتخاب‌شده یافت نشد", 400);
   }
 
-  if (executor.role !== "MEMBER") {
-    createBadRequestError("مجری باید عضو (MEMBER) باشد", 400);
-  }
-
   if (executor.companyId !== projectCompanyId) {
     createBadRequestError("مجری باید متعلق به همان شرکت باشد", 400);
   }
 
   return executor;
+};
+
+const resolveExecutorFields = async (payload, projectCompanyId) => {
+  const hasExecutorId =
+    payload.executorId != null && String(payload.executorId).trim() !== "";
+  const hasExecutorName =
+    payload.executorName != null &&
+    String(payload.executorName).trim() !== "";
+
+  if (hasExecutorId) {
+    await validateExecutor(payload.executorId, projectCompanyId);
+    return {
+      executorId: payload.executorId,
+      executorName: null,
+    };
+  }
+
+  if (hasExecutorName) {
+    return {
+      executorId: null,
+      executorName: String(payload.executorName).trim(),
+    };
+  }
+
+  if (payload.executorId === null && payload.executorName === null) {
+    return {
+      executorId: null,
+      executorName: null,
+    };
+  }
+
+  return null;
+};
+
+const validateActionHasExecutor = async (action, projectCompanyId) => {
+  const hasExecutorId = Boolean(action.executorId);
+  const hasExecutorName = Boolean(action.executorName?.trim());
+
+  if (!hasExecutorId && !hasExecutorName) {
+    createBadRequestError("مجری برای تمام اقدامات الزامی است", 400);
+  }
+
+  if (hasExecutorId) {
+    await validateExecutor(action.executorId, projectCompanyId);
+  }
 };
 
 const validateDateRange = (startDate, endDate) => {
@@ -188,9 +403,7 @@ const validateDateRange = (startDate, endDate) => {
   }
 };
 
-const seedSuggestedPlanActions = async (planId, project, tx = prisma) => {
-  const suggestions = getMockSuggestedPlanActions(project);
-
+const seedSuggestedPlanActions = async (planId, suggestions, tx = prisma) => {
   if (!suggestions.length) {
     return;
   }
@@ -199,10 +412,11 @@ const seedSuggestedPlanActions = async (planId, project, tx = prisma) => {
     data: suggestions.map((action, index) => ({
       planId,
       title: action.title,
-      description: action.description?.trim() || null,
+      description: action.description,
       startDate: null,
       endDate: null,
       executorId: null,
+      executorName: null,
       order: index + 1,
       prerequisiteActionId: null,
     })),
@@ -218,6 +432,7 @@ const formatActionResponse = (action, planStatus, now = new Date()) => {
     endDate: action.endDate,
     executor: action.executor,
     executorId: action.executorId,
+    executorName: action.executorName,
     prerequisiteActionId: action.prerequisiteActionId,
     prerequisiteAction: action.prerequisiteAction,
   };
@@ -243,6 +458,15 @@ const formatActionResponse = (action, planStatus, now = new Date()) => {
   return enriched;
 };
 
+const formatProjectAnalysisMeta = (project) => {
+  const analysis = project.form || project.multiAnalysisForm;
+
+  return {
+    analysisTitle: analysis?.title ?? null,
+    analysisTitleFa: analysis?.titleFa ?? null,
+  };
+};
+
 const formatPlanResponse = (plan, now = new Date()) => {
   const actions = plan.actions.map((action) =>
     formatActionResponse(action, plan.status, now),
@@ -250,6 +474,7 @@ const formatPlanResponse = (plan, now = new Date()) => {
 
   const summary = calculateControlSummary(plan.actions, now);
   const dateRange = getPlanDateRange(plan.actions);
+  const analysisMeta = formatProjectAnalysisMeta(plan.project);
 
   return {
     id: plan.id,
@@ -258,7 +483,11 @@ const formatPlanResponse = (plan, now = new Date()) => {
     lockedAt: plan.lockedAt,
     createdAt: plan.createdAt,
     updatedAt: plan.updatedAt,
-    project: plan.project,
+    project: {
+      id: plan.project.id,
+      title: plan.project.title,
+    },
+    ...analysisMeta,
     actions,
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
@@ -400,6 +629,8 @@ const createProjectPlan = async (user, projectId) => {
     createBadRequestError("برنامه پروژه از قبل وجود دارد", 400);
   }
 
+  const suggestedActions = await fetchAiSuggestedPlanActions(project);
+
   const plan = await prisma.$transaction(async (tx) => {
     const createdPlan = await tx.projectPlan.create({
       data: {
@@ -407,9 +638,7 @@ const createProjectPlan = async (user, projectId) => {
       },
     });
 
-    if (shouldSeedSuggestedPlanActions()) {
-      await seedSuggestedPlanActions(createdPlan.id, project, tx);
-    }
+    await seedSuggestedPlanActions(createdPlan.id, suggestedActions, tx);
 
     return tx.projectPlan.findUnique({
       where: { id: createdPlan.id },
@@ -564,6 +793,7 @@ const createPlanAction = async (user, planId, payload) => {
     startDate,
     endDate,
     executorId,
+    executorName,
     order,
     prerequisiteActionId,
   } = payload;
@@ -580,9 +810,11 @@ const createPlanAction = async (user, planId, payload) => {
   }
 
   validateDateRange(startDate, endDate);
-  if (executorId) {
-    await validateExecutor(executorId, plan.project.companyId);
-  }
+
+  const executorFields = await resolveExecutorFields(
+    { executorId, executorName },
+    plan.project.companyId,
+  );
 
   if (prerequisiteActionId) {
     validatePrerequisiteOwnership(
@@ -602,7 +834,8 @@ const createPlanAction = async (user, planId, payload) => {
       description: null,
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
-      executorId: executorId || null,
+      executorId: executorFields?.executorId ?? null,
+      executorName: executorFields?.executorName ?? null,
       order: actionOrder,
       prerequisiteActionId: prerequisiteActionId || null,
     },
@@ -665,14 +898,32 @@ const updatePlanAction = async (user, actionId, payload) => {
     validateDateRange(nextStartDate, nextEndDate);
   }
 
-  if (payload.executorId !== undefined) {
-    if (payload.executorId) {
-      await validateExecutor(
-        payload.executorId,
-        existing.plan.project.companyId,
-      );
+  if (payload.executorId !== undefined || payload.executorName !== undefined) {
+    let executorPayload;
+
+    if (payload.executorId !== undefined && payload.executorName === undefined) {
+      executorPayload = { executorId: payload.executorId, executorName: null };
+    } else if (
+      payload.executorName !== undefined &&
+      payload.executorId === undefined
+    ) {
+      executorPayload = { executorId: null, executorName: payload.executorName };
+    } else {
+      executorPayload = {
+        executorId: payload.executorId ?? null,
+        executorName: payload.executorName ?? null,
+      };
     }
-    data.executorId = payload.executorId || null;
+
+    const executorFields = await resolveExecutorFields(
+      executorPayload,
+      existing.plan.project.companyId,
+    );
+
+    if (executorFields) {
+      data.executorId = executorFields.executorId;
+      data.executorName = executorFields.executorName;
+    }
   }
 
   if (payload.order !== undefined) {
@@ -745,11 +996,7 @@ const validatePlanForLock = async (plan) => {
 
     validateDateRange(action.startDate, action.endDate);
 
-    if (!action.executorId) {
-      createBadRequestError("مجری برای تمام اقدامات الزامی است", 400);
-    }
-
-    await validateExecutor(action.executorId, plan.project.companyId);
+    await validateActionHasExecutor(action, plan.project.companyId);
 
     if (action.prerequisiteActionId) {
       validatePrerequisiteOwnership(
@@ -765,16 +1012,93 @@ const validatePlanForLock = async (plan) => {
   validateNoCircularDependencies(actions);
 };
 
-const lockProjectPlan = async (user, planId) => {
+const applyLockActionUpdates = async (plan, actionsPayload = []) => {
+  if (!actionsPayload.length) {
+    return plan;
+  }
+
+  const actionMap = new Map(plan.actions.map((action) => [action.id, action]));
+
+  for (const item of actionsPayload) {
+    const existingAction = actionMap.get(item.actionId);
+
+    if (!existingAction) {
+      createBadRequestError("یکی از اقدامات ارسال‌شده در این برنامه یافت نشد", 400);
+    }
+
+    const data = {};
+
+    if (item.startDate !== undefined) {
+      data.startDate = item.startDate ? new Date(item.startDate) : null;
+    }
+
+    if (item.endDate !== undefined) {
+      data.endDate = item.endDate ? new Date(item.endDate) : null;
+    }
+
+    const nextStartDate =
+      item.startDate !== undefined ? data.startDate : existingAction.startDate;
+    const nextEndDate =
+      item.endDate !== undefined ? data.endDate : existingAction.endDate;
+
+    if (nextStartDate && nextEndDate) {
+      validateDateRange(nextStartDate, nextEndDate);
+    }
+
+    if (item.executorId !== undefined || item.executorName !== undefined) {
+      let executorPayload;
+
+      if (item.executorId !== undefined && item.executorName === undefined) {
+        executorPayload = { executorId: item.executorId, executorName: null };
+      } else if (
+        item.executorName !== undefined &&
+        item.executorId === undefined
+      ) {
+        executorPayload = { executorId: null, executorName: item.executorName };
+      } else {
+        executorPayload = {
+          executorId: item.executorId ?? null,
+          executorName: item.executorName ?? null,
+        };
+      }
+
+      const executorFields = await resolveExecutorFields(
+        executorPayload,
+        plan.project.companyId,
+      );
+
+      if (executorFields) {
+        data.executorId = executorFields.executorId;
+        data.executorName = executorFields.executorName;
+      }
+    }
+
+    if (Object.keys(data).length > 0) {
+      await prisma.projectPlanAction.update({
+        where: { id: item.actionId },
+        data,
+      });
+    }
+  }
+
+  return prisma.projectPlan.findUnique({
+    where: { id: plan.id },
+    include: PLAN_INCLUDE,
+  });
+};
+
+const lockProjectPlan = async (user, planId, payload = {}) => {
   assertCompanyManager(user);
 
-  const plan = await loadPlanForUser(planId, user);
+  let plan = await loadPlanForUser(planId, user);
 
   if (plan.status !== "DRAFT") {
     createBadRequestError("فقط برنامه‌های پیش‌نویس قابل قفل شدن هستند", 400);
   }
 
   assertPlanNotCompleted(plan);
+
+  plan = await applyLockActionUpdates(plan, payload.actions || []);
 
   await validatePlanForLock(plan);
 
@@ -917,7 +1241,7 @@ const bulkUpdatePlanActionCompletions = async (user, planId, payload) => {
 
   for (const item of updates) {
     if (!planActionIds.has(item.actionId)) {
-      createBadRequestError("اقدام انتخاب‌شده متعلق به این برنامه نیست", 400);
+      createBadRequestError("اقدام انتخاب ‌شده متعلق به این برنامه نیست", 400);
     }
 
     if (seenActionIds.has(item.actionId)) {

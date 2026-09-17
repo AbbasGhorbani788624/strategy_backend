@@ -86,6 +86,7 @@ router.get("/:id/analysis-status", auth, getProjectAnalysisStatus);
 
 // Project Planning & Control — برنامه پروژه
 router.post("/:projectId/plan", auth, companyOnly, createProjectPlan);
+
 router.get("/:projectId/plan", auth, companyOnly, getProjectPlanByProject);
 
 //گرفتن پروژه

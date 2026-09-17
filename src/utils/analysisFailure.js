@@ -16,7 +16,10 @@ const buildAnalysisStatusPayload = (project) => {
     project.status === "AI_PROCESSING" ||
     project.status === "ANALYSIS_PENDING"
   ) {
-    return { status: "AI_PROCESSING" };
+    return {
+      status: "AI_PROCESSING",
+      isShowText: project.isShowText,
+    };
   }
 
   if (project.status === "FAILED") {
@@ -37,6 +40,8 @@ const buildAnalysisStatusPayload = (project) => {
     return {
       // Schema enum uses FINAL_ANALYSIS (there is no COMPLETED status).
       status: "FINAL_ANALYSIS",
+      directFinalAnalysis: project.directFinalAnalysis,
+      isShowText: project.isShowText,
       analysis,
       initialAnalysis: project.initialAnalysis,
       finalAnalysis: project.finalAnalysis,
@@ -47,6 +52,8 @@ const buildAnalysisStatusPayload = (project) => {
 
   return {
     status: project.status,
+    directFinalAnalysis: project.directFinalAnalysis,
+    isShowText: project.isShowText,
     initialAnalysis: project.initialAnalysis,
     finalAnalysis: project.finalAnalysis,
     summaryAnalysis: project.summaryAnalysis,

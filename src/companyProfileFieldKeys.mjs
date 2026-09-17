@@ -111,7 +111,10 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "year", label: "سال" },
     { value: "title", label: "عنوان" },
     { value: "balanceFileId", label: "شناسه فایل ترازنامه" },
-    { value: "description", label: "توضیحات" },
+    {
+      value: "balanceSheet",
+      label: "ورودی تحلیل ترازنامه",
+    },
     { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 
@@ -119,7 +122,10 @@ export const COMPANY_PROFILE_FIELDS_BY_MODEL = {
     { value: "year", label: "سال" },
     { value: "title", label: "عنوان" },
     { value: "incomeFileId", label: "شناسه فایل صورت سود و زیان" },
-    { value: "description", label: "توضیحات" },
+    {
+      value: "incomeStatement",
+      label: "ورودی تحلیل صورت سود و زیان",
+    },
     { value: "sortOrder", label: "ترتیب نمایش" },
   ],
 

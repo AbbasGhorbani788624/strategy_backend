@@ -14,6 +14,12 @@ const createActionSchema = yup.object().shape({
     .nullable()
     .optional(),
   executorId: yup.string().uuid("شناسه مجری معتبر نیست").nullable().optional(),
+  executorName: yup
+    .string()
+    .trim()
+    .max(255, "نام مجری نمی‌تواند بیشتر از ۲۵۵ کاراکتر باشد")
+    .nullable()
+    .optional(),
   order: yup.number().integer("ترتیب باید عدد صحیح باشد").min(1).optional(),
   prerequisiteActionId: yup
     .string()
@@ -36,6 +42,12 @@ const updateActionSchema = yup.object().shape({
     .nullable()
     .optional(),
   executorId: yup.string().uuid("شناسه مجری معتبر نیست").nullable().optional(),
+  executorName: yup
+    .string()
+    .trim()
+    .max(255, "نام مجری نمی‌تواند بیشتر از ۲۵۵ کاراکتر باشد")
+    .nullable()
+    .optional(),
   order: yup.number().integer("ترتیب باید عدد صحیح باشد").min(1).optional(),
   prerequisiteActionId: yup
     .string()
@@ -74,6 +86,34 @@ const bulkUpdateActionCompletionsSchema = yup.object().shape({
     )
     .min(1, "حداقل یک اقدام برای به‌روزرسانی لازم است")
     .required("لیست اقدامات الزامی است"),
+});
+
+const lockPlanActionItemSchema = yup.object().shape({
+  actionId: yup
+    .string()
+    .uuid("شناسه اقدام معتبر نیست")
+    .required("شناسه اقدام الزامی است"),
+  startDate: yup
+    .date()
+    .typeError("تاریخ شروع معتبر نیست")
+    .nullable()
+    .optional(),
+  endDate: yup
+    .date()
+    .typeError("تاریخ پایان معتبر نیست")
+    .nullable()
+    .optional(),
+  executorId: yup.string().uuid("شناسه مجری معتبر نیست").nullable().optional(),
+  executorName: yup
+    .string()
+    .trim()
+    .max(255, "نام مجری نمی‌تواند بیشتر از ۲۵۵ کاراکتر باشد")
+    .nullable()
+    .optional(),
+});
+
+const lockPlanSchema = yup.object().shape({
+  actions: yup.array().of(lockPlanActionItemSchema).optional(),
 });
 
 const listPlansQuerySchema = yup.object().shape({
@@ -119,4 +159,5 @@ exports.bulkUpdateActionCompletionsSchema = validateWithSchema(
 // backward compatible alias
 exports.bulkUpdateActionDescriptionsSchema =
   exports.bulkUpdateActionCompletionsSchema;
+exports.lockPlanSchema = validateWithSchema(lockPlanSchema);
 exports.listPlansQuerySchema = validateWithSchema(listPlansQuerySchema, "query");

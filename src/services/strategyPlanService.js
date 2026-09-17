@@ -23,6 +23,7 @@ const {
   buildResumeMessage,
   assertPlanState,
   createStrategyFlowError,
+  isReadyForMonitoring,
 } = require("../utils/strategyPlanResume");
 const {
   deleteStrategyPlansForCompanyFramework,
@@ -31,7 +32,12 @@ const {
   findActiveStrategyPlanForCompany,
   loadProjectForUser,
   ACTIVE_STRATEGY_PLAN_INCLUDE,
+  formatStrategyPlanProjectRefs,
 } = require("../utils/strategyPlanResolve");
+const {
+  isMonitoringUnlocked,
+  assertMonitoringUnlocked,
+} = require("./companyAnalysisTierService");
 
 const COMPANY_PROFILE_INCLUDE = {
   basicInfo: true,
@@ -80,6 +86,57 @@ const toPlainJson = (value) => {
   }
 
   return value;
+};
+
+const GOAL_SETTING_COMPANY_SELECT = {
+  name: true,
+  industry: true,
+  basicInfo: {
+    select: { region: true },
+  },
+  productServices: {
+    select: { name: true },
+    orderBy: { sortOrder: "asc" },
+  },
+  markets: {
+    select: { marketName: true },
+    orderBy: { sortOrder: "asc" },
+  },
+  resourceCapabilities: {
+    select: { capability: true },
+    orderBy: { sortOrder: "asc" },
+  },
+};
+
+const formatGoalSettingRegion = (region) => {
+  if (region === "INTERNATIONAL") return "International";
+  return "Iran";
+};
+
+const buildGoalSettingCompanyProfile = (company) => ({
+  basicInfo: {
+    companyName: company?.name || "",
+    industry: company?.industry?.trim() || "",
+    region: formatGoalSettingRegion(company?.basicInfo?.region),
+  },
+  productServices: (company?.productServices || []).map((item) => item.name),
+  markets: (company?.markets || []).map((item) => item.marketName),
+  resourceCapabilities: (company?.resourceCapabilities || []).map(
+    (item) => item.capability,
+  ),
+});
+
+const loadGoalSettingCompany = async (companyId) => {
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: GOAL_SETTING_COMPANY_SELECT,
+  });
+
+  if (!company) {
+    createBadRequestError("شرکت مربوط به پروژه یافت نشد", 404);
+  }
+
+  return company;
 };
 
 const buildCompanyProfile = async (companyId) => {
@@ -211,30 +268,49 @@ const getNextStateAfterMapValidation = () => "MAP_VALIDATION";
 const getNextStateAfterKpiGeneration = () => "KPI_VALIDATION";
 
 const buildKpiGenerationPayload = ({
-  strategyAnalysis,
-  companyProfile,
+  // strategyAnalysis,
+  // companyProfile,
   approvedMap,
 }) => ({
-  strategy_analysis: strategyAnalysis,
-  company_profile: companyProfile,
+  // strategy_analysis: strategyAnalysis,
+  // company_profile: companyProfile,
   approved_map: approvedMap,
 });
 
-const buildKpiValidationPayload = ({
-  strategyText,
-  companyProfile,
-  goals = [],
-  initialMap,
-  editedMap,
-}) => ({
-  framework: "BSC",
-  state: "KPI_VALIDATION",
-  strategy: strategyText,
-  company_profile: companyProfile,
-  goals,
-  initial_map: initialMap,
-  edited_map: editedMap,
+const buildKpiValidationPayload = ({ approvedMap, kpis }) => ({
+  approved_map: normalizeApprovedMapForApi(approvedMap),
+  kpis,
 });
+
+const normalizeApprovedMapForApi = (map) => {
+  if (!map || typeof map !== "object") {
+    return map;
+  }
+
+  if (Array.isArray(map.perspectives)) {
+    return map;
+  }
+
+  if (map.approved_map && typeof map.approved_map === "object") {
+    return map.approved_map;
+  }
+
+  if (map.map && typeof map.map === "object" && Array.isArray(map.map.perspectives)) {
+    return map.map;
+  }
+
+  return map;
+};
+
+const buildKpisForValidateApi = (kpiTable) =>
+  normalizeBscKpiTable(kpiTable).map((row) => ({
+    strategicObjective: row.strategicObjective || row.objective || "",
+    kpis: (row.kpis || []).map((kpi) => ({
+      metric: kpi.metric || kpi.name || "",
+      formula: kpi.formula || "",
+      measurementPeriod: kpi.measurementPeriod || "",
+    })),
+  }));
 
 const buildTableValidationPayload = ({
   strategyText,
@@ -260,19 +336,24 @@ const buildStrategyTranslationPayload = ({
   company_profile: companyProfile,
 });
 
-const buildBscComposePayload = ({ strategyAnalysis, companyProfile }) => ({
+const buildBscComposePayload = ({
+  organizationId,
+  strategyAnalysis,
+  companyProfile,
+}) => ({
   method: "BSC",
+  organization_id: organizationId,
   strategy_analysis: strategyAnalysis,
   company_profile: companyProfile,
 });
 
 const buildBscValidatePayload = ({
   strategyAnalysis,
-  companyProfile,
+  // companyProfile,
   map,
 }) => ({
   strategy_analysis: strategyAnalysis,
-  company_profile: companyProfile,
+  // company_profile: companyProfile,
   map,
 });
 
@@ -396,6 +477,9 @@ const STRATEGY_BSC_VALIDATE_AI_URL =
 const STRATEGY_BSC_KPI_AI_URL =
   "https://strategy.ratorai.com/ai/goal-setting/bsc/kpi";
 
+const STRATEGY_BSC_KPI_VALIDATE_AI_URL =
+  "https://strategy.ratorai.com/ai/goal-setting/bsc/kpi/validate";
+
 const summarizeForLog = (value, { maxLength = 1500, maxDepth = 4 } = {}) => {
   const walk = (input, depth) => {
     if (input === null || input === undefined) {
@@ -431,8 +515,25 @@ const summarizeForLog = (value, { maxLength = 1500, maxDepth = 4 } = {}) => {
   return walk(value, 0);
 };
 
+const logOutgoingStrategyAiPayload = (label, url, payload) => {
+  console.log(`[${label}] URL:`, url);
+  console.log(
+    `[${label}] Outgoing payload:`,
+    JSON.stringify(payload, null, 2),
+  );
+};
+
+const logStrategyAiResponse = (label, status, data) => {
+  console.log(`[${label}] Status:`, status);
+  console.log(
+    `[${label}] Response:`,
+    JSON.stringify(summarizeForLog(data), null, 2),
+  );
+};
+
 const callStrategyTranslationAi = async (payload, { projectId } = {}) => {
   const url = STRATEGY_TRANSLATION_AI_URL;
+  logOutgoingStrategyAiPayload("Strategy Translation AI", url, payload);
 
   try {
     const response = await axios.post(url, payload, {
@@ -440,6 +541,7 @@ const callStrategyTranslationAi = async (payload, { projectId } = {}) => {
       timeout: 180000,
     });
 
+    logStrategyAiResponse("Strategy Translation AI", response.status, response.data);
     return response.data;
   } catch (error) {
     console.error(
@@ -476,6 +578,7 @@ const callBscComposeAi = async (
   { projectId, strategyPlanId } = {},
 ) => {
   const url = STRATEGY_BSC_COMPOSE_AI_URL;
+  logOutgoingStrategyAiPayload("BSC Compose AI", url, payload);
 
   try {
     const response = await axios.post(url, payload, {
@@ -483,6 +586,7 @@ const callBscComposeAi = async (
       timeout: 180000,
     });
 
+    logStrategyAiResponse("BSC Compose AI", response.status, response.data);
     return response.data;
   } catch (error) {
     console.error(
@@ -520,6 +624,7 @@ const callBscValidateAi = async (
   { projectId, strategyPlanId } = {},
 ) => {
   const url = STRATEGY_BSC_VALIDATE_AI_URL;
+  logOutgoingStrategyAiPayload("BSC Validate AI", url, payload);
 
   try {
     const response = await axios.post(url, payload, {
@@ -527,6 +632,7 @@ const callBscValidateAi = async (
       timeout: 180000,
     });
 
+    logStrategyAiResponse("BSC Validate AI", response.status, response.data);
     return response.data;
   } catch (error) {
     console.error(
@@ -561,6 +667,7 @@ const callBscValidateAi = async (
 
 const callBscKpiAi = async (payload, { projectId, strategyPlanId } = {}) => {
   const url = STRATEGY_BSC_KPI_AI_URL;
+  logOutgoingStrategyAiPayload("BSC KPI AI", url, payload);
 
   try {
     const response = await axios.post(url, payload, {
@@ -568,6 +675,7 @@ const callBscKpiAi = async (payload, { projectId, strategyPlanId } = {}) => {
       timeout: 180000,
     });
 
+    logStrategyAiResponse("BSC KPI AI", response.status, response.data);
     return response.data;
   } catch (error) {
     console.error(
@@ -600,6 +708,52 @@ const callBscKpiAi = async (payload, { projectId, strategyPlanId } = {}) => {
   }
 };
 
+const callBscKpiValidateAi = async (
+  payload,
+  { projectId, strategyPlanId } = {},
+) => {
+  const url = STRATEGY_BSC_KPI_VALIDATE_AI_URL;
+  logOutgoingStrategyAiPayload("BSC KPI Validate AI", url, payload);
+
+  try {
+    const response = await axios.post(url, payload, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 180000,
+    });
+
+    logStrategyAiResponse("BSC KPI Validate AI", response.status, response.data);
+    return response.data;
+  } catch (error) {
+    console.error(
+      "[BSC KPI Validate AI] request failed",
+      JSON.stringify(
+        {
+          projectId,
+          strategyPlanId,
+          url,
+          status: error.response?.status,
+          message: error.message,
+          response: summarizeForLog(error.response?.data),
+        },
+        null,
+        2,
+      ),
+    );
+
+    const apiMessage =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      (typeof error.response?.data === "string" ? error.response.data : null);
+
+    const failure = new Error(
+      apiMessage || error.message || "خطا در ارتباط با سرویس BSC KPI Validate",
+    );
+    failure.statusCode = error.response?.status || 502;
+    failure.cause = error;
+    throw failure;
+  }
+};
+
 const callStrategyAi = async (payload) => {
   if (isStrategyAiMockEnabled()) {
     return buildMockStrategyAiResponse(payload);
@@ -614,12 +768,15 @@ const callStrategyAi = async (payload) => {
     );
   }
 
+  logOutgoingStrategyAiPayload("Strategy AI", url, payload);
+
   try {
     const response = await axios.post(url, payload, {
       headers: { "Content-Type": "application/json" },
       timeout: 180000,
     });
 
+    logStrategyAiResponse("Strategy AI", response.status, response.data);
     return response.data;
   } catch (error) {
     console.error("Strategy AI API request failed", {
@@ -875,6 +1032,7 @@ const buildBscKpiResponse = (aiRuns) => {
 
   const validationRun = aiRuns?.find((run) => run.state === "KPI_VALIDATION");
   const editedKpiTable =
+    validationRun?.requestPayload?.kpis ??
     validationRun?.requestPayload?.edited_map ??
     validationRun?.requestPayload?.editedMap ??
     null;
@@ -896,6 +1054,7 @@ const buildOkrTableResponse = (aiRuns) => {
 
   const validationRun = aiRuns?.find((run) => run.state === "TABLE_VALIDATION");
   const editedKpiTable =
+    validationRun?.requestPayload?.kpis ??
     validationRun?.requestPayload?.edited_table ??
     validationRun?.requestPayload?.editedTable ??
     validationRun?.requestPayload?.edited_kpi_table ??
@@ -917,6 +1076,7 @@ const formatStrategyPlan = (plan) => ({
   framework: plan.framework,
   state: plan.state,
   status: plan.status,
+  strategyStatement: plan.strategyStatement ?? null,
   createdAt: plan.createdAt,
   updatedAt: plan.updatedAt,
 });
@@ -929,6 +1089,7 @@ const buildFullStrategyPlanPayload = async (plan) => {
   const hasMeasuresApproval = plan.approvals?.some(
     (approval) => approval.type === "MEASURES",
   );
+  const readyForMonitoring = isReadyForMonitoring(plan, hasMeasuresApproval);
   const continueAction = resolveContinueAction(plan.state);
   const { stage, stageLabel } = resolveStageInfo(
     plan.state,
@@ -942,6 +1103,7 @@ const buildFullStrategyPlanPayload = async (plan) => {
     stageLabel,
     canCreateNew: false,
     hasMeasuresApproval,
+    isReadyForMonitoring: readyForMonitoring,
   };
 
   if (plan.framework === "BSC") {
@@ -952,15 +1114,11 @@ const buildFullStrategyPlanPayload = async (plan) => {
     Object.assign(payload, buildOkrTableResponse(plan.aiRuns || []));
   }
 
-  if (
-    hasMeasuresApproval ||
-    plan.state === "READY_FOR_MONITORING" ||
-    plan.state === "MONITORING"
-  ) {
+  if (readyForMonitoring) {
     payload.measures = await fetchMeasuresForPlan(plan.id);
   }
 
-  if (plan.state === "MONITORING") {
+  if (readyForMonitoring && plan.state === "MONITORING") {
     payload.monitoring = await fetchMonitoringForPlan(plan.id);
   }
 
@@ -990,6 +1148,8 @@ const createStrategyPlanService = async (
 
   assertProjectAccess(project, user);
 
+  await assertMonitoringUnlocked(project.companyId);
+
   await prepareProjectForNewStrategyPlan({
     companyId: project.companyId,
     framework,
@@ -1003,9 +1163,20 @@ const createStrategyPlanService = async (
     );
   }
 
-  const companyProfile = await buildCompanyProfile(project.companyId);
+  const [companyProfile, goalSettingCompany] = await Promise.all([
+    buildCompanyProfile(project.companyId),
+    loadGoalSettingCompany(project.companyId),
+  ]);
+  const goalSettingCompanyProfile =
+    buildGoalSettingCompanyProfile(goalSettingCompany);
   const goals = await fetchProjectGoals(project.id);
   const initialState = getInitialState(framework);
+
+  const strategyStatement = await fetchStrategyStatementFromAi({
+    strategyAnalysis: finalAnalysis,
+    companyProfile: goalSettingCompanyProfile,
+    projectId: project.id,
+  });
 
   const strategyPlan = await prisma.strategyPlan.create({
     data: {
@@ -1015,6 +1186,7 @@ const createStrategyPlanService = async (
       status: "IN_PROGRESS",
       state: initialState,
       strategyText: finalAnalysis,
+      strategyStatement,
       companyProfile,
     },
   });
@@ -1022,14 +1194,15 @@ const createStrategyPlanService = async (
   const requestPayload =
     framework === "BSC"
       ? buildBscComposePayload({
-          strategyAnalysis: finalAnalysis,
-          companyProfile,
+          organizationId: project.companyId,
+          strategyAnalysis: strategyStatement,
+          companyProfile: goalSettingCompanyProfile,
           // goals,
         })
       : buildAiPayload({
           framework,
           state: initialState,
-          strategyText: finalAnalysis,
+          strategyText: strategyStatement,
           companyProfile,
           goals,
         });
@@ -1170,16 +1343,33 @@ const getActiveStrategyPlanService = async (user, framework) => {
 
   const payload = await buildFullStrategyPlanPayload(plan);
 
+  const { sourceProject, inputProjects } = formatStrategyPlanProjectRefs(
+    plan.project,
+  );
+
   return {
     exists: true,
     canRestart: true,
     ...payload,
-    projectTitle: plan.project?.title || null,
+    sourceProject,
+    inputProjects,
     message: buildResumeMessage(plan.framework, payload.continueAction),
   };
 };
 
 const getStrategyQuickAccessService = async (user, framework) => {
+  const monitoringUnlocked = await isMonitoringUnlocked(user.companyId);
+
+  if (!monitoringUnlocked) {
+    return {
+      exists: false,
+      canCreateNew: false,
+      canRestart: false,
+      monitoringLocked: true,
+      lockReason: "TIER_4_REQUIRED",
+    };
+  }
+
   const plan = await findActiveStrategyPlanForCompany(user, framework, {
     include: STRATEGY_QUICK_ACCESS_INCLUDE,
   });
@@ -1189,6 +1379,7 @@ const getStrategyQuickAccessService = async (user, framework) => {
       exists: false,
       canCreateNew: true,
       canRestart: true,
+      monitoringLocked: false,
     };
   }
 
@@ -1197,6 +1388,7 @@ const getStrategyQuickAccessService = async (user, framework) => {
   const hasMeasuresApproval = plan.approvals?.some(
     (approval) => approval.type === "MEASURES",
   );
+  const readyForMonitoring = isReadyForMonitoring(plan, hasMeasuresApproval);
   const continueAction = resolveContinueAction(plan.state);
   const { stage, stageLabel } = resolveStageInfo(
     plan.state,
@@ -1207,11 +1399,13 @@ const getStrategyQuickAccessService = async (user, framework) => {
     exists: true,
     canRestart: true,
     canCreateNew: false,
+    monitoringLocked: false,
     strategyPlan: formatStrategyPlan(plan),
     continueAction,
     stage,
     stageLabel,
     hasMeasuresApproval,
+    isReadyForMonitoring: readyForMonitoring,
     projectTitle: plan.project?.title || null,
     message: buildResumeMessage(plan.framework, continueAction),
   };
@@ -1286,14 +1480,14 @@ const validateBscMapService = async (user, strategyPlanId, editedMap) => {
   }
 
   const companyProfile = plan.companyProfile || {};
-  const strategyAnalysis = plan.strategyText?.trim();
+  const strategyAnalysis = resolveStrategyAnalysisForAi(plan);
   if (!strategyAnalysis) {
     createBadRequestError("متن استراتژی پروژه موجود نیست", 400);
   }
 
   const requestPayload = buildBscValidatePayload({
     strategyAnalysis,
-    companyProfile,
+    // companyProfile,
     map: editedMap,
   });
 
@@ -1403,14 +1597,14 @@ const approveBscMapAndGenerateKpisService = async (
   }
 
   const companyProfile = plan.companyProfile || {};
-  const strategyAnalysis = plan.strategyText?.trim();
+  const strategyAnalysis = resolveStrategyAnalysisForAi(plan);
   if (!strategyAnalysis) {
     createBadRequestError("متن استراتژی پروژه موجود نیست", 400);
   }
 
   const requestPayload = buildKpiGenerationPayload({
-    strategyAnalysis,
-    companyProfile,
+    // strategyAnalysis,
+    // companyProfile,
     approvedMap,
   });
 
@@ -1529,14 +1723,19 @@ const validateBscKpisService = async (user, strategyPlanId, editedKpiTable) => {
     createBadRequestError("جدول KPI اولیه AI موجود نیست", 400);
   }
 
-  const companyProfile = plan.companyProfile || {};
-  const goals = await fetchProjectGoals(plan.projectId);
+  const strategyMap = plan.maps[0];
+  if (!strategyMap?.finalData) {
+    createBadRequestError("نقشه تاییدشده BSC یافت نشد", 400);
+  }
+
+  const kpis = buildKpisForValidateApi(editedKpiTable);
+  if (!kpis.length) {
+    createBadRequestError("جدول KPI ویرایش‌شده خالی است", 400);
+  }
+
   const requestPayload = buildKpiValidationPayload({
-    strategyText: plan.strategyText,
-    companyProfile,
-    goals,
-    initialMap: initialKpiTable,
-    editedMap: editedKpiTable,
+    approvedMap: strategyMap.finalData,
+    kpis,
   });
 
   const aiRun = await prisma.strategyAiRun.create({
@@ -1551,7 +1750,10 @@ const validateBscKpisService = async (user, strategyPlanId, editedKpiTable) => {
 
   let aiResponse;
   try {
-    aiResponse = await callStrategyAi(requestPayload);
+    aiResponse = await callBscKpiValidateAi(requestPayload, {
+      projectId: plan.projectId,
+      strategyPlanId: plan.id,
+    });
   } catch (error) {
     await recordFailedAiRun({
       aiRunId: aiRun.id,
@@ -1623,8 +1825,13 @@ const validateOkrTableService = async (user, strategyPlanId, editedTable) => {
 
   const companyProfile = plan.companyProfile || {};
   const goals = await fetchProjectGoals(plan.projectId);
+  const strategyText = resolveStrategyAnalysisForAi(plan);
+  if (!strategyText) {
+    createBadRequestError("متن استراتژی پروژه موجود نیست", 400);
+  }
+
   const requestPayload = buildTableValidationPayload({
-    strategyText: plan.strategyText,
+    strategyText,
     companyProfile,
     goals,
     initialTable,
@@ -1955,6 +2162,7 @@ const getStrategyPlanService = async (strategyPlanId, user) => {
   const hasMeasuresApproval = plan.approvals?.some(
     (approval) => approval.type === "MEASURES",
   );
+  const readyForMonitoring = isReadyForMonitoring(plan, hasMeasuresApproval);
   const continueAction = resolveContinueAction(plan.state);
   const { stage, stageLabel } = resolveStageInfo(
     plan.state,
@@ -1967,6 +2175,7 @@ const getStrategyPlanService = async (strategyPlanId, user) => {
     stage,
     stageLabel,
     hasMeasuresApproval,
+    isReadyForMonitoring: readyForMonitoring,
     canRestart: true,
   };
 
@@ -1978,11 +2187,7 @@ const getStrategyPlanService = async (strategyPlanId, user) => {
     Object.assign(response, buildOkrTableResponse(plan.aiRuns));
   }
 
-  if (
-    hasMeasuresApproval ||
-    plan.state === "READY_FOR_MONITORING" ||
-    plan.state === "MONITORING"
-  ) {
+  if (readyForMonitoring) {
     response.measures = await fetchMeasuresForPlan(strategyPlanId);
   }
 
@@ -2005,6 +2210,40 @@ const extractStrategyStatement = (aiResponse) => {
   return statement || null;
 };
 
+const resolveStrategyAnalysisForAi = (plan) => {
+  const statement = plan.strategyStatement?.trim();
+  if (statement) {
+    return statement;
+  }
+
+  return plan.strategyText?.trim() || null;
+};
+
+const fetchStrategyStatementFromAi = async ({
+  strategyAnalysis,
+  companyProfile,
+  projectId,
+}) => {
+  const requestPayload = buildStrategyTranslationPayload({
+    strategyAnalysis,
+    companyProfile,
+  });
+
+  const aiResponse = await callStrategyTranslationAi(requestPayload, {
+    projectId,
+  });
+  const strategyStatement = extractStrategyStatement(aiResponse);
+
+  if (!strategyStatement) {
+    createBadRequestError(
+      "پاسخ AI فیلد strategy_statement ندارد یا خالی است",
+      502,
+    );
+  }
+
+  return strategyStatement;
+};
+
 const translateStrategyAnalysisService = async (user, { projectId }) => {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
@@ -2025,6 +2264,8 @@ const translateStrategyAnalysisService = async (user, { projectId }) => {
 
   assertProjectAccess(project, user);
 
+  await assertMonitoringUnlocked(project.companyId);
+
   const strategyAnalysis = project.finalAnalysis?.trim();
   if (!strategyAnalysis) {
     createBadRequestError(
@@ -2033,22 +2274,26 @@ const translateStrategyAnalysisService = async (user, { projectId }) => {
     );
   }
 
-  const companyProfile = await buildCompanyProfile(project.companyId);
-  const requestPayload = buildStrategyTranslationPayload({
+  const goalSettingCompany = await loadGoalSettingCompany(project.companyId);
+  const strategyStatement = await fetchStrategyStatementFromAi({
     strategyAnalysis,
-    companyProfile,
+    companyProfile: buildGoalSettingCompanyProfile(goalSettingCompany),
+    projectId: project.id,
   });
 
-  const aiResponse = await callStrategyTranslationAi(requestPayload, {
-    projectId,
+  const existingPlan = await prisma.strategyPlan.findFirst({
+    where: {
+      projectId: project.id,
+      companyId: user.companyId,
+    },
+    orderBy: { updatedAt: "desc" },
   });
-  const strategyStatement = extractStrategyStatement(aiResponse);
 
-  if (!strategyStatement) {
-    createBadRequestError(
-      "پاسخ AI فیلد strategy_statement ندارد یا خالی است",
-      502,
-    );
+  if (existingPlan) {
+    await prisma.strategyPlan.update({
+      where: { id: existingPlan.id },
+      data: { strategyStatement },
+    });
   }
 
   return { strategy_statement: strategyStatement };

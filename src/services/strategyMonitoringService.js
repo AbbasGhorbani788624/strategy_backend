@@ -227,21 +227,71 @@ const formatMeasureListItem = (measure, index = null) => ({
       ? Number(measure.finalTarget)
       : null,
   ownerId: measure.ownerId,
+  ownerName: measure.ownerName ?? null,
 });
 
-const formatOwner = (owner) => {
-  if (!owner) return null;
+const resolveOwnerFields = async (payload, companyId) => {
+  const hasOwnerId =
+    payload.ownerId != null && String(payload.ownerId).trim() !== "";
+  const hasOwnerName =
+    payload.ownerName != null && String(payload.ownerName).trim() !== "";
 
-  const fullName = [owner.userInfo?.firstName, owner.userInfo?.lastName]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
+  if (hasOwnerId) {
+    const owner = await prisma.user.findFirst({
+      where: {
+        id: payload.ownerId,
+        companyId,
+      },
+    });
 
-  return {
-    id: owner.id,
-    name: fullName || owner.username,
-    username: owner.username,
-  };
+    if (!owner) {
+      createBadRequestError("مسئول انتخاب‌شده معتبر نیست", 400);
+    }
+
+    return {
+      ownerId: payload.ownerId,
+      ownerName: null,
+    };
+  }
+
+  if (hasOwnerName) {
+    return {
+      ownerId: null,
+      ownerName: String(payload.ownerName).trim(),
+    };
+  }
+
+  createBadRequestError("ownerId یا ownerName الزامی است", 400);
+};
+
+const formatOwner = (measure) => {
+  if (measure.owner) {
+    const fullName = [
+      measure.owner.userInfo?.firstName,
+      measure.owner.userInfo?.lastName,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    return {
+      id: measure.owner.id,
+      name: fullName || measure.owner.username,
+      username: measure.owner.username,
+      ownerName: null,
+    };
+  }
+
+  if (measure.ownerName?.trim()) {
+    return {
+      id: null,
+      name: measure.ownerName.trim(),
+      username: null,
+      ownerName: measure.ownerName.trim(),
+    };
+  }
+
+  return null;
 };
 
 const formatMonitoringResponse = (measure, measureIndex = null) => {
@@ -269,7 +319,7 @@ const formatMonitoringResponse = (measure, measureIndex = null) => {
     },
     startDate: measure.monitoringStartDate,
     duration: formatMonitoringDuration(measure),
-    owner: formatOwner(measure.owner),
+    owner: formatOwner(measure),
     finalTarget:
       measure.finalTarget !== null && measure.finalTarget !== undefined
         ? Number(measure.finalTarget)
@@ -556,7 +606,7 @@ const resolvePeriodTarget = (measure, periodInput) => {
 const updateMonitoringPlanningService = async (
   user,
   monitoringId,
-  { ownerId, finalTarget, periods },
+  { ownerId, ownerName, finalTarget, periods },
   measureIndex = null,
 ) => {
   const measure = await loadMeasureForUser(monitoringId, user);
@@ -566,18 +616,10 @@ const updateMonitoringPlanningService = async (
     createBadRequestError("ابتدا Monitoring را شروع کنید", 400);
   }
 
-  if (ownerId) {
-    const owner = await prisma.user.findFirst({
-      where: {
-        id: ownerId,
-        companyId: user.companyId,
-      },
-    });
-
-    if (!owner) {
-      createBadRequestError("مسئول انتخاب‌شده معتبر نیست", 400);
-    }
-  }
+  const ownerFields = await resolveOwnerFields(
+    { ownerId, ownerName },
+    user.companyId,
+  );
 
   if (finalTarget === null || finalTarget === undefined || Number.isNaN(Number(finalTarget))) {
     createBadRequestError("finalTarget الزامی است", 400);
@@ -615,7 +657,8 @@ const updateMonitoringPlanningService = async (
     await tx.strategyMeasure.update({
       where: { id: monitoringId },
       data: {
-        ownerId: ownerId || null,
+        ownerId: ownerFields.ownerId,
+        ownerName: ownerFields.ownerName,
         finalTarget,
       },
     });
@@ -673,7 +716,7 @@ const confirmMonitoringService = async (
     createBadRequestError("ابتدا Monitoring را شروع کنید", 400);
   }
 
-  if (!measure.ownerId) {
+  if (!measure.ownerId && !measure.ownerName?.trim()) {
     createBadRequestError("مسئول KPI باید تعیین شده باشد", 400);
   }
 

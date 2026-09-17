@@ -107,6 +107,7 @@ exports.lockProjectPlan = async (req, res, next) => {
     const plan = await projectPlanService.lockProjectPlan(
       req.user,
       req.params.planId,
+      req.body,
     );
     return successResponse(res, 200, { plan });
   } catch (err) {

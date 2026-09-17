@@ -2,6 +2,9 @@ const express = require("express");
 const router = express.Router();
 const auth = require("../middleware/auth");
 const { roleGuard } = require("../middleware/roleGuard");
+const requireMonitoringUnlocked = require("../middleware/requireMonitoringUnlocked");
+
+router.use(auth, roleGuard(["COMPANY", "MEMBER"]), requireMonitoringUnlocked);
 const {
   createStrategyPlan,
   translateStrategyAnalysis,
@@ -67,8 +70,6 @@ const {
 // POST — ترجمه؛ body: { projectId }
 router.post(
   "/strategy-translation",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyTranslationSchema,
   translateStrategyAnalysis,
 );
@@ -76,8 +77,6 @@ router.post(
 // POST — شروع flow؛ body: { projectId, framework, restart: true }
 router.post(
   "/",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   createStrategyPlanSchema,
   createStrategyPlan,
 );
@@ -85,16 +84,12 @@ router.post(
 // GET — plan فعال شرکت (از companyId توکن)؛ query: framework
 router.get(
   "/active",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   getActiveStrategyPlan,
 );
 
 router.post(
   "/active/map/validate",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   validateStrategyMapSchema,
   validateStrategyMapByActive,
@@ -102,8 +97,6 @@ router.post(
 
 router.post(
   "/active/map/approve",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   approveStrategyMapSchema,
   approveStrategyMapByActive,
@@ -111,8 +104,6 @@ router.post(
 
 router.post(
   "/active/kpis/validate",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   validateStrategyKpiSchema,
   validateStrategyKpisByActive,
@@ -120,8 +111,6 @@ router.post(
 
 router.post(
   "/active/kpis/approve",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   approveStrategyKpiSchema,
   approveStrategyKpisByActive,
@@ -129,8 +118,6 @@ router.post(
 
 router.post(
   "/active/table/validate",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   validateStrategyTableSchema,
   validateStrategyTableByActive,
@@ -138,8 +125,6 @@ router.post(
 
 router.post(
   "/active/table/approve",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   approveStrategyTableSchema,
   approveStrategyTableByActive,
@@ -147,8 +132,6 @@ router.post(
 
 router.get(
   "/active/measures",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   strategyPlanMeasuresListQuerySchema,
   listStrategyPlanMeasuresByActive,
@@ -156,8 +139,6 @@ router.get(
 
 router.post(
   "/active/measures/sync",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   syncStrategyPlanMeasuresByActive,
 );
@@ -165,16 +146,12 @@ router.post(
 // --- legacy: by-project (deprecated) ---
 router.get(
   "/by-project/:projectId",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   getStrategyPlanByProject,
 );
 
 router.post(
   "/by-project/:projectId/map/validate",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   validateStrategyMapSchema,
   validateStrategyMapByProject,
@@ -182,8 +159,6 @@ router.post(
 
 router.post(
   "/by-project/:projectId/map/approve",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   approveStrategyMapSchema,
   approveStrategyMapByProject,
@@ -191,8 +166,6 @@ router.post(
 
 router.post(
   "/by-project/:projectId/kpis/validate",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   validateStrategyKpiSchema,
   validateStrategyKpisByProject,
@@ -200,8 +173,6 @@ router.post(
 
 router.post(
   "/by-project/:projectId/kpis/approve",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   approveStrategyKpiSchema,
   approveStrategyKpisByProject,
@@ -209,8 +180,6 @@ router.post(
 
 router.post(
   "/by-project/:projectId/table/validate",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   validateStrategyTableSchema,
   validateStrategyTableByProject,
@@ -218,8 +187,6 @@ router.post(
 
 router.post(
   "/by-project/:projectId/table/approve",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   approveStrategyTableSchema,
   approveStrategyTableByProject,
@@ -227,8 +194,6 @@ router.post(
 
 router.get(
   "/by-project/:projectId/measures",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   strategyPlanMeasuresListQuerySchema,
   listStrategyPlanMeasuresByProject,
@@ -236,8 +201,6 @@ router.get(
 
 router.post(
   "/by-project/:projectId/measures/sync",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanByProjectQuerySchema,
   syncStrategyPlanMeasuresByProject,
 );
@@ -245,71 +208,53 @@ router.post(
 // --- legacy: strategyPlanId ---
 router.post(
   "/:strategyPlanId/map/validate",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   validateStrategyMapSchema,
   validateStrategyMap,
 );
 
 router.post(
   "/:strategyPlanId/map/approve",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   approveStrategyMapSchema,
   approveStrategyMap,
 );
 
 router.post(
   "/:strategyPlanId/kpis/validate",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   validateStrategyKpiSchema,
   validateStrategyKpis,
 );
 
 router.post(
   "/:strategyPlanId/kpis/approve",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   approveStrategyKpiSchema,
   approveStrategyKpis,
 );
 
 router.post(
   "/:strategyPlanId/table/validate",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   validateStrategyTableSchema,
   validateStrategyTable,
 );
 
 router.post(
   "/:strategyPlanId/table/approve",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   approveStrategyTableSchema,
   approveStrategyTable,
 );
 
 router.get(
   "/:strategyPlanId/measures",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   strategyPlanMeasuresListQuerySchema,
   listStrategyPlanMeasures,
 );
 
 router.post(
   "/:strategyPlanId/measures/sync",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   syncStrategyPlanMeasures,
 );
 
 router.get(
   "/:strategyPlanId",
-  auth,
-  roleGuard(["COMPANY", "MEMBER"]),
   getStrategyPlan,
 );
 

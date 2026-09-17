@@ -7,8 +7,10 @@ const {
   getRequiredItemTitle,
   isRequiredItemCompleted,
 } = require("../utils/multiAnalysisRequiredFormUtils");
-
-
+const {
+  getEnabledTierFormKeys,
+  isAnalysisAllowed,
+} = require("../services/companyAnalysisTierService");
 
 const getFormById = async (id) => {
   let form = await prisma.analysisForm.findUnique({
@@ -26,12 +28,6 @@ const getFormById = async (id) => {
               },
             },
           },
-        },
-      },
-      categoryGroups: {
-        orderBy: { order: "asc" },
-        include: {
-          categories: true,
         },
       },
     },
@@ -61,12 +57,6 @@ const getFormById = async (id) => {
           },
         },
       },
-      categoryGroups: {
-        orderBy: { order: "asc" },
-        include: {
-          categories: true,
-        },
-      },
     },
   });
 
@@ -81,7 +71,7 @@ const getFormById = async (id) => {
 };
 
 const getSingleForms = async (companyId) => {
-  const [forms, company] = await Promise.all([
+  const [forms, company, enabledKeys] = await Promise.all([
     prisma.analysisForm.findMany({
       where: {
         isActive: true,
@@ -124,20 +114,30 @@ const getSingleForms = async (companyId) => {
       },
       include: COMPANY_PROFILE_INCLUDE,
     }),
+    getEnabledTierFormKeys(companyId),
   ]);
 
-  const mappedForms = forms.map((form) => ({
-    id: form.id,
-    title: form.title,
-    titleFa: form.titleFa,
-    order: form.order,
-    isActive: form.isActive,
-    goals: form.goals,
-    hasForm: form.categories.some((c) => c._count.questions > 0),
-    ...buildProfileStatus(company, form.profileFields),
-    category: form.category,
-    info:form.info
-  }));
+  const mappedForms = forms.map((form) => {
+    const profileStatus = buildProfileStatus(company, form.profileFields);
+    const isAllowed = isAnalysisAllowed(enabledKeys, form.id, "single");
+
+    return {
+      id: form.id,
+      title: form.title,
+      titleFa: form.titleFa,
+      order: form.order,
+      isActive: form.isActive,
+      directFinalAnalysis: form.directFinalAnalysis,
+      isShowText: form.isShowText,
+      goals: form.goals,
+      hasForm: form.categories.some((c) => c._count.questions > 0),
+      ...profileStatus,
+      isAllowed,
+      disabled: profileStatus.disabled || !isAllowed,
+      category: form.category,
+      info: form.info,
+    };
+  });
 
   const groupedMap = new Map();
 
@@ -163,59 +163,62 @@ const getSingleForms = async (companyId) => {
 };
 
 const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
-  const multiForms = await prisma.multiAnalysisForm.findMany({
-    where: {
-      isActive: true,
-    },
-    orderBy: {
-      order: "asc",
-    },
-    include: {
-      category: {
-        select: {
-          id: true,
-          title: true,
-          image: true,
-          description: true,
-        },
+  const [multiForms, enabledKeys] = await Promise.all([
+    prisma.multiAnalysisForm.findMany({
+      where: {
+        isActive: true,
       },
-      requiredForms: {
-        orderBy: {
-          order: "asc",
-        },
-        include: {
-          form: {
-            select: {
-              id: true,
-              title: true,
-            },
-          },
-          requiredMultiAnalysisForm: {
-            select: {
-              id: true,
-              title: true,
-            },
+      orderBy: {
+        order: "asc",
+      },
+      include: {
+        category: {
+          select: {
+            id: true,
+            title: true,
+            image: true,
+            description: true,
           },
         },
-      },
-      goals: {
-        select: {
-          id: true,
-          title: true,
-        },
-      },
-      categories: {
-        select: {
-          id: true,
-          _count: {
-            select: {
-              questions: true,
+        requiredForms: {
+          orderBy: {
+            order: "asc",
+          },
+          include: {
+            form: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+            requiredMultiAnalysisForm: {
+              select: {
+                id: true,
+                title: true,
+              },
             },
           },
         },
+        goals: {
+          select: {
+            id: true,
+            title: true,
+          },
+        },
+        categories: {
+          select: {
+            id: true,
+            _count: {
+              select: {
+                questions: true,
+              },
+            },
+          },
+        },
       },
-    },
-  });
+    }),
+    getEnabledTierFormKeys(companyId),
+  ]);
 
   if (!multiForms.length) return [];
 
@@ -263,11 +266,15 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
       .map((r) => getRequiredItemTitle(r))
       .filter(Boolean);
 
+    const isAllowed = isAnalysisAllowed(enabledKeys, multiForm.id, "multi");
+
     return {
       id: multiForm.id,
       title: multiForm.title,
       titleFa: multiForm.titleFa,
       description: multiForm.description,
+      directFinalAnalysis: multiForm.directFinalAnalysis,
+      isShowText: multiForm.isShowText,
       goals: multiForm.goals,
       requiredAnalysisTitles,
       missingAnalysisTitles,
@@ -275,8 +282,10 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
       isAvailable:
         requiredAnalysisTitles.length === 0 ||
         missingAnalysisTitles.length < requiredAnalysisTitles.length,
+      isAllowed,
+      disabled: !isAllowed,
       category: multiForm.category,
-      info:multiForm?.description
+      info: multiForm?.description,
     };
   });
 
@@ -303,8 +312,60 @@ const getAvailableMultiAnalysisFormsService = async ({ userId, companyId }) => {
   return [...groupedMap.values()];
 };
 
+const mergeAnalysisFormCategories = (singleCategories, multiCategories) => {
+  const categoryOrder = [];
+  const mergedMap = new Map();
+
+  const upsertCategory = (category) => {
+    const categoryId = category.id || "uncategorized";
+
+    if (!mergedMap.has(categoryId)) {
+      mergedMap.set(categoryId, {
+        id: category.id,
+        title: category.title,
+        image: category.image,
+        description: category.description,
+        forms: [],
+      });
+      categoryOrder.push(categoryId);
+    }
+
+    return categoryId;
+  };
+
+  for (const category of singleCategories) {
+    const categoryId = upsertCategory(category);
+    mergedMap
+      .get(categoryId)
+      .forms.push(
+        ...category.forms.map((form) => ({ ...form, type: "single" })),
+      );
+  }
+
+  for (const category of multiCategories) {
+    const categoryId = upsertCategory(category);
+    mergedMap
+      .get(categoryId)
+      .forms.push(
+        ...category.forms.map((form) => ({ ...form, type: "multi" })),
+      );
+  }
+
+  return categoryOrder.map((id) => mergedMap.get(id));
+};
+
+const getAnalysisModesCategories = async ({ userId, companyId }) => {
+  const [singleCategories, multiCategories] = await Promise.all([
+    getSingleForms(companyId),
+    getAvailableMultiAnalysisFormsService({ userId, companyId }),
+  ]);
+
+  return mergeAnalysisFormCategories(singleCategories, multiCategories);
+};
+
 module.exports = {
   getFormById,
   getSingleForms,
   getAvailableMultiAnalysisFormsService,
+  getAnalysisModesCategories,
 };

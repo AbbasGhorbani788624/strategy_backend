@@ -282,20 +282,23 @@ const pickCompanyAdminDataFromPayload = (payload = {}, existing = null) => {
   return next;
 };
 
-const buildCompanyAdminDataForPrompt = (
-  companyAdminData,
-  selectedFields = COMPANY_ADMIN_DATA_FIELDS,
-) => {
-  if (!selectedFields?.length) return {};
+const buildCompanyAdminDataForPrompt = (companyAdminData, selectedFields) => {
+  if (!companyAdminData) return {};
+
+  const fields =
+    selectedFields?.length > 0 ? selectedFields : COMPANY_ADMIN_DATA_FIELDS;
 
   const normalized = normalizeCompanyAdminData(companyAdminData);
   const result = {};
 
-  for (const field of selectedFields) {
+  for (const field of fields) {
     const promptKey = COMPANY_ADMIN_DATA_FIELD_TO_PROMPT_KEY[field];
     if (!promptKey) continue;
 
-    result[promptKey] = normalized[field] || "";
+    const value = normalized[field];
+    if (!value || (typeof value === "string" && !value.trim())) continue;
+
+    result[promptKey] = value;
   }
 
   return result;
@@ -311,11 +314,15 @@ const getCompanyProfileDataForForm = async (companyId, profileFields = []) => {
 
   const models = getModelsFromProfileFields(profileFields);
   const selectedAdminDataFields = getSelectedAdminDataFields(profileFields);
+  const resolvedAdminDataFields =
+    selectedAdminDataFields.length > 0
+      ? selectedAdminDataFields
+      : COMPANY_ADMIN_DATA_FIELDS;
 
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     include: {
-      companyAdminData: selectedAdminDataFields.length > 0,
+      companyAdminData: true,
       basicInfo: models.includes("COMPANY_BASIC_INFO"),
       managers: models.includes("COMPANY_MANAGER"),
       revenueCenters: models.includes("REVENUE_CENTER"),
@@ -342,20 +349,12 @@ const getCompanyProfileDataForForm = async (companyId, profileFields = []) => {
 
   return {
     companyProfile: buildSelectedCompanyProfile(company, profileFields),
-    companyAdminData:
-      selectedAdminDataFields.length > 0
-        ? {
-            data: company.companyAdminData?.data ?? null,
-            selectedFields: selectedAdminDataFields,
-          }
-        : null,
+    companyAdminData: {
+      data: company.companyAdminData?.data ?? null,
+      selectedFields: resolvedAdminDataFields,
+    },
   };
 };
-
-
-
-
-
 
 const buildRecipeSteps = (promptSegments, startStep = 1) => {
   if (!Array.isArray(promptSegments) || !promptSegments.length) return [];
@@ -389,7 +388,9 @@ const buildInitialAnalysisPrompt = ({
     "Selected goals": Array.isArray(selectedGoals) ? selectedGoals : [],
     "User Clarification": "",
     domain: domain || "",
-    "Form responses": readableFormResponses || {},
+    ...(readableFormResponses
+      ? { "Form responses": readableFormResponses }
+      : {}),
   };
 
   return JSON.stringify(promptObject, null, 2);
@@ -418,7 +419,9 @@ const buildInitialMultiAnalysisPrompt = ({
     "User Clarification": "",
     domain: domain || "",
     Summaries: sourceProjectSummaries || [],
-    "Form responses": readableFormResponses || {},
+    ...(readableFormResponses
+      ? { "Form responses": readableFormResponses }
+      : {}),
   };
 
   return JSON.stringify(promptObject, null, 2);
@@ -429,13 +432,62 @@ const buildFinalAnalysisPrompt = ({
   initialAnalysis,
   title,
   temperature,
+  companyProfileData,
+  readableFormResponses,
 }) => {
   const promptObject = {
     "Analysis title": title,
     Recipes: buildRecipeSteps(promptSegments, 2),
     initialAnalysis: initialAnalysis || "",
     temperature,
+    "company information": companyProfileData?.companyProfile || {},
+    ...buildCompanyAdminDataForPrompt(
+      companyProfileData?.companyAdminData?.data,
+      companyProfileData?.companyAdminData?.selectedFields,
+    ),
+    ...(readableFormResponses
+      ? { "Form responses": readableFormResponses }
+      : {}),
   };
+
+  return JSON.stringify(promptObject, null, 2);
+};
+
+const buildDirectFinalAnalysisPrompt = ({
+  lastPromptSegment,
+  title,
+  mode,
+  temperature,
+  companyProfileData,
+  selectedGoals,
+  domain,
+  readableFormResponses,
+  sourceProjectSummaries,
+}) => {
+  const promptObject = {
+    "Analysis title": title,
+    Recipes: [
+      {
+        step1: lastPromptSegment?.content || "",
+      },
+    ],
+    temperature: temperature ?? 0.7,
+    "company information": companyProfileData?.companyProfile || {},
+    ...buildCompanyAdminDataForPrompt(
+      companyProfileData?.companyAdminData?.data,
+      companyProfileData?.companyAdminData?.selectedFields,
+    ),
+    "Selected goals": Array.isArray(selectedGoals) ? selectedGoals : [],
+    "User Clarification": "",
+    domain: domain || "",
+    ...(readableFormResponses
+      ? { "Form responses": readableFormResponses }
+      : {}),
+  };
+
+  if (mode === "MULTI") {
+    promptObject.Summaries = sourceProjectSummaries || [];
+  }
 
   return JSON.stringify(promptObject, null, 2);
 };
@@ -470,12 +522,12 @@ const buildFinalAnalysisWithCorrectionPrompt = ({
     promptObject.Summaries = sourceProjectSummaries || [];
   }
 
-  promptObject["Form responses"] = readableFormResponses || {};
+  if (readableFormResponses) {
+    promptObject["Form responses"] = readableFormResponses;
+  }
 
   return JSON.stringify(promptObject, null, 2);
 };
-
-
 
 const buildSelectedSourceProjectSummaries = (selectedSourceProjects = []) => {
   return selectedSourceProjects
@@ -526,8 +578,6 @@ const safeStringify = (value) => {
   }
 };
 
-
-
 module.exports = {
   createBadRequestError,
   buildProjectAccessWhere,
@@ -542,6 +592,7 @@ module.exports = {
   buildCompanyAdminDataForPrompt,
   buildInitialAnalysisPrompt,
   buildFinalAnalysisPrompt,
+  buildDirectFinalAnalysisPrompt,
   buildFinalAnalysisWithCorrectionPrompt,
 
   buildInitialMultiAnalysisPrompt,

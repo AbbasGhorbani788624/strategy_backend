@@ -19,6 +19,7 @@ const {
 } = require("../repositories/projectRepository");
 const { startAnalysisProcessing } = require("./analysisProcessor.service");
 const { getFormById } = require("../repositories/analysisFormRepository");
+const { assertFormInEnabledTier } = require("./companyAnalysisTierService");
 
 const createAnalysisProjectService = async (currentUser, payload) => {
   const { formId, goalIds, domain, projectTitle } = payload;
@@ -36,6 +37,8 @@ const createAnalysisProjectService = async (currentUser, payload) => {
   if (!form) {
     createBadRequestError("فرم تحلیل یافت نشد");
   }
+
+  await assertFormInEnabledTier(currentUser.companyId, { formId });
 
   const uniqueGoalIds = [...new Set(goalIds)];
 
@@ -62,7 +65,8 @@ const createAnalysisProjectService = async (currentUser, payload) => {
   });
 
   const hasForm = questionCount > 0;
-
+  const directFinalAnalysis = Boolean(form.directFinalAnalysis);
+  const isShowText = Boolean(form.isShowText);
   const uniqueNumber = crypto.randomBytes(3).toString("hex");
   const projectTitleFinal = projectTitle
     ? projectTitle
@@ -77,6 +81,8 @@ const createAnalysisProjectService = async (currentUser, payload) => {
       status: hasForm ? "WAITING_FOR_FORM" : "ANALYSIS_PENDING",
       formId,
       formResponses: {},
+      directFinalAnalysis,
+      isShowText,
       goals: {
         create: validGoals.map((goal) => ({
           goal: {
@@ -111,6 +117,8 @@ const createAnalysisProjectService = async (currentUser, payload) => {
     projectId: project.id,
     jobId: queueResult?.jobId ?? null,
     status: queueResult ? queueResult.status : project.status,
+    directFinalAnalysis,
+    isShowText,
   };
 };
 
@@ -145,6 +153,7 @@ const getMultiProjectsService = async (userId, userRole, companyId, query) => {
   return getAllProjectsService(userId, userRole, companyId, {
     ...query,
     mode: "MULTI",
+    strategyCategoryOnly: true,
   });
 };
 
@@ -236,7 +245,7 @@ const getProjectTabsService = async (
 
   const singleForms = await prisma.analysisForm.findMany({
     where: { id: { in: formIds } },
-    select: { id: true, title: true },
+    select: { id: true, title: true, titleFa: true },
   });
 
   const projectCounts = await prisma.project.groupBy({
@@ -252,12 +261,13 @@ const getProjectTabsService = async (
   const singleTabs = singleForms.map((form) => ({
     formId: form.id,
     title: form.title,
+    titleFa: form.titleFa,
     projectCount: countMap.get(form.id) || 0,
     type: "single",
   }));
 
   const multiForms = await prisma.multiAnalysisForm.findMany({
-    select: { id: true, title: true },
+    select: { id: true, title: true, titleFa: true },
   });
 
   const multiCounts = await prisma.project.groupBy({
@@ -276,6 +286,7 @@ const getProjectTabsService = async (
   const multiTabs = multiForms.map((form) => ({
     formId: form.id,
     title: form.title,
+    titleFa: form.titleFa,
     projectCount: multiCountMap.get(form.id) || 0,
     type: "multi",
   }));
@@ -783,6 +794,8 @@ const createStepAnalysisProjectService = async (
     createBadRequestError("تحلیل چندمرحله‌ای یافت نشد");
   }
 
+  await assertFormInEnabledTier(currentUser.companyId, { multiAnalysisFormId });
+
   const questionCount = await prisma.formQuestion.count({
     where: {
       category: {
@@ -792,6 +805,8 @@ const createStepAnalysisProjectService = async (
   });
 
   const hasForm = questionCount > 0;
+  const directFinalAnalysis = Boolean(multiForm.directFinalAnalysis);
+  const isShowText = Boolean(multiForm.isShowText);
 
   const uniqueGoalIds = [...new Set(goalIds)];
 
@@ -894,6 +909,8 @@ const createStepAnalysisProjectService = async (
       formId: null,
       formResponses: {},
       multiAnalysisFormId,
+      directFinalAnalysis,
+      isShowText,
 
       selectedSourceProjects: {
         create: selectedProjects.map((item) => ({
@@ -937,127 +954,129 @@ const createStepAnalysisProjectService = async (
     multiAnalysisFormId,
     jobId: queueResult?.jobId ?? null,
     status: queueResult ? queueResult.status : project.status,
+    directFinalAnalysis,
+    isShowText,
   };
 };
 
-const getTopRatedProjectsByUser = async (userId, limit = 10) => {
-  const topProjects = await prisma.project.findMany({
-    where: {
-      creatorId: userId,
-      hasRating: true,
-      ratingCount: { gt: 0 },
-    },
-    orderBy: [{ averageRating: "desc" }, { ratingCount: "desc" }],
-    take: limit,
-    select: {
-      id: true,
-      title: true,
-      averageRating: true,
-      createdAt: true,
-    },
-  });
+// const getTopRatedProjectsByUser = async (userId, limit = 10) => {
+//   const topProjects = await prisma.project.findMany({
+//     where: {
+//       creatorId: userId,
+//       hasRating: true,
+//       ratingCount: { gt: 0 },
+//     },
+//     orderBy: [{ averageRating: "desc" }, { ratingCount: "desc" }],
+//     take: limit,
+//     select: {
+//       id: true,
+//       title: true,
+//       averageRating: true,
+//       createdAt: true,
+//     },
+//   });
 
-  return topProjects;
-};
+//   return topProjects;
+// };
 
-const getAccessibleProjectsService = async (userId) => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      role: true,
-      companyId: true,
-    },
-  });
+// const getAccessibleProjectsService = async (userId) => {
+//   const user = await prisma.user.findUnique({
+//     where: { id: userId },
+//     select: {
+//       role: true,
+//       companyId: true,
+//     },
+//   });
 
-  if (!user) {
-    createBadRequestError("کاربر یافت نشد", 404);
-  }
+//   if (!user) {
+//     createBadRequestError("کاربر یافت نشد", 404);
+//   }
 
-  if (user.role === "COMPANY" && user.companyId) {
-    return prisma.project.findMany({
-      where: {
-        creator: {
-          is: {
-            companyId: user.companyId,
-            role: {
-              not: "COMPANY",
-            },
-          },
-        },
-      },
-      take: 10,
-      orderBy: {
-        createdAt: "desc",
-      },
-      select: {
-        id: true,
-        createdAt: true,
-        title: true,
-        creator: {
-          select: {
-            username: true,
-          },
-        },
-      },
-    });
-  }
+//   if (user.role === "COMPANY" && user.companyId) {
+//     return prisma.project.findMany({
+//       where: {
+//         creator: {
+//           is: {
+//             companyId: user.companyId,
+//             role: {
+//               not: "COMPANY",
+//             },
+//           },
+//         },
+//       },
+//       take: 10,
+//       orderBy: {
+//         createdAt: "desc",
+//       },
+//       select: {
+//         id: true,
+//         createdAt: true,
+//         title: true,
+//         creator: {
+//           select: {
+//             username: true,
+//           },
+//         },
+//       },
+//     });
+//   }
 
-  const accesses = await prisma.projectAccess.findMany({
-    where: {
-      userId,
-    },
-    take: 10,
-    orderBy: {
-      createdAt: "desc",
-    },
-    include: {
-      project: {
-        select: {
-          id: true,
-          title: true,
-          status: true,
-          createdAt: true,
-          averageRating: true,
-          creator: {
-            select: {
-              id: true,
-              username: true,
-            },
-          },
-        },
-      },
-    },
-  });
+//   const accesses = await prisma.projectAccess.findMany({
+//     where: {
+//       userId,
+//     },
+//     take: 10,
+//     orderBy: {
+//       createdAt: "desc",
+//     },
+//     include: {
+//       project: {
+//         select: {
+//           id: true,
+//           title: true,
+//           status: true,
+//           createdAt: true,
+//           averageRating: true,
+//           creator: {
+//             select: {
+//               id: true,
+//               username: true,
+//             },
+//           },
+//         },
+//       },
+//     },
+//   });
 
-  return accesses.map((item) => item.project);
-};
+//   return accesses.map((item) => item.project);
+// };
 
-const getMostCommentedProjectsService = async (userId) => {
-  const projects = await prisma.project.findMany({
-    where: {
-      creatorId: userId,
-    },
-    take: 10,
-    orderBy: {
-      comments: {
-        _count: "desc",
-      },
-    },
-    select: {
-      id: true,
-      title: true,
-      averageRating: true,
-      createdAt: true,
-      _count: {
-        select: {
-          comments: true,
-        },
-      },
-    },
-  });
+// const getMostCommentedProjectsService = async (userId) => {
+//   const projects = await prisma.project.findMany({
+//     where: {
+//       creatorId: userId,
+//     },
+//     take: 10,
+//     orderBy: {
+//       comments: {
+//         _count: "desc",
+//       },
+//     },
+//     select: {
+//       id: true,
+//       title: true,
+//       averageRating: true,
+//       createdAt: true,
+//       _count: {
+//         select: {
+//           comments: true,
+//         },
+//       },
+//     },
+//   });
 
-  return projects;
-};
+//   return projects;
+// };
 
 const deleteProjectService = async (projectId, userId) => {
   const project = await prisma.project.findUnique({
@@ -1092,6 +1111,8 @@ const getProjectAnalysisStatusService = async (projectId, userId) => {
     where: { id: projectId, creatorId: userId },
     select: {
       status: true,
+      directFinalAnalysis: true,
+      isShowText: true,
       initialAnalysis: true,
       finalAnalysis: true,
       summaryAnalysis: true,
@@ -1106,6 +1127,110 @@ const getProjectAnalysisStatusService = async (projectId, userId) => {
   return buildAnalysisStatusPayload(project);
 };
 
+const FEATURED_PROJECT_SELECT = {
+  id: true,
+  title: true,
+};
+
+const attachProjectsToFeaturedAnalyses = async (
+  user,
+  featuredItems,
+  limit = 5,
+) => {
+  if (!featuredItems.length) {
+    return featuredItems;
+  }
+
+  const accessWhere = await buildProjectAccessWhere({
+    userId: user.id,
+    userRole: user.role,
+    companyId: user.companyId,
+  });
+
+  const singleIds = featuredItems
+    .filter((item) => item.mode === "SINGLE")
+    .map((item) => item.id);
+  const multiIds = featuredItems
+    .filter((item) => item.mode === "MULTI")
+    .map((item) => item.id);
+
+  const singleCountPromise = singleIds.length
+    ? prisma.project.groupBy({
+        by: ["formId"],
+        where: {
+          ...accessWhere,
+          formId: { in: singleIds },
+        },
+        _count: { id: true },
+      })
+    : Promise.resolve([]);
+
+  const multiCountPromise = multiIds.length
+    ? prisma.project.groupBy({
+        by: ["multiAnalysisFormId"],
+        where: {
+          ...accessWhere,
+          multiAnalysisFormId: { in: multiIds },
+        },
+        _count: { id: true },
+      })
+    : Promise.resolve([]);
+
+  const singleProjectPromises = singleIds.map((formId) =>
+    prisma.project.findMany({
+      where: {
+        ...accessWhere,
+        formId,
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: FEATURED_PROJECT_SELECT,
+    }),
+  );
+
+  const multiProjectPromises = multiIds.map((formId) =>
+    prisma.project.findMany({
+      where: {
+        ...accessWhere,
+        multiAnalysisFormId: formId,
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: FEATURED_PROJECT_SELECT,
+    }),
+  );
+
+  const [singleCounts, multiCounts, ...projectResults] = await Promise.all([
+    singleCountPromise,
+    multiCountPromise,
+    ...singleProjectPromises,
+    ...multiProjectPromises,
+  ]);
+
+  const countMap = new Map();
+  for (const item of singleCounts) {
+    if (item.formId) {
+      countMap.set(item.formId, item._count.id);
+    }
+  }
+  for (const item of multiCounts) {
+    if (item.multiAnalysisFormId) {
+      countMap.set(item.multiAnalysisFormId, item._count.id);
+    }
+  }
+
+  const formIds = [...singleIds, ...multiIds];
+  const projectsMap = new Map(
+    formIds.map((formId, index) => [formId, projectResults[index] ?? []]),
+  );
+
+  return featuredItems.map((item) => ({
+    ...item,
+    projectCount: countMap.get(item.id) ?? 0,
+    recentProjects: projectsMap.get(item.id) ?? [],
+  }));
+};
+
 module.exports = {
   getAllProjectsService,
   getMultiProjectsService,
@@ -1117,9 +1242,10 @@ module.exports = {
   createStepAnalysisProjectService,
   getSelectableProjectsForMultiAnalysisService,
   getMyProjects,
-  getTopRatedProjectsByUser,
-  getAccessibleProjectsService,
-  getMostCommentedProjectsService,
+  // getTopRatedProjectsByUser,
+  // getAccessibleProjectsService,
+  // getMostCommentedProjectsService,
   deleteProjectService,
   getProjectAnalysisStatusService,
+  attachProjectsToFeaturedAnalyses,
 };

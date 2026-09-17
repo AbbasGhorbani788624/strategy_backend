@@ -14,7 +14,7 @@ describe("parseMeasurementPeriodConfig", () => {
     assert.equal(config.durationMonths, null);
   });
 
-  it("parses monthly as week split within one month", () => {
+  it("parses monthly as 4-week split from start date", () => {
     const config = parseMeasurementPeriodConfig("ماهانه");
     assert.equal(config.splitBy, "WEEK");
     assert.equal(config.durationMonths, 1);
@@ -59,15 +59,33 @@ describe("generateMonitoringPeriods", () => {
     assert.ok(periods[0].periodLabel);
   });
 
-  it("creates week periods for one month", () => {
+  it("creates 4 full week periods for one month", () => {
     const periods = generateMonitoringPeriods({
       startDate: new Date("2025-11-01T00:00:00"),
       splitBy: "WEEK",
       durationMonths: 1,
     });
 
-    assert.ok(periods.length >= 3);
+    assert.equal(periods.length, 4);
     assert.match(periods[0].periodLabel, /هفته/);
+    assert.equal(periods[3].periodLabel, "هفته 4");
+  });
+
+  it("creates 4 full week periods when starting mid-month", () => {
+    const startDate = new Date("2026-09-13T13:00:48.017Z");
+    const periods = generateMonitoringPeriods({
+      startDate,
+      measurementPeriodLabel: "ماهانه",
+    });
+
+    assert.equal(periods.length, 4);
+    assert.equal(periods[0].periodLabel, "هفته 1");
+    assert.equal(periods[3].periodLabel, "هفته 4");
+
+    const weekDurationMs =
+      periods[0].periodEnd.getTime() - periods[0].periodStart.getTime();
+    const weekDurationDays = Math.round(weekDurationMs / (24 * 60 * 60 * 1000));
+    assert.equal(weekDurationDays, 7);
   });
 
   it("creates jalali month periods for multi-month duration", () => {

@@ -1,7 +1,15 @@
 const yup = require("yup");
 
-const planningSchema = yup.object().shape({
-  ownerId: yup.string().uuid("ownerId معتبر نیست").required("ownerId الزامی است"),
+const planningSchema = yup
+  .object()
+  .shape({
+  ownerId: yup.string().uuid("ownerId معتبر نیست").nullable().optional(),
+  ownerName: yup
+    .string()
+    .trim()
+    .max(255, "نام مسئول نمی‌تواند بیشتر از ۲۵۵ کاراکتر باشد")
+    .nullable()
+    .optional(),
   finalTarget: yup
     .number()
     .typeError("finalTarget باید عدد باشد")
@@ -30,7 +38,18 @@ const planningSchema = yup.object().shape({
     )
     .min(1, "حداقل یک period الزامی است")
     .required("periods الزامی است"),
-});
+})
+  .test(
+    "owner-ref",
+    "ownerId یا ownerName الزامی است",
+    (value) => {
+      const hasOwnerId =
+        value?.ownerId != null && String(value.ownerId).trim() !== "";
+      const hasOwnerName =
+        value?.ownerName != null && String(value.ownerName).trim() !== "";
+      return hasOwnerId || hasOwnerName;
+    },
+  );
 
 exports.updateMonitoringPlanningSchema = async (req, res, next) => {
   try {

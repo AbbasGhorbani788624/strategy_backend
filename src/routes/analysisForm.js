@@ -5,6 +5,7 @@ const {
   submitFormAnswers,
   handleConversationStep,
   getCompanyAnalysisStatistics,
+  getCompanyAnalysisTiers,
 } = require("../controllers/analysisFormController");
 
 const {
@@ -19,7 +20,10 @@ const router = express.Router();
 // امار تحلیل
 router.get("/analysis-statistics", auth, getCompanyAnalysisStatistics);
 
-//فرستادن  نوع فرم ها لیست فرم های تکی و مرحله ای
+// طبقه‌بندی تحلیل‌های شرکت
+router.get("/tiers", auth, getCompanyAnalysisTiers);
+
+// لیست دسته‌بندی‌های تحلیل (تکی و چندگانه در هر دسته)
 router.get("/modes", auth, getAnalysisModes);
 
 //گرفتن فرم

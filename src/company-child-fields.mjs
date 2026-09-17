@@ -103,7 +103,7 @@ export const companyBalanceSheetFields = {
   year: "int",
   title: "string",
   balanceFileId: "string",
-  description: "string",
+  balanceSheet: "string",
   sortOrder: "int",
 };
 
@@ -111,7 +111,7 @@ export const companyIncomeStatementFields = {
   year: "int",
   title: "string",
   incomeFileId: "string",
-  description: "string",
+  incomeStatement: "string",
   sortOrder: "int",
 };
 

@@ -2,6 +2,34 @@ const axios = require("axios");
 const prisma = require("../prismaClient");
 const INDUSTRY_INSIGHT_API_URL = "https://strategy.ratorai.com/ai/industry";
 
+const formatRegion = (region) => {
+  if (region === "INTERNATIONAL") return "International";
+  return "Iran";
+};
+
+const buildIndustryInsightPayload = (company) => {
+  const industry = company.industry.trim();
+  const region = formatRegion(company.basicInfo?.region);
+
+  return {
+    organization_id: company.id,
+    industry,
+    region,
+    company_profile: {
+      basicInfo: {
+        companyName: company.name,
+        industry,
+        region,
+      },
+      productServices: company.productServices.map((item) => item.name),
+      markets: company.markets.map((item) => item.marketName),
+      resourceCapabilities: company.resourceCapabilities.map(
+        (item) => item.capability,
+      ),
+    },
+  };
+};
+
 const syncIndustryInsightService = async (companyId) => {
 
   if (!companyId) {
@@ -15,16 +43,30 @@ const syncIndustryInsightService = async (companyId) => {
     const company = await prisma.company.findUnique({
       where: { id: companyId },
       select: {
+        id: true,
+        name: true,
         industry: true,
         basicInfo: {
           select: {
             region: true,
           },
         },
+        productServices: {
+          select: { name: true },
+          orderBy: { sortOrder: "asc" },
+        },
+        markets: {
+          select: { marketName: true },
+          orderBy: { sortOrder: "asc" },
+        },
+        resourceCapabilities: {
+          select: { capability: true },
+          orderBy: { sortOrder: "asc" },
+        },
       },
     });
 
-    console.log("[IndustryInsight] STEP 2: Company result:", company);
+    console.log("[IndustryInsight] STEP 2: Company fetched for companyId:", companyId);
 
     if (!company) {
       console.error(
@@ -42,17 +84,15 @@ const syncIndustryInsightService = async (companyId) => {
       return null;
     }
 
-    const industry = company.industry.trim();
-    const region = company.basicInfo?.region || "IRAN";
-
-    const payload = {
-      industry,
-      region,
-    };
+    const payload = buildIndustryInsightPayload(company);
+    const industry = payload.industry;
 
     console.log("[IndustryInsight] STEP 3: Preparing request");
     console.log("[IndustryInsight] URL:", INDUSTRY_INSIGHT_API_URL);
-    console.log("[IndustryInsight] Payload:", payload);
+    console.log(
+      "[IndustryInsight] Outgoing payload:",
+      JSON.stringify(payload, null, 2),
+    );
 
     console.log("[IndustryInsight] STEP 4: ABOUT TO SEND REQUEST");
 

@@ -13,6 +13,13 @@ const buildActiveCompanyPlanWhere = ({ companyId, framework }) => ({
   status: { notIn: INACTIVE_STRATEGY_STATUSES },
 });
 
+const isReadyForMonitoring = (plan, hasMeasuresApproval = false) =>
+  Boolean(
+    hasMeasuresApproval &&
+      (plan?.state === "READY_FOR_MONITORING" ||
+        plan?.state === "MONITORING"),
+  );
+
 const resolveContinueAction = (state) => {
   const mapping = {
     MAP_GENERATION: "MAP_VALIDATION",
@@ -30,12 +37,16 @@ const resolveContinueAction = (state) => {
 };
 
 const resolveStageInfo = (state, hasMeasuresApproval = false) => {
-  if (state === "MONITORING") {
+  if (state === "MONITORING" && hasMeasuresApproval) {
     return { stage: "MONITORING", stageLabel: "پایش" };
   }
 
   if (state === "READY_FOR_MONITORING" && hasMeasuresApproval) {
     return { stage: "APPROVED", stageLabel: "آماده پایش" };
+  }
+
+  if (state === "READY_FOR_MONITORING" && !hasMeasuresApproval) {
+    return { stage: "MEASURES", stageLabel: "سنجه‌ها" };
   }
 
   if (state === "MAP_VALIDATION" || state === "MAP_GENERATION") {
@@ -98,6 +109,7 @@ module.exports = {
   INACTIVE_STRATEGY_STATUSES,
   buildActivePlanWhere,
   buildActiveCompanyPlanWhere,
+  isReadyForMonitoring,
   resolveContinueAction,
   resolveStageInfo,
   buildResumeMessage,

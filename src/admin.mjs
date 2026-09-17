@@ -1,4 +1,3 @@
-
 import "dotenv/config";
 import "./admin-env.mjs";
 import express from "express";
@@ -48,6 +47,7 @@ import {
 } from "./child-actions-map.mjs";
 import { syncCompanyInsightService } from "./services/insightService.js";
 import { syncIndustryInsightService } from "./services/IndustryInsightService.js";
+import { bootstrapCompanyTierConfigs } from "./services/companyAnalysisTierService.js";
 
 import path from "path";
 import fs from "fs/promises";
@@ -166,9 +166,330 @@ async function applyFormQuestionOptionQuestionFilter(request) {
 const app = express();
 app.set("trust proxy", 1);
 
-
 const PORT = Number(process.env.ADMIN_PORT || 3000);
 const ADMIN_ROOT_PATH = process.env.ADMIN_ROOT_PATH || "/admin";
+
+const ANALYSIS_TIER_OPTIONS = [
+  { value: "TIER_1", label: "طبقه ۱ (پایین‌ترین)" },
+  { value: "TIER_2", label: "طبقه ۲" },
+  { value: "TIER_3", label: "طبقه ۳" },
+  { value: "TIER_4", label: "طبقه ۴ (بالاترین)" },
+];
+
+const getAnalysisTierLabel = (tier) => {
+  const normalized = String(tier || "").trim();
+  if (!normalized) {
+    return "—";
+  }
+
+  return (
+    ANALYSIS_TIER_OPTIONS.find((option) => option.value === normalized)
+      ?.label ?? normalized
+  );
+};
+
+const enrichCompanyAnalysisTierConfigRecords = async (records = []) => {
+  if (!records.length) {
+    return;
+  }
+
+  const companyIds = [
+    ...new Set(records.map((record) => record.params.company).filter(Boolean)),
+  ];
+
+  const companies =
+    companyIds.length > 0
+      ? await prisma.company.findMany({
+          where: { id: { in: companyIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+
+  const companyMap = Object.fromEntries(
+    companies.map((company) => [company.id, company.name]),
+  );
+
+  for (const record of records) {
+    const tierLabel = getAnalysisTierLabel(record.params.tier);
+    const companyName =
+      companyMap[record.params.company] ??
+      record.populated?.company?.title ??
+      "";
+
+    record.params.tierLabel = tierLabel;
+    record.title = companyName ? `${companyName} — ${tierLabel}` : tierLabel;
+  }
+};
+
+const enrichCompanyAnalysisTierItemRecords = async (records = []) => {
+  if (!records.length) {
+    return;
+  }
+
+  const configIds = [
+    ...new Set(records.map((record) => record.params.config).filter(Boolean)),
+  ];
+
+  const configs =
+    configIds.length > 0
+      ? await prisma.companyAnalysisTierConfig.findMany({
+          where: { id: { in: configIds } },
+          select: { id: true, tier: true },
+        })
+      : [];
+
+  const tierLabelMap = Object.fromEntries(
+    configs.map((config) => [config.id, getAnalysisTierLabel(config.tier)]),
+  );
+
+  for (const record of records) {
+    const tierLabel = tierLabelMap[record.params.config] ?? "—";
+
+    record.params.tierLabel = tierLabel;
+    record.populated = record.populated ?? {};
+    record.populated.config = {
+      params: {
+        id: record.params.config,
+        tier: configs.find((config) => config.id === record.params.config)
+          ?.tier,
+      },
+      title: tierLabel,
+    };
+  }
+};
+
+const normalizeAdminReferenceId = (value) => {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value.trim() || null;
+  }
+
+  if (typeof value === "object" && value.id) {
+    return String(value.id).trim() || null;
+  }
+
+  return String(value).trim() || null;
+};
+
+const normalizeAnalysisTierValue = (tier) => {
+  const normalized = String(tier || "").trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const byValue = ANALYSIS_TIER_OPTIONS.find(
+    (option) => option.value === normalized,
+  );
+  if (byValue) {
+    return byValue.value;
+  }
+
+  const byLabel = ANALYSIS_TIER_OPTIONS.find(
+    (option) => option.label === normalized,
+  );
+  return byLabel?.value ?? normalized;
+};
+
+const resolveCompanyAnalysisTierConfigId = async (companyId, tier) => {
+  const normalizedCompanyId = normalizeAdminReferenceId(companyId);
+  const normalizedTier = normalizeAnalysisTierValue(tier);
+
+  if (!normalizedCompanyId || !normalizedTier) {
+    return null;
+  }
+
+  const config = await prisma.companyAnalysisTierConfig.findUnique({
+    where: {
+      companyId_tier: {
+        companyId: normalizedCompanyId,
+        tier: normalizedTier,
+      },
+    },
+    select: { id: true },
+  });
+
+  return config?.id ?? null;
+};
+
+const ensureCompanyAnalysisTierConfigId = async (companyId, tier) => {
+  const normalizedCompanyId = normalizeAdminReferenceId(companyId);
+  const normalizedTier = normalizeAnalysisTierValue(tier);
+
+  if (!normalizedCompanyId || !normalizedTier) {
+    return null;
+  }
+
+  let configId = await resolveCompanyAnalysisTierConfigId(
+    normalizedCompanyId,
+    normalizedTier,
+  );
+
+  if (configId) {
+    return configId;
+  }
+
+  const existingCount = await prisma.companyAnalysisTierConfig.count({
+    where: { companyId: normalizedCompanyId },
+  });
+
+  if (existingCount === 0) {
+    await bootstrapCompanyTierConfigs(normalizedCompanyId);
+    configId = await resolveCompanyAnalysisTierConfigId(
+      normalizedCompanyId,
+      normalizedTier,
+    );
+  }
+
+  return configId;
+};
+
+const prepareCompanyAnalysisTierItemPayload = async (request, context) => {
+  const payload = request.payload || {};
+  const recordParams = context?.record?.params || {};
+  const companyId = normalizeAdminReferenceId(
+    payload.company || payload.companyId || recordParams.company,
+  );
+  let tier = normalizeAnalysisTierValue(
+    payload.tierSelection || payload.tier || recordParams.tierSelection,
+  );
+
+  if (!tier && recordParams.config) {
+    const existingConfig = await prisma.companyAnalysisTierConfig.findUnique({
+      where: { id: recordParams.config },
+      select: { tier: true },
+    });
+    tier = existingConfig?.tier || null;
+  }
+
+  const analysisFormId =
+    payload.analysisForm ||
+    payload.analysisFormId ||
+    recordParams.analysisForm ||
+    null;
+  const multiAnalysisFormId =
+    payload.multiAnalysisForm ||
+    payload.multiAnalysisFormId ||
+    recordParams.multiAnalysisForm ||
+    null;
+
+  if (!companyId) {
+    throw new ValidationError({
+      company: { message: "ابتدا شرکت را انتخاب کنید" },
+    });
+  }
+
+  if (!tier) {
+    throw new ValidationError({
+      tierSelection: { message: "بعد از شرکت، طبقه را انتخاب کنید" },
+    });
+  }
+
+  const configId = await ensureCompanyAnalysisTierConfigId(companyId, tier);
+
+  if (!configId) {
+    throw new ValidationError({
+      tierSelection: {
+        message:
+          "طبقه‌ای برای این شرکت یافت نشد. از صفحه شرکت «مدیریت طبقات تحلیل» را بزنید",
+      },
+    });
+  }
+
+  if (!analysisFormId && !multiAnalysisFormId) {
+    throw new ValidationError({
+      analysisForm: {
+        message: "حداقل یکی از فرم تکی یا چندگانه باید انتخاب شود",
+      },
+    });
+  }
+
+  if (analysisFormId && multiAnalysisFormId) {
+    throw new ValidationError({
+      analysisForm: {
+        message: "فقط یکی از فرم تکی یا چندگانه را انتخاب کنید",
+      },
+    });
+  }
+
+  payload.company = companyId;
+  payload.companyId = companyId;
+  payload.config = configId;
+  payload.configId = configId;
+  payload.analysisFormId = analysisFormId;
+  payload.multiAnalysisFormId = multiAnalysisFormId;
+  delete payload.tierSelection;
+
+  return request;
+};
+
+async function applyCompanyAnalysisTierItemFilters(request) {
+  const data = flat.unflatten(request.query ?? {});
+  const filters = data.filters ?? {};
+  let tierSelection = filters.tierSelection;
+
+  if (!tierSelection && filters.config) {
+    const legacyConfigId = normalizeAdminReferenceId(filters.config);
+    if (legacyConfigId) {
+      const legacyConfig = await prisma.companyAnalysisTierConfig.findUnique({
+        where: { id: legacyConfigId },
+        select: { tier: true },
+      });
+      tierSelection = legacyConfig?.tier ?? null;
+    }
+  }
+
+  if (!tierSelection) {
+    return request;
+  }
+
+  const tier = normalizeAnalysisTierValue(tierSelection);
+  const companyId = normalizeAdminReferenceId(filters.company);
+  const where = { tier };
+
+  if (companyId) {
+    where.companyId = companyId;
+  }
+
+  const configs = await prisma.companyAnalysisTierConfig.findMany({
+    where,
+    select: { id: true },
+  });
+
+  const newFilters = { ...filters };
+  delete newFilters.tierSelection;
+  delete newFilters.config;
+
+  if (configs.length === 0) {
+    newFilters.config = "00000000-0000-4000-8000-000000000000";
+  } else if (configs.length === 1) {
+    newFilters.config = configs[0].id;
+  } else {
+    request._companyAnalysisTierItemConfigIds = configs.map(
+      (config) => config.id,
+    );
+  }
+
+  request.query = flat.flatten({ ...data, filters: newFilters });
+  return request;
+}
+
+const buildAdminResourceListUrl = (resourceId, filters = {}) => {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(filters)) {
+    if (value != null && value !== "") {
+      params.set(`filters.${key}`, String(value));
+    }
+  }
+
+  const query = params.toString();
+  return query
+    ? `${ADMIN_ROOT_PATH}/resources/${resourceId}?${query}`
+    : `${ADMIN_ROOT_PATH}/resources/${resourceId}`;
+};
 
 const ADMIN_COOKIE_SECRET =
   process.env.ADMIN_COOKIE_SECRET || "unsafe-admin-cookie-secret";
@@ -362,6 +683,9 @@ const Components = {
 
 const prismaResource = (modelName, options = {}) => {
   const { actions, features, ...restOptions } = options;
+  const customActions = { ...(actions || {}) };
+  const customNewAction = customActions.new;
+  delete customActions.new;
 
   const resourceOptions = {
     resource: {
@@ -381,12 +705,13 @@ const prismaResource = (modelName, options = {}) => {
               );
             }
 
-            if (actions?.new?.before) {
-              return actions.new.before(request);
+            if (customNewAction?.before) {
+              return customNewAction.before(request);
             }
 
             return request;
           },
+          ...(customNewAction?.after ? { after: customNewAction.after } : {}),
         },
         edit: {
           isAccessible: true,
@@ -421,7 +746,7 @@ const prismaResource = (modelName, options = {}) => {
         list: {
           isAccessible: true,
         },
-        ...(actions || {}),
+        ...customActions,
       },
     },
     ...(features ? { features } : {}),
@@ -1456,6 +1781,11 @@ export const companyBalanceSheetResource = prismaResource(
           filter: false,
         },
       },
+
+      balanceSheetAnalysisInput: {
+        type: "textarea",
+        label: "ورودی تحلیل ترازنامه",
+      },
     },
 
     actions: {
@@ -1488,6 +1818,11 @@ export const companyIncomeStatementResource = prismaResource(
           edit: true,
           filter: false,
         },
+      },
+
+      incomeStatement: {
+        type: "textarea",
+        label: "ورودی تحلیل صورت سود و زیان",
       },
     },
 
@@ -1934,7 +2269,9 @@ const fileAttachmentResource = {
           }
 
           for (const record of response.records) {
-            const publicPath = normalizeUploadPublicPath(record.params.filePath);
+            const publicPath = normalizeUploadPublicPath(
+              record.params.filePath,
+            );
             if (publicPath) {
               record.params.filePath = publicPath;
             }
@@ -2161,6 +2498,10 @@ const admin = new AdminJS({
         ProjectComment: "کامنت ها",
         User: "کاربران",
         Company: "شرکت‌ها",
+        CompanyAnalysisTierConfig: "طبقه‌های تحلیل شرکت",
+        CompanyAnalysisTierItem: "تحلیل‌های هر طبقه",
+        tierLabel: "طبقه",
+        tierSelection: "طبقه",
         Project: "پروژه‌ها",
         AnalysisForm: "فرم‌های تحلیل",
         FormQuestion: "سوالات فرم تحلیل",
@@ -2241,12 +2582,29 @@ const admin = new AdminJS({
         "industry",
         "userLimit",
         "chatMessageLimit",
+        "monitoringUnlockedAt",
         "createdAt",
       ],
 
-      editProperties: ["name", "industry", "userLimit", "chatMessageLimit"],
+      editProperties: [
+        "name",
+        "industry",
+        "userLimit",
+        "chatMessageLimit",
+        "monitoringUnlockedAt",
+      ],
 
       actions: {
+        new: {
+          isAccessible: true,
+          after: async (response) => {
+            const companyId = response?.record?.params?.id;
+            if (companyId) {
+              await bootstrapCompanyTierConfigs(companyId);
+            }
+            return response;
+          },
+        },
         generateInsight: {
           actionType: "record",
           icon: "Brain",
@@ -2293,6 +2651,367 @@ const admin = new AdminJS({
                 actionName: "show",
               }),
             };
+          },
+        },
+
+        manageAnalysisTiers: {
+          actionType: "record",
+          icon: "Layers",
+          label: "مدیریت طبقات تحلیل",
+          component: false,
+
+          handler: async (request, response, context) => {
+            const companyId = context.record.params.id;
+            const existingCount = await prisma.companyAnalysisTierConfig.count({
+              where: { companyId },
+            });
+
+            if (existingCount === 0) {
+              await bootstrapCompanyTierConfigs(companyId);
+            }
+
+            return {
+              record: context.record.toJSON(),
+              notice: {
+                message:
+                  existingCount === 0
+                    ? "۴ طبقه تحلیل ساخته شد. حالا می‌توانید هر طبقه را فعال/غیرفعال کنید"
+                    : "طبقات این شرکت آماده مدیریت هستند",
+                type: "success",
+              },
+              redirectUrl: buildAdminResourceListUrl(
+                "CompanyAnalysisTierConfig",
+                {
+                  company: companyId,
+                },
+              ),
+            };
+          },
+        },
+      },
+    }),
+    prismaResource("CompanyAnalysisTierConfig", {
+      navigation: {
+        name: "مدیریت شرکت‌ها",
+        icon: "Building",
+      },
+      titleProperty: "tier",
+      properties: {
+        company: {
+          reference: "Company",
+        },
+        tier: {
+          availableValues: ANALYSIS_TIER_OPTIONS,
+        },
+        tierLabel: {
+          type: "string",
+          label: "طبقه",
+          isVisible: {
+            list: true,
+            filter: false,
+            show: true,
+            edit: false,
+            new: false,
+          },
+        },
+        isEnabled: {
+          type: "boolean",
+          label: "فعال",
+          help: "فعال/غیرفعال کردن دسترسی شرکت به تحلیل‌های این طبقه",
+        },
+      },
+      listProperties: ["company", "tierLabel", "isEnabled", "updatedAt"],
+      showProperties: [
+        "id",
+        "company",
+        "tierLabel",
+        "isEnabled",
+        "createdAt",
+        "updatedAt",
+      ],
+      editProperties: ["isEnabled"],
+      filterProperties: ["company", "tier", "isEnabled"],
+      actions: {
+        new: {
+          isAccessible: false,
+        },
+        delete: {
+          isAccessible: false,
+        },
+        bulkDelete: {
+          isAccessible: false,
+        },
+        list: {
+          after: async (response) => {
+            await enrichCompanyAnalysisTierConfigRecords(
+              response.records ?? [],
+            );
+            return response;
+          },
+        },
+        search: {
+          after: async (response) => {
+            await enrichCompanyAnalysisTierConfigRecords(
+              response.records ?? [],
+            );
+            return response;
+          },
+        },
+        show: {
+          after: async (response) => {
+            if (response.record) {
+              await enrichCompanyAnalysisTierConfigRecords([response.record]);
+            }
+            return response;
+          },
+        },
+        manageTierAnalyses: {
+          actionType: "record",
+          icon: "List",
+          label: "تحلیل‌های این طبقه",
+          component: false,
+          handler: async (request, response, context) => {
+            const companyId =
+              context.record.params.company ||
+              context.record.populated?.company?.id;
+            const tier = context.record.params.tier;
+
+            return {
+              record: context.record.toJSON(context.currentAdmin),
+              redirectUrl: buildAdminResourceListUrl(
+                "CompanyAnalysisTierItem",
+                {
+                  company: companyId,
+                  tierSelection: tier,
+                },
+              ),
+            };
+          },
+        },
+      },
+    }),
+    prismaResource("CompanyAnalysisTierItem", {
+      navigation: {
+        name: "مدیریت شرکت‌ها",
+        icon: "Building",
+      },
+      properties: {
+        company: {
+          reference: "Company",
+          isTitle: true,
+        },
+        tierSelection: {
+          type: "string",
+          isVirtual: true,
+          label: "طبقه",
+          availableValues: ANALYSIS_TIER_OPTIONS,
+          help: "ابتدا شرکت را انتخاب کنید، سپس طبقه. اگر طبقه‌ای نیست، از صفحه شرکت «مدیریت طبقات تحلیل» را بزنید",
+          isVisible: {
+            list: false,
+            filter: true,
+            show: false,
+            edit: true,
+            new: true,
+          },
+        },
+        tierLabel: {
+          type: "string",
+          isVirtual: true,
+          label: "طبقه",
+          isVisible: {
+            list: true,
+            filter: false,
+            show: true,
+            edit: false,
+            new: false,
+          },
+        },
+        configId: {
+          isVisible: {
+            list: false,
+            filter: false,
+            show: false,
+            edit: false,
+            new: false,
+          },
+        },
+        config: {
+          reference: "CompanyAnalysisTierConfig",
+          isVisible: {
+            list: false,
+            filter: false,
+            show: false,
+            edit: false,
+            new: false,
+          },
+        },
+        analysisForm: { reference: "AnalysisForm" },
+        multiAnalysisForm: { reference: "MultiAnalysisForm" },
+        sortOrder: { type: "number", label: "ترتیب نمایش" },
+      },
+      listProperties: [
+        "company",
+        "tierLabel",
+        "analysisForm",
+        "multiAnalysisForm",
+        "sortOrder",
+      ],
+      showProperties: [
+        "id",
+        "company",
+        "tierLabel",
+        "analysisForm",
+        "multiAnalysisForm",
+        "sortOrder",
+        "createdAt",
+        "updatedAt",
+      ],
+      newProperties: [
+        "company",
+        "tierSelection",
+        "analysisForm",
+        "multiAnalysisForm",
+        "sortOrder",
+      ],
+      editProperties: [
+        "company",
+        "tierSelection",
+        "analysisForm",
+        "multiAnalysisForm",
+        "sortOrder",
+      ],
+      filterProperties: ["company", "tierSelection"],
+      actions: {
+        list: {
+          before: applyCompanyAnalysisTierItemFilters,
+          handler: async (request, response, context) => {
+            const configIds = request._companyAnalysisTierItemConfigIds;
+            if (!configIds?.length) {
+              return ListAction.handler(request, response, context);
+            }
+
+            const { query } = request;
+            const {
+              sortBy,
+              direction,
+              filters = {},
+              page,
+              perPage: perPageRaw,
+            } = flat.unflatten(query || {});
+            const { resource, _admin, currentAdmin } = context;
+
+            const perPage = perPageRaw
+              ? Math.min(+perPageRaw, 500)
+              : (_admin.options.settings?.defaultPerPage ?? 10);
+            const pageNum = Number(page) || 1;
+
+            const listProperties = resource.decorate().getListProperties();
+            const firstProperty = listProperties.find((p) => p.isSortable());
+            let sort;
+            if (firstProperty) {
+              const { default: sortSetter } =
+                await import("adminjs/lib/backend/services/sort-setter/sort-setter.js");
+              sort = sortSetter(
+                { sortBy, direction },
+                firstProperty.name(),
+                resource.decorate().options,
+              );
+            }
+
+            const filter = await new Filter(filters, resource).populate(
+              context,
+            );
+            const baseResource = resource.decorate().resource;
+            const where = {
+              ...convertFilter(
+                getModelByName("CompanyAnalysisTierItem").fields,
+                filter,
+              ),
+              configId: { in: configIds },
+            };
+
+            const orderBy = baseResource.buildSortBy(sort);
+            const [results, total] = await Promise.all([
+              prisma.companyAnalysisTierItem.findMany({
+                where,
+                skip: (pageNum - 1) * perPage,
+                take: perPage,
+                orderBy,
+              }),
+              prisma.companyAnalysisTierItem.count({ where }),
+            ]);
+
+            const { default: populator } =
+              await import("adminjs/lib/backend/utils/populator/populator.js");
+            const records = results.map((result) =>
+              baseResource.build(baseResource.prepareReturnValues(result)),
+            );
+            const populatedRecords = await populator(records, context);
+            context.records = populatedRecords;
+
+            const jsonRecords = populatedRecords.map((record) =>
+              record.toJSON(currentAdmin),
+            );
+            await enrichCompanyAnalysisTierItemRecords(jsonRecords);
+
+            return {
+              meta: {
+                total,
+                perPage,
+                page: pageNum,
+                direction: sort?.direction,
+                sortBy: sort?.sortBy,
+              },
+              records: jsonRecords,
+            };
+          },
+          after: async (response) => {
+            await enrichCompanyAnalysisTierItemRecords(response.records ?? []);
+            return response;
+          },
+        },
+        show: {
+          after: async (response) => {
+            if (response.record) {
+              await enrichCompanyAnalysisTierItemRecords([response.record]);
+            }
+            return response;
+          },
+        },
+        new: {
+          isAccessible: true,
+          before: async (request, context) => {
+            if (request.method?.toLowerCase() !== "post") {
+              return request;
+            }
+
+            return prepareCompanyAnalysisTierItemPayload(request, context);
+          },
+        },
+        edit: {
+          before: async (request, context) => {
+            if (request.method?.toLowerCase() === "get" && context.record) {
+              const configId = context.record.params.config;
+              if (configId) {
+                const config =
+                  await prisma.companyAnalysisTierConfig.findUnique({
+                    where: { id: configId },
+                    select: { tier: true },
+                  });
+                request.payload = {
+                  ...(request.payload || {}),
+                  tierSelection: config?.tier,
+                };
+              }
+
+              return request;
+            }
+
+            if (request.method?.toLowerCase() !== "post") {
+              return request;
+            }
+
+            return prepareCompanyAnalysisTierItemPayload(request, context);
           },
         },
       },
@@ -2942,7 +3661,10 @@ const admin = new AdminJS({
       },
     }),
     (() => {
-      const mapCompanyAdminDataToVirtualFields = (rawData, recordParams = {}) => {
+      const mapCompanyAdminDataToVirtualFields = (
+        rawData,
+        recordParams = {},
+      ) => {
         let parsed = rawData;
 
         if (typeof parsed === "string" && parsed.trim()) {
@@ -2992,427 +3714,440 @@ const admin = new AdminJS({
       });
 
       return prismaResource("CompanyAdminData", {
-      navigation: {
-        name: "مدیریت کاربران",
-        icon: "Database",
-      },
-
-      properties: {
-        id: {
-          isVisible: {
-            list: true,
-            filter: true,
-            show: true,
-            edit: false,
-          },
+        navigation: {
+          name: "مدیریت کاربران",
+          icon: "Database",
         },
 
-        company: {
-          reference: "Company",
-          isVisible: {
-            list: false,
-            filter: true,
-            show: false,
-            edit: false,
+        properties: {
+          id: {
+            isVisible: {
+              list: true,
+              filter: true,
+              show: true,
+              edit: false,
+            },
+          },
+
+          company: {
+            reference: "Company",
+            isVisible: {
+              list: false,
+              filter: true,
+              show: false,
+              edit: false,
+            },
+          },
+
+          financeInformationText: {
+            type: "textarea",
+            isVirtual: true,
+            position: 2,
+            label: "اطلاعات مالی تکمیلی شرکت",
+            isVisible: {
+              list: false,
+              filter: false,
+              show: true,
+              edit: true,
+            },
+            props: {
+              rows: 10,
+            },
+          },
+
+          externalInformationText: {
+            type: "textarea",
+            isVirtual: true,
+            position: 3,
+            label: "اطلاعات خارجی تکمیلی شرکت",
+            isVisible: {
+              list: false,
+              filter: false,
+              show: true,
+              edit: true,
+            },
+            props: {
+              rows: 10,
+            },
+          },
+
+          internalInformationText: {
+            type: "textarea",
+            isVirtual: true,
+            position: 4,
+            label: "اطلاعات داخلی تکمیلی شرکت",
+            isVisible: {
+              list: false,
+              filter: false,
+              show: true,
+              edit: true,
+            },
+            props: {
+              rows: 10,
+            },
+          },
+
+          companyProfileText: {
+            type: "textarea",
+            isVirtual: true,
+            position: 5,
+            label: "پروفایل شرکت",
+            isVisible: {
+              list: false,
+              filter: false,
+              show: true,
+              edit: true,
+            },
+            props: {
+              rows: 10,
+            },
+          },
+
+          data: {
+            type: "mixed",
+            isVisible: {
+              list: false,
+              filter: false,
+              show: false,
+              edit: false,
+            },
+          },
+          companyId: {
+            reference: "Company",
+            label: "شرکت",
+            isVisible: {
+              list: false,
+              filter: false,
+              show: true,
+              edit: true,
+            },
+          },
+
+          company: {
+            reference: "Company",
+            isVisible: {
+              list: false,
+              filter: true,
+              show: false,
+              edit: false,
+            },
+          },
+
+          companyName: {
+            type: "string",
+            isVirtual: true,
+            label: "نام شرکت",
+            isVisible: {
+              list: true,
+              filter: false,
+              show: false,
+              edit: false,
+            },
+          },
+
+          createdAt: {
+            isVisible: {
+              list: true,
+              filter: true,
+              show: true,
+              edit: false,
+            },
+          },
+
+          updatedAt: {
+            isVisible: {
+              list: false,
+              filter: true,
+              show: true,
+              edit: false,
+            },
           },
         },
+        filterProperties: ["company", "createdAt"],
+        listProperties: ["id", "companyName", "createdAt"],
+        editProperties: [
+          "companyId",
+          "financeInformationText",
+          "externalInformationText",
+          "internalInformationText",
+          "companyProfileText",
+        ],
+        showProperties: [
+          "id",
+          "companyName",
+          "financeInformationText",
+          "externalInformationText",
+          "internalInformationText",
+          "companyProfileText",
+          "createdAt",
+          "updatedAt",
+        ],
+        actions: {
+          new: {
+            handler: async (request, response, context) => {
+              const { resource, h, currentAdmin } = context;
 
-        financeInformationText: {
-          type: "textarea",
-          isVirtual: true,
-          position: 2,
-          label: "اطلاعات مالی تکمیلی شرکت",
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
-          props: {
-            rows: 10,
-          },
-        },
-
-        externalInformationText: {
-          type: "textarea",
-          isVirtual: true,
-          position: 3,
-          label: "اطلاعات خارجی تکمیلی شرکت",
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
-          props: {
-            rows: 10,
-          },
-        },
-
-        internalInformationText: {
-          type: "textarea",
-          isVirtual: true,
-          position: 4,
-          label: "اطلاعات داخلی تکمیلی شرکت",
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
-          props: {
-            rows: 10,
-          },
-        },
-
-        companyProfileText: {
-          type: "textarea",
-          isVirtual: true,
-          position: 5,
-          label: "پروفایل شرکت",
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
-          props: {
-            rows: 10,
-          },
-        },
-
-        data: {
-          type: "mixed",
-          isVisible: {
-            list: false,
-            filter: false,
-            show: false,
-            edit: false,
-          },
-        },
-        companyId: {
-          reference: "Company",
-          label: "شرکت",
-          isVisible: {
-            list: false,
-            filter: false,
-            show: true,
-            edit: true,
-          },
-        },
-
-        company: {
-          reference: "Company",
-          isVisible: {
-            list: false,
-            filter: true,
-            show: false,
-            edit: false,
-          },
-        },
-
-        companyName: {
-          type: "string",
-          isVirtual: true,
-          label: "نام شرکت",
-          isVisible: {
-            list: true,
-            filter: false,
-            show: false,
-            edit: false,
-          },
-        },
-
-        createdAt: {
-          isVisible: {
-            list: true,
-            filter: true,
-            show: true,
-            edit: false,
-          },
-        },
-
-        updatedAt: {
-          isVisible: {
-            list: false,
-            filter: true,
-            show: true,
-            edit: false,
-          },
-        },
-      },
-      filterProperties: ["company", "createdAt"],
-      listProperties: ["id", "companyName", "createdAt"],
-      editProperties: [
-        "companyId",
-        "financeInformationText",
-        "externalInformationText",
-        "internalInformationText",
-        "companyProfileText",
-      ],
-      showProperties: [
-        "id",
-        "companyName",
-        "financeInformationText",
-        "externalInformationText",
-        "internalInformationText",
-        "companyProfileText",
-        "createdAt",
-        "updatedAt",
-      ],
-      actions: {
-        new: {
-          handler: async (request, response, context) => {
-            const { resource, h, currentAdmin } = context;
-
-            if (request.method !== "post") {
-              return {
-                record: resource.build({}),
-              };
-            }
-
-            try {
-              const companyId = String(request.payload?.companyId || "").trim();
-
-              if (!companyId) {
-                throw new ValidationError({
-                  companyId: {
-                    message: "شناسه شرکت الزامی است",
-                  },
-                });
-              }
-
-              const companyExists = await prisma.company.findUnique({
-                where: { id: companyId },
-                select: { id: true },
-              });
-
-              if (!companyExists) {
-                throw new ValidationError({
-                  companyId: {
-                    message: "شرکتی با این شناسه پیدا نشد",
-                  },
-                });
-              }
-
-              const adminData = buildCompanyAdminDataFromPayload(request.payload);
-
-              const created = await prisma.companyAdminData.create({
-                data: {
-                  companyId,
-                  data: adminData,
-                },
-              });
-
-              const record = resource.build({
-                ...created,
-                ...mapCompanyAdminDataToVirtualFields(created?.data),
-              });
-
-              return {
-                record: record.toJSON(currentAdmin),
-                redirectUrl: h.resourceUrl({
-                  resourceId: resource._decorated?.id() || resource.id(),
-                }),
-                notice: {
-                  message: "اطلاعات با موفقیت ایجاد شد",
-                  type: "success",
-                },
-              };
-            } catch (error) {
-              if (error instanceof ValidationError) {
+              if (request.method !== "post") {
                 return {
-                  record: resource.build(request.payload).toJSON(currentAdmin),
-                  notice: {
-                    message: "خطای اعتبارسنجی",
-                    type: "error",
-                  },
+                  record: resource.build({}),
                 };
               }
 
-              throw error;
-            }
-          },
-        },
+              try {
+                const companyId = String(
+                  request.payload?.companyId || "",
+                ).trim();
 
-        edit: {
-          handler: async (request, response, context) => {
-            const { record, resource, currentAdmin, h } = context;
+                if (!companyId) {
+                  throw new ValidationError({
+                    companyId: {
+                      message: "شناسه شرکت الزامی است",
+                    },
+                  });
+                }
 
-            if (!record) {
-              throwRecordNotFound();
-            }
+                const companyExists = await prisma.company.findUnique({
+                  where: { id: companyId },
+                  select: { id: true },
+                });
 
-            if (request.method !== "post") {
-              const dbRecord = await prisma.companyAdminData.findUnique({
-                where: { id: record.params.id },
-                select: { data: true },
-              });
+                if (!companyExists) {
+                  throw new ValidationError({
+                    companyId: {
+                      message: "شرکتی با این شناسه پیدا نشد",
+                    },
+                  });
+                }
 
-              const virtualFields = mapCompanyAdminDataToVirtualFields(
-                dbRecord?.data ?? record.params?.data,
-                record.params,
-              );
+                const adminData = buildCompanyAdminDataFromPayload(
+                  request.payload,
+                );
 
-              const editRecord = resource.build({
-                ...record.params,
-                ...virtualFields,
-              });
-
-              return {
-                record: editRecord.toJSON(currentAdmin),
-              };
-            }
-
-            try {
-              const companyId = String(request.payload?.companyId || "").trim();
-
-              if (!companyId) {
-                throw new ValidationError({
-                  companyId: {
-                    message: "شناسه شرکت الزامی است",
+                const created = await prisma.companyAdminData.create({
+                  data: {
+                    companyId,
+                    data: adminData,
                   },
                 });
-              }
 
-              const companyExists = await prisma.company.findUnique({
-                where: { id: companyId },
-                select: { id: true },
-              });
-
-              if (!companyExists) {
-                throw new ValidationError({
-                  companyId: {
-                    message: "شرکتی با این شناسه پیدا نشد",
-                  },
+                const record = resource.build({
+                  ...created,
+                  ...mapCompanyAdminDataToVirtualFields(created?.data),
                 });
-              }
 
-              const adminData = buildCompanyAdminDataFromPayload(request.payload);
-
-              const updated = await prisma.companyAdminData.update({
-                where: {
-                  id: record.params.id,
-                },
-                data: {
-                  companyId,
-                  data: adminData,
-                },
-              });
-
-              const updatedRecord = resource.build({
-                ...updated,
-                ...mapCompanyAdminDataToVirtualFields(updated?.data),
-              });
-
-              return {
-                record: updatedRecord.toJSON(currentAdmin),
-                redirectUrl: h.recordActionUrl({
-                  resourceId: resource._decorated?.id() || resource.id(),
-                  recordId: record.params.id,
-                  actionName: "show",
-                }),
-                notice: {
-                  message: "اطلاعات با موفقیت ویرایش شد",
-                  type: "success",
-                },
-              };
-            } catch (error) {
-              if (error instanceof ValidationError) {
                 return {
-                  record: resource
-                    .build({
-                      ...record.params,
-                      ...request.payload,
-                    })
-                    .toJSON(currentAdmin),
+                  record: record.toJSON(currentAdmin),
+                  redirectUrl: h.resourceUrl({
+                    resourceId: resource._decorated?.id() || resource.id(),
+                  }),
                   notice: {
-                    message: "خطای اعتبارسنجی",
-                    type: "error",
+                    message: "اطلاعات با موفقیت ایجاد شد",
+                    type: "success",
                   },
+                };
+              } catch (error) {
+                if (error instanceof ValidationError) {
+                  return {
+                    record: resource
+                      .build(request.payload)
+                      .toJSON(currentAdmin),
+                    notice: {
+                      message: "خطای اعتبارسنجی",
+                      type: "error",
+                    },
+                  };
+                }
+
+                throw error;
+              }
+            },
+          },
+
+          edit: {
+            handler: async (request, response, context) => {
+              const { record, resource, currentAdmin, h } = context;
+
+              if (!record) {
+                throwRecordNotFound();
+              }
+
+              if (request.method !== "post") {
+                const dbRecord = await prisma.companyAdminData.findUnique({
+                  where: { id: record.params.id },
+                  select: { data: true },
+                });
+
+                const virtualFields = mapCompanyAdminDataToVirtualFields(
+                  dbRecord?.data ?? record.params?.data,
+                  record.params,
+                );
+
+                const editRecord = resource.build({
+                  ...record.params,
+                  ...virtualFields,
+                });
+
+                return {
+                  record: editRecord.toJSON(currentAdmin),
                 };
               }
 
-              throw error;
-            }
-          },
-        },
+              try {
+                const companyId = String(
+                  request.payload?.companyId || "",
+                ).trim();
 
-        show: {
-          after: async (response) => {
-            if (!response.record) return response;
+                if (!companyId) {
+                  throw new ValidationError({
+                    companyId: {
+                      message: "شناسه شرکت الزامی است",
+                    },
+                  });
+                }
 
-            const companyId = response.record.params.company;
+                const companyExists = await prisma.company.findUnique({
+                  where: { id: companyId },
+                  select: { id: true },
+                });
 
-            if (companyId) {
-              const company = await prisma.company.findUnique({
-                where: { id: companyId },
-                select: { name: true },
-              });
+                if (!companyExists) {
+                  throw new ValidationError({
+                    companyId: {
+                      message: "شرکتی با این شناسه پیدا نشد",
+                    },
+                  });
+                }
 
-              response.record.params.companyName = company?.name ?? "—";
-            } else {
-              response.record.params.companyName = "—";
-            }
+                const adminData = buildCompanyAdminDataFromPayload(
+                  request.payload,
+                );
 
-            const rawData = response.record.params.data;
+                const updated = await prisma.companyAdminData.update({
+                  where: {
+                    id: record.params.id,
+                  },
+                  data: {
+                    companyId,
+                    data: adminData,
+                  },
+                });
 
-            Object.assign(
-              response.record.params,
-              mapCompanyAdminDataToVirtualFields(rawData, response.record.params),
-            );
+                const updatedRecord = resource.build({
+                  ...updated,
+                  ...mapCompanyAdminDataToVirtualFields(updated?.data),
+                });
 
-            return response;
-          },
-        },
+                return {
+                  record: updatedRecord.toJSON(currentAdmin),
+                  redirectUrl: h.recordActionUrl({
+                    resourceId: resource._decorated?.id() || resource.id(),
+                    recordId: record.params.id,
+                    actionName: "show",
+                  }),
+                  notice: {
+                    message: "اطلاعات با موفقیت ویرایش شد",
+                    type: "success",
+                  },
+                };
+              } catch (error) {
+                if (error instanceof ValidationError) {
+                  return {
+                    record: resource
+                      .build({
+                        ...record.params,
+                        ...request.payload,
+                      })
+                      .toJSON(currentAdmin),
+                    notice: {
+                      message: "خطای اعتبارسنجی",
+                      type: "error",
+                    },
+                  };
+                }
 
-        list: {
-          after: async (response) => {
-            if (!response.records?.length) return response;
-
-            const companyIds = [
-              ...new Set(
-                response.records.map((r) => r.params.company).filter(Boolean),
-              ),
-            ];
-
-            const companyMap = Object.create(null);
-
-            if (companyIds.length > 0) {
-              const companies = await prisma.company.findMany({
-                where: { id: { in: companyIds } },
-                select: { id: true, name: true },
-              });
-
-              for (const c of companies) {
-                companyMap[c.id] = c.name;
+                throw error;
               }
-            }
+            },
+          },
 
-            for (const record of response.records) {
-              const rawData = record.params.data;
+          show: {
+            after: async (response) => {
+              if (!response.record) return response;
+
+              const companyId = response.record.params.company;
+
+              if (companyId) {
+                const company = await prisma.company.findUnique({
+                  where: { id: companyId },
+                  select: { name: true },
+                });
+
+                response.record.params.companyName = company?.name ?? "—";
+              } else {
+                response.record.params.companyName = "—";
+              }
+
+              const rawData = response.record.params.data;
+
               Object.assign(
-                record.params,
-                mapCompanyAdminDataToVirtualFields(rawData, record.params),
+                response.record.params,
+                mapCompanyAdminDataToVirtualFields(
+                  rawData,
+                  response.record.params,
+                ),
               );
 
-              const companyId = record.params.company;
-              const name = companyId ? (companyMap[companyId] ?? "—") : "—";
+              return response;
+            },
+          },
 
-              record.populated = record.populated ?? {};
-              record.populated["companyId"] = {
-                params: { id: companyId, name },
-                title: name,
-              };
+          list: {
+            after: async (response) => {
+              if (!response.records?.length) return response;
 
-              record.params["companyName"] = name;
-            }
+              const companyIds = [
+                ...new Set(
+                  response.records.map((r) => r.params.company).filter(Boolean),
+                ),
+              ];
 
-            return response;
+              const companyMap = Object.create(null);
+
+              if (companyIds.length > 0) {
+                const companies = await prisma.company.findMany({
+                  where: { id: { in: companyIds } },
+                  select: { id: true, name: true },
+                });
+
+                for (const c of companies) {
+                  companyMap[c.id] = c.name;
+                }
+              }
+
+              for (const record of response.records) {
+                const rawData = record.params.data;
+                Object.assign(
+                  record.params,
+                  mapCompanyAdminDataToVirtualFields(rawData, record.params),
+                );
+
+                const companyId = record.params.company;
+                const name = companyId ? (companyMap[companyId] ?? "—") : "—";
+
+                record.populated = record.populated ?? {};
+                record.populated["companyId"] = {
+                  params: { id: companyId, name },
+                  title: name,
+                };
+
+                record.params["companyName"] = name;
+              }
+
+              return response;
+            },
           },
         },
-      },
-    });
+      });
     })(),
     prismaResource("ProfileViewAccess", {
       navigation: {
@@ -4063,6 +4798,16 @@ const admin = new AdminJS({
           type: "number",
         },
 
+        directFinalAnalysis: {
+          type: "boolean",
+          label: "تحلیل مستقیم (بدون فرضیه و review)",
+        },
+
+        isShowText: {
+          type: "boolean",
+          label: "نمایش متن",
+        },
+
         createdAt: {
           isVisible: {
             list: true,
@@ -4088,6 +4833,8 @@ const admin = new AdminJS({
         "titleFa",
         "category",
         "isActive",
+        "directFinalAnalysis",
+        "isShowText",
         "order",
         "temperature",
         "createdAt",
@@ -4097,6 +4844,8 @@ const admin = new AdminJS({
         "title",
         "category",
         "isActive",
+        "directFinalAnalysis",
+        "isShowText",
         "order",
         "temperature",
         "createdAt",
@@ -4111,6 +4860,8 @@ const admin = new AdminJS({
         "info",
         "order",
         "isActive",
+        "directFinalAnalysis",
+        "isShowText",
         "temperature",
         "createdAt",
         "updatedAt",
@@ -4124,6 +4875,8 @@ const admin = new AdminJS({
         "info",
         "order",
         "isActive",
+        "directFinalAnalysis",
+        "isShowText",
         "temperature",
       ],
     }),
@@ -5402,73 +6155,45 @@ const admin = new AdminJS({
         },
       },
     }),
-    prismaResource("FormCategoryGroup", {
+    prismaResource("FeaturedAnalysis", {
       navigation: {
-        name: "گروه‌های دسته‌بندی",
-        icon: "Layers",
+        name: "تحلیل های منتخب",
+        icon: "Star",
       },
 
       properties: {
-        id: {
-          isVisible: { list: true, filter: true, show: true, edit: false },
-        },
-
         analysisFormId: {
           reference: "AnalysisForm",
-          isVisible: { list: false, filter: true, show: true, edit: true },
+          label: "فرم تحلیل تکی",
         },
-
+        analysisForm: {
+          reference: "AnalysisForm",
+          label: "فرم تحلیل تکی",
+        },
         multiAnalysisFormId: {
           reference: "MultiAnalysisForm",
-          isVisible: { list: false, filter: true, show: true, edit: true },
+          label: "فرم تحلیل چندگانه",
         },
-
-        title: {
-          isTitle: true,
-          isRequired: true,
+        multiAnalysisForm: {
+          reference: "MultiAnalysisForm",
+          label: "فرم تحلیل چندگانه",
         },
-
-        order: {
-          type: "number",
-          isRequired: true,
-        },
-
         formTitle: {
           type: "string",
-          isVirtual: true,
-          label: "فرم تحلیل",
-          isVisible: { list: true, show: true, edit: false, filter: false },
-        },
-
-        categories: { isVisible: false },
-
-        createdAt: {
-          isVisible: { list: false, filter: false, show: true, edit: false },
-        },
-        updatedAt: {
-          isVisible: { list: false, filter: false, show: true, edit: false },
+          label: "عنوان فرم",
+          isVisible: {
+            list: true,
+            filter: false,
+            show: true,
+            edit: false,
+          },
         },
       },
 
-      listProperties: ["id", "formTitle", "title", "order"],
-      filterProperties: ["analysisFormId", "multiAnalysisFormId", "title"],
+      editProperties: ["analysisFormId", "multiAnalysisFormId"],
+      listProperties: ["formTitle", "createdAt"],
 
-      showProperties: [
-        "id",
-        "formTitle",
-        "title",
-        "order",
-        "createdAt",
-        "updatedAt",
-      ],
-
-      editProperties: [
-        "analysisFormId",
-        "multiAnalysisFormId",
-        "title",
-        "order",
-      ],
-
+      showProperties: ["id", "analysisForm", "multiAnalysisForm", "createdAt"],
       actions: {
         list: {
           after: async (response) => {
@@ -5477,14 +6202,15 @@ const admin = new AdminJS({
             const analysisFormIds = [
               ...new Set(
                 response.records
-                  .map((r) => r.params.analysisFormId)
+                  .map((record) => record.params.analysisForm)
                   .filter(Boolean),
               ),
             ];
+
             const multiFormIds = [
               ...new Set(
                 response.records
-                  .map((r) => r.params.multiAnalysisFormId)
+                  .map((record) => record.params.multiAnalysisForm)
                   .filter(Boolean),
               ),
             ];
@@ -5501,18 +6227,17 @@ const admin = new AdminJS({
             ]);
 
             const formMap = Object.fromEntries(
-              forms.map((f) => [f.id, f.title]),
+              forms.map((form) => [form.id, form.title]),
             );
             const multiFormMap = Object.fromEntries(
-              multiForms.map((f) => [f.id, f.title]),
+              multiForms.map((form) => [form.id, form.title]),
             );
 
             response.records.forEach((record) => {
-              const title = record.params.analysisFormId
-                ? formMap[record.params.analysisFormId]
-                : multiFormMap[record.params.multiAnalysisFormId];
-
-              record.params.formTitle = title || "—";
+              record.params.formTitle =
+                formMap[record.params.analysisForm] ??
+                multiFormMap[record.params.multiAnalysisForm] ??
+                "—";
             });
 
             return response;
@@ -5523,26 +6248,26 @@ const admin = new AdminJS({
           after: async (response) => {
             if (!response.record) return response;
 
-            const { analysisFormId, multiAnalysisFormId } =
-              response.record.params;
-
-            let formTitle = "—";
+            const analysisFormId = response.record.params.analysisForm;
+            const multiAnalysisFormId =
+              response.record.params.multiAnalysisForm;
 
             if (analysisFormId) {
               const form = await prisma.analysisForm.findUnique({
                 where: { id: analysisFormId },
                 select: { title: true },
               });
-              formTitle = form?.title || "—";
+              response.record.params.formTitle = form?.title ?? "—";
             } else if (multiAnalysisFormId) {
               const form = await prisma.multiAnalysisForm.findUnique({
                 where: { id: multiAnalysisFormId },
                 select: { title: true },
               });
-              formTitle = form?.title || "—";
+              response.record.params.formTitle = form?.title ?? "—";
+            } else {
+              response.record.params.formTitle = "—";
             }
 
-            response.record.params.formTitle = formTitle;
             return response;
           },
         },
@@ -5554,19 +6279,16 @@ const admin = new AdminJS({
             if (request.method === "get") {
               return {
                 resource: resource.decorate().toJSON(currentAdmin),
-                record: null,
+                record: { params: {}, errors: {}, populated: {} },
               };
             }
 
-            const payload = request.payload ?? {};
-
-            const analysisFormId = String(payload.analysisFormId || "").trim();
-            const multiAnalysisFormId = String(
-              payload.multiAnalysisFormId || "",
+            const analysisFormId = String(
+              request.payload?.analysisFormId || "",
             ).trim();
-            const title = String(payload.title || "").trim();
-            const order = parseIntegerValue(payload.order);
-
+            const multiAnalysisFormId = String(
+              request.payload?.multiAnalysisFormId || "",
+            ).trim();
             const errors = {};
 
             if (!analysisFormId && !multiAnalysisFormId) {
@@ -5574,51 +6296,58 @@ const admin = new AdminJS({
                 message: "حداقل یکی از فرم‌ها الزامی است.",
               };
             }
+
             if (analysisFormId && multiAnalysisFormId) {
               errors.analysisFormId = {
-                message: "نمی‌توانید همزمان هر دو نوع فرم را انتخاب کنید.",
+                message: "فقط یکی از فرم‌ها را انتخاب کنید.",
               };
             }
-            if (!title) {
-              errors.title = { message: "عنوان گروه الزامی است." };
+
+            if (Object.keys(errors).length) {
+              return {
+                record: {
+                  params: request.payload,
+                  errors,
+                  populated: {},
+                },
+              };
             }
-            if (order === null) {
-              errors.order = { message: "ترتیب باید عدد صحیح باشد." };
+
+            try {
+              const record = await prisma.featuredAnalysis.create({
+                data: {
+                  analysisFormId: analysisFormId || null,
+                  multiAnalysisFormId: multiAnalysisFormId || null,
+                },
+              });
+
+              return {
+                redirectUrl: h.resourceUrl({
+                  resourceId: resource._decorated?.id() || resource.id(),
+                }),
+                notice: {
+                  message: "رکورد با موفقیت ایجاد شد",
+                  type: "success",
+                },
+                record: buildRecordJson(resource, record, currentAdmin),
+              };
+            } catch (error) {
+              return {
+                record: {
+                  params: request.payload,
+                  errors: {
+                    analysisFormId: { message: error.message },
+                  },
+                  populated: {},
+                },
+              };
             }
-
-            if (Object.keys(errors).length) throw new ValidationError(errors);
-
-            const created = await prisma.formCategoryGroup.create({
-              data: {
-                title,
-                order,
-                ...(analysisFormId && {
-                  analysisForm: { connect: { id: analysisFormId } },
-                }),
-                ...(multiAnalysisFormId && {
-                  multiAnalysisForm: { connect: { id: multiAnalysisFormId } },
-                }),
-              },
-            });
-
-            return {
-              record: buildRecordJson(resource, created, currentAdmin),
-              notice: {
-                message: "گروه دسته‌بندی با موفقیت ایجاد شد.",
-                type: "success",
-              },
-              redirectUrl: h.recordActionUrl({
-                resourceId: resource.id(),
-                recordId: created.id,
-                actionName: "show",
-              }),
-            };
           },
         },
 
         edit: {
           handler: async (request, response, context) => {
-            const { record, resource, h, currentAdmin } = context;
+            const { resource, record, h, currentAdmin } = context;
 
             if (request.method === "get") {
               return {
@@ -5627,15 +6356,12 @@ const admin = new AdminJS({
               };
             }
 
-            const payload = request.payload ?? {};
-
-            const analysisFormId = String(payload.analysisFormId || "").trim();
-            const multiAnalysisFormId = String(
-              payload.multiAnalysisFormId || "",
+            const analysisFormId = String(
+              request.payload?.analysisFormId || "",
             ).trim();
-            const title = String(payload.title || "").trim();
-            const order = parseIntegerValue(payload.order);
-
+            const multiAnalysisFormId = String(
+              request.payload?.multiAnalysisFormId || "",
+            ).trim();
             const errors = {};
 
             if (!analysisFormId && !multiAnalysisFormId) {
@@ -5643,476 +6369,59 @@ const admin = new AdminJS({
                 message: "حداقل یکی از فرم‌ها الزامی است.",
               };
             }
+
             if (analysisFormId && multiAnalysisFormId) {
               errors.analysisFormId = {
-                message: "نمی‌توانید همزمان هر دو نوع فرم را انتخاب کنید.",
+                message: "فقط یکی از فرم‌ها را انتخاب کنید.",
               };
             }
-            if (!title) errors.title = { message: "عنوان گروه الزامی است." };
-            if (order === null)
-              errors.order = { message: "ترتیب باید عدد صحیح باشد." };
 
-            if (Object.keys(errors).length) throw new ValidationError(errors);
-
-            const updated = await prisma.formCategoryGroup.update({
-              where: { id: record.params.id },
-              data: {
-                title,
-                order,
-                ...(analysisFormId && {
-                  analysisForm: { connect: { id: analysisFormId } },
-                }),
-                ...(multiAnalysisFormId && {
-                  multiAnalysisForm: { connect: { id: multiAnalysisFormId } },
-                }),
-              },
-            });
-
-            return {
-              record: buildRecordJson(resource, updated, currentAdmin),
-              notice: {
-                message: "گروه دسته‌بندی با موفقیت ویرایش شد.",
-                type: "success",
-              },
-              redirectUrl: h.recordActionUrl({
-                resourceId: resource.id(),
-                recordId: record.params.id,
-                actionName: "show",
-              }),
-            };
-          },
-        },
-      },
-    }),
-    prismaResource("FormCategoryGroupItem", {
-      navigation: {
-        name: "آیتم‌های گروه دسته‌بندی",
-        icon: "List",
-      },
-
-      properties: {
-        id: {
-          isVisible: { list: true, filter: true, show: true, edit: false },
-        },
-
-        groupId: {
-          reference: "FormCategoryGroup",
-          isRequired: true,
-          isVisible: { list: false, filter: true, show: true, edit: true },
-        },
-
-        group: {
-          reference: "FormCategoryGroup",
-          isVisible: { list: false, filter: false, show: false, edit: false },
-        },
-
-        categoryId: {
-          reference: "FormQuestionCategory",
-          isRequired: true,
-          isVisible: { list: false, filter: true, show: true, edit: true },
-        },
-
-        category: {
-          reference: "FormQuestionCategory",
-          isVisible: { list: false, filter: false, show: false, edit: false },
-        },
-
-        groupTitle: {
-          type: "string",
-          isVirtual: true,
-          label: "گروه",
-          isVisible: { list: true, show: true, edit: false, filter: false },
-        },
-
-        categoryTitle: {
-          type: "string",
-          isVirtual: true,
-          label: "دسته‌بندی",
-          isVisible: { list: true, show: true, edit: false, filter: false },
-        },
-      },
-
-      listProperties: ["id", "groupTitle", "categoryTitle"],
-      filterProperties: ["groupId", "categoryId"],
-      showProperties: ["id", "groupTitle", "categoryTitle"],
-      editProperties: ["groupId", "categoryId"],
-
-      actions: {
-        list: {
-          after: async (response) => {
-            if (!response.records?.length) return response;
-
-            const groupIds = [
-              ...new Set(
-                response.records.map((r) => r.params.groupId).filter(Boolean),
-              ),
-            ];
-            const categoryIds = [
-              ...new Set(
-                response.records
-                  .map((r) => r.params.categoryId)
-                  .filter(Boolean),
-              ),
-            ];
-
-            const [groups, categories] = await Promise.all([
-              prisma.formCategoryGroup.findMany({
-                where: { id: { in: groupIds } },
-                select: { id: true, title: true },
-              }),
-              prisma.formQuestionCategory.findMany({
-                where: { id: { in: categoryIds } },
-                select: { id: true, title: true },
-              }),
-            ]);
-
-            const groupMap = Object.fromEntries(
-              groups.map((g) => [g.id, g.title]),
-            );
-            const categoryMap = Object.fromEntries(
-              categories.map((c) => [c.id, c.title]),
-            );
-
-            response.records.forEach((record) => {
-              record.params.groupTitle = groupMap[record.params.groupId] || "—";
-              record.params.categoryTitle =
-                categoryMap[record.params.categoryId] || "—";
-            });
-
-            return response;
-          },
-        },
-
-        show: {
-          after: async (response) => {
-            if (!response.record) return response;
-
-            const [group, category] = await Promise.all([
-              prisma.formCategoryGroup.findUnique({
-                where: { id: response.record.params.groupId },
-                select: { title: true },
-              }),
-              prisma.formQuestionCategory.findUnique({
-                where: { id: response.record.params.categoryId },
-                select: { title: true },
-              }),
-            ]);
-
-            response.record.params.groupTitle = group?.title || "—";
-            response.record.params.categoryTitle = category?.title || "—";
-
-            return response;
-          },
-        },
-
-        new: {
-          handler: async (request, response, context) => {
-            const { resource, h, currentAdmin } = context;
-
-            if (request.method === "get") {
+            if (Object.keys(errors).length) {
               return {
-                resource: resource.decorate().toJSON(currentAdmin),
-                record: null,
+                record: {
+                  params: {
+                    ...record.params,
+                    ...request.payload,
+                  },
+                  errors,
+                  populated: {},
+                },
               };
             }
 
-            const payload = request.payload ?? {};
-
-            const groupId = String(payload.groupId || "");
-            const categoryId = String(payload.categoryId || "");
-
-            const errors = {};
-
-            if (!groupId) errors.groupId = { message: "گروه الزامی است." };
-            if (!categoryId)
-              errors.categoryId = { message: "دسته‌بندی الزامی است." };
-
-            if (Object.keys(errors).length) throw new ValidationError(errors);
-
-            const [group, category] = await Promise.all([
-              prisma.formCategoryGroup.findUnique({
-                where: { id: groupId },
-                select: {
-                  id: true,
-                  analysisFormId: true,
-                  multiAnalysisFormId: true,
-                },
-              }),
-              prisma.formQuestionCategory.findUnique({
-                where: { id: categoryId },
-                select: {
-                  id: true,
-                  analysisFormId: true,
-                  multiAnalysisFormId: true,
-                },
-              }),
-            ]);
-
-            if (!group) {
-              throw new ValidationError({
-                groupId: { message: "گروه انتخاب شده معتبر نیست." },
-              });
-            }
-            if (!category) {
-              throw new ValidationError({
-                categoryId: { message: "دسته‌بندی انتخاب شده معتبر نیست." },
-              });
-            }
-
-            // چک هم‌خوانی فرم (تحت تحلیل یا چندتحلیلی)
-            const sameForm =
-              (group.analysisFormId &&
-                group.analysisFormId === category.analysisFormId) ||
-              (group.multiAnalysisFormId &&
-                group.multiAnalysisFormId === category.multiAnalysisFormId);
-
-            if (!sameForm) {
-              throw new ValidationError({
-                categoryId: {
-                  message: "گروه و دسته‌بندی باید متعلق به یک فرم باشند.",
+            try {
+              const updated = await prisma.featuredAnalysis.update({
+                where: { id: record.params.id },
+                data: {
+                  analysisFormId: analysisFormId || null,
+                  multiAnalysisFormId: multiAnalysisFormId || null,
                 },
               });
-            }
 
-            // چک تکراری نبودن (به‌خاطر unique constraint)
-            const exists = await prisma.formCategoryGroupItem.findUnique({
-              where: {
-                groupId_categoryId: { groupId, categoryId },
-              },
-            });
-
-            if (exists) {
-              throw new ValidationError({
-                categoryId: {
-                  message: "این دسته‌بندی قبلاً به این گروه اضافه شده است.",
-                },
-              });
-            }
-
-            const created = await prisma.formCategoryGroupItem.create({
-              data: {
-                group: { connect: { id: groupId } },
-                category: { connect: { id: categoryId } },
-              },
-            });
-
-            return {
-              record: buildRecordJson(resource, created, currentAdmin),
-              notice: {
-                message: "دسته‌بندی با موفقیت به گروه اضافه شد.",
-                type: "success",
-              },
-              redirectUrl: h.recordActionUrl({
-                resourceId: resource.id(),
-                recordId: created.id,
-                actionName: "show",
-              }),
-            };
-          },
-        },
-
-        edit: {
-          handler: async (request, response, context) => {
-            const { record, resource, h, currentAdmin } = context;
-
-            if (request.method === "get") {
               return {
-                record: record?.toJSON(currentAdmin),
-                resource: resource.decorate().toJSON(currentAdmin),
+                redirectUrl: h.resourceUrl({
+                  resourceId: resource._decorated?.id() || resource.id(),
+                }),
+                notice: {
+                  message: "رکورد با موفقیت ویرایش شد",
+                  type: "success",
+                },
+                record: buildRecordJson(resource, updated, currentAdmin),
+              };
+            } catch (error) {
+              return {
+                record: {
+                  params: {
+                    ...record.params,
+                    ...request.payload,
+                  },
+                  errors: {
+                    analysisFormId: { message: error.message },
+                  },
+                  populated: {},
+                },
               };
             }
-
-            const payload = request.payload ?? {};
-
-            const groupId = String(payload.groupId || "");
-            const categoryId = String(payload.categoryId || "");
-
-            const errors = {};
-
-            if (!groupId) errors.groupId = { message: "گروه الزامی است." };
-            if (!categoryId)
-              errors.categoryId = { message: "دسته‌بندی الزامی است." };
-
-            if (Object.keys(errors).length) throw new ValidationError(errors);
-
-            const [group, category] = await Promise.all([
-              prisma.formCategoryGroup.findUnique({
-                where: { id: groupId },
-                select: { analysisFormId: true, multiAnalysisFormId: true },
-              }),
-              prisma.formQuestionCategory.findUnique({
-                where: { id: categoryId },
-                select: { analysisFormId: true, multiAnalysisFormId: true },
-              }),
-            ]);
-
-            if (!group || !category) {
-              throw new ValidationError({
-                groupId: { message: "اطلاعات انتخاب شده معتبر نیست." },
-              });
-            }
-
-            const sameForm =
-              (group.analysisFormId &&
-                group.analysisFormId === category.analysisFormId) ||
-              (group.multiAnalysisFormId &&
-                group.multiAnalysisFormId === category.multiAnalysisFormId);
-
-            if (!sameForm) {
-              throw new ValidationError({
-                categoryId: {
-                  message: "گروه و دسته‌بندی باید متعلق به یک فرم باشند.",
-                },
-              });
-            }
-
-            // چک تکراری (به جز رکورد فعلی)
-            const exists = await prisma.formCategoryGroupItem.findFirst({
-              where: {
-                groupId,
-                categoryId,
-                NOT: { id: record.params.id },
-              },
-            });
-
-            if (exists) {
-              throw new ValidationError({
-                categoryId: {
-                  message: "این دسته‌بندی قبلاً در این گروه ثبت شده است.",
-                },
-              });
-            }
-
-            const updated = await prisma.formCategoryGroupItem.update({
-              where: { id: record.params.id },
-              data: {
-                group: { connect: { id: groupId } },
-                category: { connect: { id: categoryId } },
-              },
-            });
-
-            return {
-              record: buildRecordJson(resource, updated, currentAdmin),
-              notice: {
-                message: "رکورد با موفقیت ویرایش شد.",
-                type: "success",
-              },
-              redirectUrl: h.recordActionUrl({
-                resourceId: resource.id(),
-                recordId: record.params.id,
-                actionName: "show",
-              }),
-            };
-          },
-        },
-      },
-    }),
-    prismaResource("FeaturedAnalysis", {
-      navigation: {
-        name: "تحلیل های منتخب",
-        icon: "Star",
-      },
-
-      properties: {
-        analysisFormId: {
-          reference: "AnalysisForm",
-        },
-        analysisForm: {
-          reference: "AnalysisForm",
-          label: "فرم تحلیل",
-        },
-      },
-
-      editProperties: ["analysisFormId"],
-      listProperties: ["analysisForm", "createdAt"],
-
-      showProperties: ["id", "analysisForm", "createdAt"],
-      actions: {
-        new: {
-          handler: async (request, response, context) => {
-            const { resource, h, currentAdmin } = context;
-
-            if (request.method === "post") {
-              const { analysisFormId } = request.payload;
-
-              try {
-                const record = await prisma.featuredAnalysis.create({
-                  data: {
-                    analysisForm: {
-                      connect: { id: analysisFormId },
-                    },
-                  },
-                });
-
-                return {
-                  redirectUrl: h.resourceUrl({
-                    resourceId: resource._decorated?.id() || resource.id(),
-                  }),
-                  notice: {
-                    message: "رکورد با موفقیت ایجاد شد",
-                    type: "success",
-                  },
-                  record: { params: record, errors: {}, populated: {} },
-                };
-              } catch (error) {
-                return {
-                  record: {
-                    params: request.payload,
-                    errors: { analysisFormId: { message: error.message } },
-                    populated: {},
-                  },
-                };
-              }
-            }
-
-            // GET request — return empty record for the form
-            return {
-              record: { params: {}, errors: {}, populated: {} },
-            };
-          },
-        },
-
-        edit: {
-          handler: async (request, response, context) => {
-            const { resource, record, h } = context;
-
-            if (request.method === "post") {
-              const { analysisFormId } = request.payload;
-
-              try {
-                const updated = await prisma.featuredAnalysis.update({
-                  where: { id: record.params.id },
-                  data: {
-                    analysisForm: {
-                      connect: { id: analysisFormId },
-                    },
-                  },
-                });
-
-                return {
-                  redirectUrl: h.resourceUrl({
-                    resourceId: resource._decorated?.id() || resource.id(),
-                  }),
-                  notice: {
-                    message: "رکورد با موفقیت ویرایش شد",
-                    type: "success",
-                  },
-                  record: { params: updated, errors: {}, populated: {} },
-                };
-              } catch (error) {
-                return {
-                  record: {
-                    params: request.payload,
-                    errors: { analysisFormId: { message: error.message } },
-                    populated: {},
-                  },
-                };
-              }
-            }
-
-            return {
-              record: { params: record.params, errors: {}, populated: {} },
-            };
           },
         },
       },
@@ -6546,6 +6855,16 @@ const admin = new AdminJS({
         temperature: {
           type: "number",
         },
+
+        directFinalAnalysis: {
+          type: "boolean",
+          label: "تحلیل مستقیم (بدون فرضیه و review)",
+        },
+        isShowText: {
+          type: "boolean",
+          label: "نمایش متن",
+        },
+
         createdAt: {
           isVisible: {
             list: true,
@@ -6568,8 +6887,9 @@ const admin = new AdminJS({
         "id",
         "title",
         "titleFa",
-        "description",
         "isActive",
+        "directFinalAnalysis",
+        "isShowText",
         "order",
         "category",
         "temperature",
@@ -6579,6 +6899,8 @@ const admin = new AdminJS({
       filterProperties: [
         "title",
         "isActive",
+        "directFinalAnalysis",
+        "isShowText",
         "order",
         "temperature",
         "createdAt",
@@ -6591,6 +6913,8 @@ const admin = new AdminJS({
         "checklistTitle",
         "description",
         "isActive",
+        "directFinalAnalysis",
+        "isShowText",
         "order",
         "temperature",
         "category",
@@ -6605,6 +6929,8 @@ const admin = new AdminJS({
         "checklistTitle",
         "description",
         "isActive",
+        "directFinalAnalysis",
+        "isShowText",
         "order",
         "temperature",
       ],
@@ -9746,7 +10072,10 @@ const admin = new AdminJS({
         id: { isTitle: true },
         project: { reference: "Project", label: "پروژه" },
         company: { reference: "Company", label: "شرکت" },
-        framework: { availableValues: strategyFrameworkValues, label: "چارچوب" },
+        framework: {
+          availableValues: strategyFrameworkValues,
+          label: "چارچوب",
+        },
         status: { availableValues: strategyStatusValues, label: "وضعیت" },
         state: { availableValues: strategyStateValues, label: "مرحله" },
         strategyText: { type: "textarea", label: "متن استراتژی" },
@@ -10042,7 +10371,10 @@ const admin = new AdminJS({
       navigation: strategyNavigation,
       properties: {
         strategyPlan: { reference: "StrategyPlan", label: "برنامه استراتژی" },
-        framework: { availableValues: strategyFrameworkValues, label: "چارچوب" },
+        framework: {
+          availableValues: strategyFrameworkValues,
+          label: "چارچوب",
+        },
         state: { availableValues: strategyStateValues, label: "مرحله" },
         requestPayload: { type: "mixed", label: "درخواست" },
         responsePayload: { type: "mixed", label: "پاسخ" },
@@ -10090,7 +10422,14 @@ const admin = new AdminJS({
         version: { label: "نسخه" },
       },
       listProperties: ["id", "strategyPlan", "type", "version", "approvedAt"],
-      showProperties: ["id", "strategyPlan", "type", "version", "approvedAt", "createdAt"],
+      showProperties: [
+        "id",
+        "strategyPlan",
+        "type",
+        "version",
+        "approvedAt",
+        "createdAt",
+      ],
       editProperties: ["strategyPlan", "type", "version", "approvedAt"],
       filterProperties: ["strategyPlan", "type", "approvedAt"],
     }),
@@ -10104,7 +10443,14 @@ const admin = new AdminJS({
         status: { availableValues: projectPlanStatusValues, label: "وضعیت" },
       },
       listProperties: ["id", "project", "status", "lockedAt", "createdAt"],
-      showProperties: ["id", "project", "status", "lockedAt", "createdAt", "updatedAt"],
+      showProperties: [
+        "id",
+        "project",
+        "status",
+        "lockedAt",
+        "createdAt",
+        "updatedAt",
+      ],
       editProperties: ["project", "status", "lockedAt"],
       filterProperties: ["project", "status", "lockedAt"],
     }),
@@ -10238,7 +10584,7 @@ const start = async () => {
       saveUninitialized: false,
       cookie: {
         httpOnly: true,
-         secure: process.env.NODE_ENV === "production",
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         maxAge: 1000 * 60 * 60 * 8,
       },

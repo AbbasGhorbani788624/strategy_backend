@@ -4,6 +4,9 @@ const {
   getCompanyAnalysisStatisticsService,
 } = require("../services/analysisFormService");
 const {
+  getCompanyAnalysisTiersService,
+} = require("../services/companyAnalysisTierService");
+const {
   processConversationStepService,
 } = require("../services/analysisProcessor.service");
 const { successResponse } = require("../utils/responses");
@@ -61,6 +64,15 @@ exports.singleFormGoals = async (req, res, next) => {
   try {
   } catch (error) {
     next(error);
+  }
+};
+
+exports.getCompanyAnalysisTiers = async (req, res, next) => {
+  try {
+    const result = await getCompanyAnalysisTiersService(req.user.companyId);
+    return successResponse(res, 200, result);
+  } catch (err) {
+    next(err);
   }
 };
 

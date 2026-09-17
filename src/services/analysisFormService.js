@@ -1,12 +1,12 @@
 const {
-  getSingleForms,
-  getAvailableMultiAnalysisFormsService,
+  getAnalysisModesCategories,
 } = require("../repositories/analysisFormRepository");
 const {
   createBadRequestError,
   getCompanyProfileDataForForm,
   buildInitialAnalysisPrompt,
   buildFinalAnalysisPrompt,
+  buildDirectFinalAnalysisPrompt,
   buildFinalAnalysisWithCorrectionPrompt,
   buildInitialMultiAnalysisPrompt,
   buildSelectedSourceProjectSummaries,
@@ -16,9 +16,14 @@ const {
 } = require("../utils");
 const prisma = require("../prismaClient");
 const { startAnalysisProcessing } = require("./analysisProcessor.service");
+const {
+  onProjectFinalized,
+  assertFormInEnabledTier,
+} = require("./companyAnalysisTierService");
 const axios = require("axios");
 const {
   buildFormattedResponses,
+  buildFormResponsesForAi,
   flattenQuestions,
 } = require("../utils/buildFormattedResponses");
 
@@ -66,28 +71,6 @@ const getProjectStatusMessage = (status) => {
 };
 
 const createFormInclude = () => ({
-  categoryGroups: {
-    orderBy: {
-      order: "asc",
-    },
-
-    include: {
-      categories: {
-        orderBy: {
-          category: {
-            order: "asc",
-          },
-        },
-
-        include: {
-          category: {
-            include: createCategoryInclude(),
-          },
-        },
-      },
-    },
-  },
-
   categories: {
     where: {
       parentId: null,
@@ -135,7 +118,6 @@ const getProjectForm = async (project) => {
 };
 
 const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {
-  console.log("hello");
   const payload = typeof prompt === "string" ? JSON.parse(prompt) : prompt;
 
   const endpoint = mode === "MULTI" ? "full_analyze" : "analyze";
@@ -160,6 +142,7 @@ const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {
       headers: { "Content-Type": "application/json" },
       timeout: 120000,
     });
+    console.log(response.data);
 
     return response.data;
   } catch (error) {
@@ -201,11 +184,6 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
       status: true,
     },
   });
-  console.log({
-    projectId,
-    status: project.status,
-    time: new Date(),
-  });
 
   if (!project) {
     createBadRequestError("پروژه یافت نشد", 404);
@@ -214,6 +192,12 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
   if (project.creatorId !== userId) {
     createBadRequestError("شما مجوز ویرایش این پروژه را ندارید", 401);
   }
+
+  await assertFormInEnabledTier(project.companyId, {
+    formId: project.formId,
+    multiAnalysisFormId: project.multiAnalysisFormId,
+  });
+
   if (project.status !== "WAITING_FOR_FORM") {
     return {
       project,
@@ -284,6 +268,31 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
     jobId: queueResult?.jobId ?? null,
     status: queueResult?.status ?? "AI_PROCESSING",
   };
+};
+
+const extractPersistedAnalysisFields = (
+  parsedOutput,
+  { persistSummaryAnalysis = true } = {},
+) => {
+  let finalAnalysis = null;
+
+  if (parsedOutput?.final_output != null) {
+    finalAnalysis = safeStringify(parsedOutput.final_output);
+  } else if (parsedOutput?.sections) {
+    finalAnalysis = safeStringify(parsedOutput);
+  }
+
+  const summaryAnalysis = persistSummaryAnalysis
+    ? (parsedOutput?.insight_summary ?? null)
+    : null;
+
+  const rawConfidence =
+    parsedOutput?.output_confidence_rate ??
+    parsedOutput?.metadata?.confidenceScore;
+
+  const riskPercentage = rawConfidence != null ? Number(rawConfidence) : null;
+
+  return { finalAnalysis, summaryAnalysis, riskPercentage };
 };
 
 const handleConversationStepService = async (
@@ -362,6 +371,11 @@ const handleConversationStepService = async (
     createBadRequestError("پروژه یافت نشد", 404);
   }
 
+  await assertFormInEnabledTier(project.companyId, {
+    formId: project.formId,
+    multiAnalysisFormId: project.multiAnalysisFormId,
+  });
+
   const trimmedInput = userInput?.trim() || "";
 
   const isSingle = project.mode === "SINGLE";
@@ -410,12 +424,14 @@ const handleConversationStepService = async (
     [1, 2],
   );
 
-  if (!firstPromptSegment.length) {
+  if (!project.directFinalAnalysis && !firstPromptSegment.length) {
     createBadRequestError("سگمنت مرحله اول پرامپت یافت نشد", 400);
   }
 
   let companyProfileData = null;
-  const readableFormResponses = project.formResponses || {};
+  const readableFormResponses = buildFormResponsesForAi(
+    project.formResponses || {},
+  );
   let sourceProjectSummaries = null;
 
   if (isSingle) {
@@ -440,27 +456,15 @@ const handleConversationStepService = async (
     prompt,
     transitionReason,
     mode,
+    { persistSummaryAnalysis = true } = {},
   ) => {
     const aiResponse = await sendPromptToAnalyze(prompt, mode);
 
-    let parsedOutput = {};
+    const parsedOutput =
+      aiResponse && typeof aiResponse === "object" ? aiResponse : {};
 
-    try {
-      parsedOutput = aiResponse;
-    } catch {
-      parsedOutput = {};
-    }
-
-    const finalAnalysis = parsedOutput?.final_output || null;
-    const summaryAnalysis = parsedOutput?.insight_summary || null;
-
-    const riskPercentage =
-      parsedOutput?.output_confidence_rate != null
-        ? Number(parsedOutput?.output_confidence_rate)
-        : null;
-
-    const riskAnalysis = null;
-    const keyStrategicInsights = null;
+    const { finalAnalysis, summaryAnalysis, riskPercentage } =
+      extractPersistedAnalysisFields(parsedOutput, { persistSummaryAnalysis });
 
     const updatedProject = await prisma.project.update({
       where: { id: projectId },
@@ -478,10 +482,16 @@ const handleConversationStepService = async (
       },
     });
 
+    await onProjectFinalized(project.companyId, {
+      formId: project.formId,
+      multiAnalysisFormId: project.multiAnalysisFormId,
+    });
+
     return {
       success: true,
       aiResponse,
       transitionReason,
+      isShowText: project.isShowText,
 
       analysis: {
         finalAnalysis: updatedProject.finalAnalysis,
@@ -493,13 +503,49 @@ const handleConversationStepService = async (
 
   const activeStatus =
     project.status === "AI_PROCESSING"
-      ? !project.initialAnalysis
+      ? project.directFinalAnalysis || !project.initialAnalysis
         ? "ANALYSIS_PENDING"
         : "REVIEWING"
       : project.status;
 
   switch (activeStatus) {
     case "ANALYSIS_PENDING": {
+      if (project.directFinalAnalysis) {
+        const lastSegmentIndex = orderedPromptSegments.length - 1;
+        const lastPromptSegment = pickPromptSegments(orderedPromptSegments, [
+          lastSegmentIndex,
+        ]);
+
+        if (!lastPromptSegment.length) {
+          createBadRequestError("سگمنت مرحله نهایی پرامپت یافت نشد", 400);
+        }
+
+        const prompt = buildDirectFinalAnalysisPrompt({
+          lastPromptSegment: lastPromptSegment[0],
+          title: analysisTitle,
+          mode: project.mode,
+          temperature,
+          companyProfileData,
+          selectedGoals,
+          domain: project.domain,
+          readableFormResponses,
+          sourceProjectSummaries,
+        });
+
+        const result = await generateAndPersistFinalAnalysis(
+          prompt,
+          "DIRECT_FINAL_ANALYSIS",
+          project.mode,
+          { persistSummaryAnalysis: false },
+        );
+
+        return {
+          ...result,
+          newStatus: "FINAL_ANALYSIS",
+          isShowText: project.isShowText,
+        };
+      }
+
       const prompt = isSingle
         ? buildInitialAnalysisPrompt({
             promptSegments: firstPromptSegment,
@@ -540,6 +586,7 @@ const handleConversationStepService = async (
         aiResponse: initialAnalysis,
         newStatus: "REVIEWING",
         transitionReason: "INITIAL_ANALYSIS_GENERATED",
+        isShowText: project.isShowText,
       };
     }
 
@@ -588,6 +635,7 @@ const handleConversationStepService = async (
         return {
           ...result,
           newStatus: "FINAL_ANALYSIS",
+          isShowText: project.isShowText,
         };
       }
 
@@ -608,6 +656,8 @@ const handleConversationStepService = async (
         initialAnalysis: project.initialAnalysis,
         title: analysisTitle,
         temperature,
+        companyProfileData,
+        readableFormResponses,
       });
 
       const result = await generateAndPersistFinalAnalysis(
@@ -619,6 +669,7 @@ const handleConversationStepService = async (
       return {
         ...result,
         newStatus: "FINAL_ANALYSIS",
+        isShowText: project.isShowText,
       };
     }
 
@@ -633,6 +684,7 @@ const handleConversationStepService = async (
         },
         newStatus: "FINAL_ANALYSIS",
         transitionReason: "FINAL_ANALYSIS_ALREADY_GENERATED",
+        isShowText: project.isShowText,
       };
     }
 
@@ -647,14 +699,10 @@ const handleConversationStepService = async (
 };
 
 const getAnalysisModesService = async (userId, companyId) => {
-  const [singleForms, multiForms] = await Promise.all([
-    getSingleForms(companyId),
-    getAvailableMultiAnalysisFormsService({ userId, companyId }),
-  ]);
+  const categories = await getAnalysisModesCategories({ userId, companyId });
 
   return {
-    singleForms,
-    multiForms,
+    categories,
   };
 };
 

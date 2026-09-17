@@ -1,5 +1,6 @@
 const { getFormById } = require("../repositories/analysisFormRepository");
 const { createBadRequestError } = require("../utils");
+const { assertAnalysisFormAllowed } = require("./companyAnalysisTierService");
 
 const buildCategoryTree = (categories) => {
   const map = {};
@@ -24,7 +25,7 @@ const buildCategoryTree = (categories) => {
   return roots;
 };
 
-const getFormForUserService = async (formId) => {
+const getFormForUserService = async (companyId, formId) => {
   if (!formId) {
     createBadRequestError("ایدی فرم الزامی است");
   }
@@ -35,21 +36,9 @@ const getFormForUserService = async (formId) => {
     createBadRequestError("فرم یافت نشد", 404);
   }
 
+  await assertAnalysisFormAllowed(companyId, form.id, form.type);
+
   const categoryTree = buildCategoryTree(form.categories);
-
-  const categoryMap = Object.fromEntries(
-    form.categories.map((category) => [category.id, category]),
-  );
-
-  const categoryGroups = form.categoryGroups.map((group) => ({
-    id: group.id,
-    title: group.title,
-    order: group.order,
-
-    categories: group.categories
-      .map((item) => categoryMap[item.categoryId])
-      .filter(Boolean),
-  }));
 
   return {
     id: form.id,
@@ -58,7 +47,6 @@ const getFormForUserService = async (formId) => {
     description: form.description ?? form.info,
     checklistTitle: form.checklistTitle,
     categories: categoryTree,
-    categoryGroups,
   };
 };
 
