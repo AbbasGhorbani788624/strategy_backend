@@ -2,7 +2,6 @@ export const companyBasicInfoFields = {
   brandTitle: "string",
   knownAs: "knownAs",
   nationalId: "string",
-  companyType: "string",
   establishmentYear: "string",
   commercialActivityStartYear: "string",
   isListed: "boolean",
@@ -23,7 +22,6 @@ export const companyManagerFields = {
   companyWorkExperience: "int",
   totalWorkExperience: "int",
   resumeFileId: "string",
-  sortOrder: "int",
 };
 
 export const revenueCenterFields = {
@@ -32,7 +30,6 @@ export const revenueCenterFields = {
   totalRevenueSharePercent: "decimal",
   lastYearEstimatedRevenue: "decimal",
   personnelCount: "int",
-  sortOrder: "int",
 };
 
 export const companyShareholderFields = {

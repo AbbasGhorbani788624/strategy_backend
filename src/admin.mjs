@@ -3,7 +3,7 @@ import "./admin-env.mjs";
 import express from "express";
 import bcrypt from "bcrypt";
 import { actions, ValidationError, flat, ListAction, Filter } from "adminjs";
-import AdminJS from "adminjs";
+import AdminJS, { ResourceDecorator } from "adminjs";
 import AdminJSExpress from "@adminjs/express";
 import {
   Database,
@@ -23,6 +23,12 @@ import {
   parseOptionsText,
   questionTypeValues,
   validateQuestionOptions,
+  parseFormQuestionOptionsJson,
+  validateFormQuestionOptionsForSave,
+  parseFollowUpFormQuestionsJson,
+  validateFollowUpFormQuestionsForSave,
+  parsePromptEditorJson,
+  validatePromptEditorSegmentsForSave,
 } from "./component-loader.mjs";
 import {
   companyBalanceSheetActions,
@@ -45,13 +51,14 @@ import {
   companySupplierActions,
   companyRawMaterialActions,
 } from "./child-actions-map.mjs";
+import { enrichAdminRecordUserIdReference } from "./actions.mjs";
 import { syncCompanyInsightService } from "./services/insightService.js";
 import { syncIndustryInsightService } from "./services/IndustryInsightService.js";
 import { bootstrapCompanyTierConfigs } from "./services/companyAnalysisTierService.js";
 
 import path from "path";
 import fs from "fs/promises";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import uploadFeature from "@adminjs/upload";
 import { validateProfileFieldKey } from "./profileFieldKey.mjs";
 import { COMPANY_PROFILE_FIELD_OPTIONS } from "./companyProfileFieldKeys.mjs";
@@ -103,7 +110,58 @@ AdminJS.registerAdapter({
   Resource,
 });
 
+{
+  const baseGetNavigation = ResourceDecorator.prototype.getNavigation;
+  ResourceDecorator.prototype.getNavigation = function getNavigationWithOptionalHide() {
+    const navigationOption = this.options?.navigation;
+    const nav = baseGetNavigation.call(this);
+    if (
+      navigationOption &&
+      typeof navigationOption === "object" &&
+      navigationOption.show === false
+    ) {
+      return {
+        name: navigationOption.name ?? nav?.name ?? null,
+        icon: navigationOption.icon ?? nav?.icon ?? "",
+        show: false,
+      };
+    }
+    return nav;
+  };
+}
+
 const prisma = new PrismaClient();
+
+const adminJsPackageRoot = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "node_modules",
+  "adminjs",
+);
+
+let adminJsSortSetterPromise;
+let adminJsPopulatorPromise;
+
+const getAdminJsSortSetter = () => {
+  adminJsSortSetterPromise ??= import(
+    pathToFileURL(
+      path.join(
+        adminJsPackageRoot,
+        "lib/backend/services/sort-setter/sort-setter.js",
+      ),
+    ).href
+  ).then((module) => module.default);
+  return adminJsSortSetterPromise;
+};
+
+const getAdminJsPopulator = () => {
+  adminJsPopulatorPromise ??= import(
+    pathToFileURL(
+      path.join(adminJsPackageRoot, "lib/backend/utils/populator/populator.js"),
+    ).href
+  ).then((module) => module.default);
+  return adminJsPopulatorPromise;
+};
 
 const throwRecordNotFound = () => {
   throw new ValidationError({
@@ -158,6 +216,52 @@ async function applyFormQuestionOptionQuestionFilter(request) {
   } else {
     request._formQuestionOptionQuestionIds = questions.map((q) => q.id);
   }
+
+  request.query = flat.flatten({ ...data, filters: newFilters });
+  return request;
+}
+
+async function applyFormQuestionFormTitleFilter(request) {
+  const data = flat.unflatten(request.query ?? {});
+  const filters = data.filters ?? {};
+  const formTitleValue = filters.formTitle;
+
+  if (typeof formTitleValue !== "string" || !formTitleValue.trim()) {
+    return request;
+  }
+
+  const token = formTitleValue.trim();
+  let orConditions = [];
+
+  if (token.startsWith("a:")) {
+    const analysisFormId = token.slice(2);
+    if (analysisFormId) {
+      orConditions = [{ analysisFormId }];
+    }
+  } else if (token.startsWith("m:")) {
+    const multiAnalysisFormId = token.slice(2);
+    if (multiAnalysisFormId) {
+      orConditions = [{ multiAnalysisFormId }];
+    }
+  }
+
+  if (!orConditions.length) {
+    return request;
+  }
+
+  const categories = await prisma.formQuestionCategory.findMany({
+    where: { OR: orConditions },
+    select: { id: true },
+  });
+  const categoryIds = categories.map((c) => c.id);
+
+  const newFilters = { ...filters };
+  delete newFilters.formTitle;
+
+  request._formQuestionCategoryIds =
+    categoryIds.length > 0
+      ? categoryIds
+      : ["00000000-0000-4000-8000-000000000000"];
 
   request.query = flat.flatten({ ...data, filters: newFilters });
   return request;
@@ -227,7 +331,11 @@ const enrichCompanyAnalysisTierItemRecords = async (records = []) => {
   }
 
   const configIds = [
-    ...new Set(records.map((record) => record.params.config).filter(Boolean)),
+    ...new Set(
+      records
+        .map((record) => normalizeAdminReferenceId(record.params.config))
+        .filter(Boolean),
+    ),
   ];
 
   const configs =
@@ -243,15 +351,19 @@ const enrichCompanyAnalysisTierItemRecords = async (records = []) => {
   );
 
   for (const record of records) {
-    const tierLabel = tierLabelMap[record.params.config] ?? "—";
+    const configId = normalizeAdminReferenceId(record.params.config);
+    const config = configs.find((item) => item.id === configId);
+    const tierLabel = config ? getAnalysisTierLabel(config.tier) : "—";
 
     record.params.tierLabel = tierLabel;
+    if (config?.tier) {
+      record.params.tierSelection = config.tier;
+    }
     record.populated = record.populated ?? {};
     record.populated.config = {
       params: {
-        id: record.params.config,
-        tier: configs.find((config) => config.id === record.params.config)
-          ?.tier,
+        id: configId,
+        tier: config?.tier,
       },
       title: tierLabel,
     };
@@ -425,6 +537,272 @@ const prepareCompanyAnalysisTierItemPayload = async (request, context) => {
   return request;
 };
 
+async function applyProjectPlanActionProjectFilter(request) {
+  const data = flat.unflatten(request.query ?? {});
+  const filters = data.filters ?? {};
+  const projectId = normalizeAdminReferenceId(filters.project);
+
+  const newFilters = { ...filters };
+  delete newFilters.project;
+  delete newFilters.planId;
+
+  if (projectId) {
+    const plan = await prisma.projectPlan.findUnique({
+      where: { projectId },
+      select: { id: true },
+    });
+
+    // Prisma adapter exposes `plan` (reference), not read-only scalar `planId`
+    newFilters.plan = plan?.id ?? "00000000-0000-4000-8000-000000000000";
+  }
+
+  request.query = flat.flatten({ ...data, filters: newFilters });
+  return request;
+}
+
+async function applyIndustryInsightCompanyFilter(request) {
+  const data = flat.unflatten(request.query ?? {});
+  const filters = data.filters ?? {};
+  const companyId = normalizeAdminReferenceId(filters.company);
+
+  if (!companyId) {
+    return request;
+  }
+
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { industry: true },
+  });
+
+  const newFilters = { ...filters };
+  delete newFilters.company;
+
+  const industry = company?.industry?.trim();
+  if (!industry) {
+    newFilters.industryName = "__NO_INDUSTRY_INSIGHT_MATCH__";
+  } else {
+    newFilters.industryName = industry;
+  }
+
+  request.query = flat.flatten({ ...data, filters: newFilters });
+  return request;
+}
+
+const isEmptyAdminFilterValue = (value) =>
+  value === "" || value === undefined || value === null;
+
+const VIRTUAL_LIST_FILTER_KEYS = new Set([
+  "company",
+  "user",
+  "project",
+  "tierSelection",
+  "config",
+  "formTitle",
+]);
+
+/** Populated before admin.initialize(); shared reference on FormQuestion.formTitle */
+const formQuestionAnalysisTitleFilterOptions = [];
+
+async function loadFormQuestionAnalysisTitleFilterOptions() {
+  formQuestionAnalysisTitleFilterOptions.length = 0;
+
+  const [analysisForms, multiForms] = await Promise.all([
+    prisma.analysisForm.findMany({
+      select: { id: true, title: true },
+      orderBy: { title: "asc" },
+    }),
+    prisma.multiAnalysisForm.findMany({
+      select: { id: true, title: true },
+      orderBy: { title: "asc" },
+    }),
+  ]);
+
+  for (const form of analysisForms) {
+    formQuestionAnalysisTitleFilterOptions.push({
+      value: `a:${form.id}`,
+      label: form.title,
+    });
+  }
+
+  for (const form of multiForms) {
+    formQuestionAnalysisTitleFilterOptions.push({
+      value: `m:${form.id}`,
+      label: form.title,
+    });
+  }
+}
+
+async function sanitizePrismaAdapterListFilters(request, context) {
+  const data = flat.unflatten(request.query ?? {});
+  const filters = data.filters ?? {};
+  const resource = context?.resource;
+
+  if (!resource?.property) {
+    return request;
+  }
+
+  const newFilters = {};
+
+  for (const [key, value] of Object.entries(filters)) {
+    if (isEmptyAdminFilterValue(value)) {
+      continue;
+    }
+
+    if (key === "company") {
+      if (resource.property("companyId")) {
+        const companyId = normalizeAdminReferenceId(value);
+        if (companyId) {
+          newFilters.companyId = companyId;
+        }
+      } else {
+        newFilters.company = value;
+      }
+      continue;
+    }
+
+    if (!resource.property(key)) {
+      if (VIRTUAL_LIST_FILTER_KEYS.has(key)) {
+        newFilters[key] = value;
+      }
+      continue;
+    }
+
+    newFilters[key] = value;
+  }
+
+  request.query = flat.flatten({ ...data, filters: newFilters });
+  return request;
+}
+
+async function applyUserRelationCompanyFilter(request, multiUserIdsRequestKey) {
+  const data = flat.unflatten(request.query ?? {});
+  const filters = data.filters ?? {};
+  const companyId = normalizeAdminReferenceId(filters.company);
+
+  if (!companyId) {
+    return request;
+  }
+
+  const users = await prisma.user.findMany({
+    where: { companyId },
+    select: { id: true },
+  });
+
+  const newFilters = { ...filters };
+  delete newFilters.company;
+
+  const userIds = users.map((user) => user.id);
+
+  if (userIds.length === 0) {
+    newFilters.userId = "00000000-0000-4000-8000-000000000000";
+  } else if (userIds.length === 1) {
+    newFilters.userId = userIds[0];
+  } else {
+    request[multiUserIdsRequestKey] = userIds;
+  }
+
+  request.query = flat.flatten({ ...data, filters: newFilters });
+  return request;
+}
+
+async function applyUserInfoCompanyFilter(request) {
+  return applyUserRelationCompanyFilter(request, "_userInfoCompanyUserIds");
+}
+
+async function applyUserEducationCompanyFilter(request) {
+  return applyUserRelationCompanyFilter(request, "_userEducationCompanyUserIds");
+}
+
+async function applyUserTrainingCourseCompanyFilter(request) {
+  return applyUserRelationCompanyFilter(
+    request,
+    "_userTrainingCourseCompanyUserIds",
+  );
+}
+
+async function applyUserCompetencyCompanyFilter(request) {
+  return applyUserRelationCompanyFilter(
+    request,
+    "_userCompetencyCompanyUserIds",
+  );
+}
+
+const runUserLinkedResourceListWithCompanyUserIds = (
+  modelName,
+  multiUserIdsRequestKey,
+) => {
+  const prismaModel = prisma[modelName.charAt(0).toLowerCase() + modelName.slice(1)];
+
+  return async (request, response, context) => {
+    const userIds = request[multiUserIdsRequestKey];
+    if (!userIds?.length) {
+      return ListAction.handler(request, response, context);
+    }
+
+    const { query } = request;
+    const {
+      sortBy,
+      direction,
+      filters = {},
+      page,
+      perPage: perPageRaw,
+    } = flat.unflatten(query || {});
+    const { resource, _admin, currentAdmin } = context;
+
+    const perPage = perPageRaw
+      ? Math.min(+perPageRaw, 500)
+      : (_admin.options.settings?.defaultPerPage ?? 10);
+    const pageNum = Number(page) || 1;
+
+    const listProperties = resource.decorate().getListProperties();
+    const firstProperty = listProperties.find((p) => p.isSortable());
+    let sort;
+    if (firstProperty) {
+      const sortSetter = await getAdminJsSortSetter();
+      sort = sortSetter(
+        { sortBy, direction },
+        firstProperty.name(),
+        resource.decorate().options,
+      );
+    }
+
+    const filter = await new Filter(filters, resource).populate(context);
+    const where = {
+      ...convertFilter(getModelByName(modelName).fields, filter),
+      userId: { in: userIds },
+    };
+
+    const orderBy = resource.buildSortBy(sort);
+    const [results, total] = await Promise.all([
+      prismaModel.findMany({
+        where,
+        skip: (pageNum - 1) * perPage,
+        take: perPage,
+        orderBy,
+      }),
+      prismaModel.count({ where }),
+    ]);
+
+    const populator = await getAdminJsPopulator();
+    const records = results.map((result) =>
+      resource.build(resource.prepareReturnValues(result)),
+    );
+    const populatedRecords = await populator(records, context);
+    context.records = populatedRecords;
+
+    return {
+      meta: {
+        total,
+        perPage,
+        page: pageNum,
+        direction: sort?.direction,
+        sortBy: sort?.sortBy,
+      },
+      records: populatedRecords.map((record) => record.toJSON(currentAdmin)),
+    };
+  };
+};
+
 async function applyCompanyAnalysisTierItemFilters(request) {
   const data = flat.unflatten(request.query ?? {});
   const filters = data.filters ?? {};
@@ -494,17 +872,42 @@ const buildAdminResourceListUrl = (resourceId, filters = {}) => {
 const ADMIN_COOKIE_SECRET =
   process.env.ADMIN_COOKIE_SECRET || "unsafe-admin-cookie-secret";
 
-const ADMIN_SESSION_SECRET =
-  process.env.ADMIN_SESSION_SECRET || "unsafe-admin-session-secret";
 
 const companyProfileNavigation = {
   name: "پروفایل شرکت",
   icon: "Building",
 };
 
-const userProfileNavigation = {
-  name: "پروفایل کاربر",
-  icon: "Building",
+const userManagementNavigation = {
+  name: "مدیریت کاربران",
+  icon: "User",
+};
+
+const userProfileNavigation = userManagementNavigation;
+
+const analysisFormsNavigation = {
+  name: "تحلیل‌ها",
+  icon: "FileText",
+};
+
+const followUpNavigation = {
+  name: "پیگیری‌ها",
+  icon: "Clipboard",
+};
+
+const formQuestionsNavigation = {
+  name: "سوالات",
+  icon: "HelpCircle",
+};
+
+const promptsNavigation = {
+  name: "پرامپت‌ها",
+  icon: "Terminal",
+};
+
+const promptsNavigationHidden = {
+  ...promptsNavigation,
+  show: false,
 };
 
 const followUpStatusValues = [
@@ -513,8 +916,15 @@ const followUpStatusValues = [
 ];
 
 const strategyNavigation = {
-  name: "استراتژی",
+  name: "پایش",
   icon: "Target",
+  show: false,
+};
+
+const securityNavigationHidden = {
+  name: "امنیت",
+  icon: "Key",
+  show: false,
 };
 
 const strategyFrameworkValues = [
@@ -679,13 +1089,199 @@ const Components = {
     "DownloadFileAttachment",
     path.join(__dirname, "admin-components", "DownloadFileAttachment"),
   ),
+  AsyncRecordActionLoader: componentLoader.add(
+    "AsyncRecordActionLoader",
+    path.join(__dirname, "admin-components", "AsyncRecordActionLoader"),
+  ),
+  ProfileFieldKeyMultiSelect: componentLoader.add(
+    "ProfileFieldKeyMultiSelect",
+    path.join(__dirname, "admin-components", "ProfileFieldKeyMultiSelect"),
+  ),
+  FormQuestionOptionsEditor: componentLoader.add(
+    "FormQuestionOptionsEditor",
+    path.join(__dirname, "admin-components", "FormQuestionOptionsEditor"),
+  ),
+  FollowUpFormQuestionsEditor: componentLoader.add(
+    "FollowUpFormQuestionsEditor",
+    path.join(__dirname, "admin-components", "FollowUpFormQuestionsEditor"),
+  ),
+  PromptDefinitionEditor: componentLoader.add(
+    "PromptDefinitionEditor",
+    path.join(__dirname, "admin-components", "PromptDefinitionEditor"),
+  ),
 };
 
+const TIMESTAMP_LIST_FILTER_FIELDS = ["createdAt", "updatedAt"];
+
+const isIdLikePropertyName = (name) => name === "id" || name.endsWith("Id");
+
+const stripTimestampFieldsFromPropertyList = (propertyNames) => {
+  if (!Array.isArray(propertyNames)) {
+    return propertyNames;
+  }
+
+  return propertyNames.filter(
+    (name) => !TIMESTAMP_LIST_FILTER_FIELDS.includes(name),
+  );
+};
+
+const LIST_PROPERTY_ID_EXCEPTIONS = ["companyId"];
+
+const stripIdLikeFieldsFromPropertyList = (propertyNames) => {
+  if (!Array.isArray(propertyNames)) {
+    return propertyNames;
+  }
+
+  return propertyNames.filter(
+    (name) =>
+      LIST_PROPERTY_ID_EXCEPTIONS.includes(name) ||
+      !isIdLikePropertyName(name),
+  );
+};
+
+const propertyRequestsListVisibility = (property = {}) => {
+  const visibility = property.isVisible;
+
+  if (visibility === true) {
+    return true;
+  }
+
+  if (typeof visibility === "object" && visibility !== null) {
+    return visibility.list === true;
+  }
+
+  return false;
+};
+
+const stripGlobalListFilterFieldsFromPropertyList = (propertyNames) =>
+  stripIdLikeFieldsFromPropertyList(
+    stripTimestampFieldsFromPropertyList(propertyNames),
+  );
+
+const mergePropertyListFilterVisibility = (
+  property,
+  { hideList, hideFilter },
+) => {
+  const visibility = property.isVisible;
+
+  if (visibility === false) {
+    return {
+      ...property,
+      isVisible: {
+        list: false,
+        filter: false,
+        show: false,
+        edit: false,
+        new: false,
+      },
+    };
+  }
+
+  const visibilityObject =
+    typeof visibility === "object" && visibility !== null
+      ? { ...visibility }
+      : {};
+
+  if (hideList) {
+    visibilityObject.list = false;
+  }
+
+  if (hideFilter) {
+    visibilityObject.filter = false;
+  }
+
+  return {
+    ...property,
+    isVisible: visibilityObject,
+  };
+};
+
+const applyGlobalTimestampVisibility = (options = {}) => {
+  const properties = { ...(options.properties ?? {}) };
+
+  for (const field of TIMESTAMP_LIST_FILTER_FIELDS) {
+    properties[field] = mergePropertyListFilterVisibility(
+      properties[field] ?? {},
+      { hideList: true, hideFilter: true },
+    );
+  }
+
+  return {
+    ...options,
+    properties,
+  };
+};
+
+const applyGlobalIdFieldVisibility = (modelName, options = {}) => {
+  const properties = { ...(options.properties ?? {}) };
+
+  const modelFieldNames =
+    getModelByName(modelName)?.fields?.map((field) => field.name) ?? [];
+
+  const idLikeFieldNames = new Set([
+    ...modelFieldNames.filter((name) => isIdLikePropertyName(name)),
+    ...Object.keys(properties).filter((name) => isIdLikePropertyName(name)),
+  ]);
+
+  for (const fieldName of idLikeFieldNames) {
+    const propertyConfig = properties[fieldName] ?? {};
+    const hideList =
+      fieldName === "companyId" && propertyRequestsListVisibility(propertyConfig)
+        ? false
+        : true;
+
+    properties[fieldName] = mergePropertyListFilterVisibility(propertyConfig, {
+      hideList,
+      hideFilter: false,
+    });
+  }
+
+  return {
+    ...options,
+    properties,
+    ...(options.listProperties
+      ? {
+          listProperties: stripGlobalListFilterFieldsFromPropertyList(
+            options.listProperties,
+          ),
+        }
+      : {}),
+    ...(options.filterProperties
+      ? {
+          filterProperties: stripTimestampFieldsFromPropertyList(
+            options.filterProperties,
+          ),
+        }
+      : {}),
+  };
+};
+
+const normalizePrismaResourceOptions = (modelName, options = {}) =>
+  applyGlobalIdFieldVisibility(
+    modelName,
+    applyGlobalTimestampVisibility(options),
+  );
+
 const prismaResource = (modelName, options = {}) => {
-  const { actions, features, ...restOptions } = options;
+  const normalizedOptions = normalizePrismaResourceOptions(modelName, options);
+  const { actions, features, ...restOptions } = normalizedOptions;
   const customActions = { ...(actions || {}) };
   const customNewAction = customActions.new;
+  const customEditAction = { ...(customActions.edit ?? {}) };
+  const customListAction = { ...(customActions.list ?? {}) };
   delete customActions.new;
+  delete customActions.edit;
+  delete customActions.list;
+
+  const listBeforeHooks = [sanitizePrismaAdapterListFilters];
+  if (customListAction.before) {
+    listBeforeHooks.push(
+      ...(Array.isArray(customListAction.before)
+        ? customListAction.before
+        : [customListAction.before]),
+    );
+  }
+  delete customListAction.before;
 
   const resourceOptions = {
     resource: {
@@ -697,7 +1293,8 @@ const prismaResource = (modelName, options = {}) => {
       actions: {
         new: {
           isAccessible: true,
-          before: async (request) => {
+          ...customNewAction,
+          before: async (request, context) => {
             if (request.payload?.password && modelName === "User") {
               request.payload.password = await bcrypt.hash(
                 request.payload.password,
@@ -706,16 +1303,16 @@ const prismaResource = (modelName, options = {}) => {
             }
 
             if (customNewAction?.before) {
-              return customNewAction.before(request);
+              return customNewAction.before(request, context);
             }
 
             return request;
           },
-          ...(customNewAction?.after ? { after: customNewAction.after } : {}),
         },
         edit: {
           isAccessible: true,
-          before: async (request) => {
+          ...customEditAction,
+          before: async (request, context) => {
             if (request.payload?.password && modelName === "User") {
               if (request.payload.password) {
                 request.payload.password = await bcrypt.hash(
@@ -727,8 +1324,8 @@ const prismaResource = (modelName, options = {}) => {
               }
             }
 
-            if (actions?.edit?.before) {
-              return actions.edit.before(request);
+            if (customEditAction?.before) {
+              return customEditAction.before(request, context);
             }
 
             return request;
@@ -745,6 +1342,11 @@ const prismaResource = (modelName, options = {}) => {
         },
         list: {
           isAccessible: true,
+          ...customListAction,
+          before:
+            listBeforeHooks.length === 1
+              ? listBeforeHooks[0]
+              : listBeforeHooks,
         },
         ...customActions,
       },
@@ -772,6 +1374,373 @@ function validateAdminProfileFieldPayload(request) {
     });
   }
 }
+
+const DUPLICATE_ANALYSIS_FORM_PROFILE_FIELD_MESSAGE =
+  "این فیلد پروفایل برای همین تحلیل تکی قبلاً ثبت شده است؛ امکان افزودن رکورد تکراری وجود ندارد.";
+
+const DUPLICATE_MULTI_ANALYSIS_FORM_PROFILE_FIELD_MESSAGE =
+  "این فیلد پروفایل برای همین تحلیل صفر تا صد قبلاً ثبت شده است؛ امکان افزودن رکورد تکراری وجود ندارد.";
+
+const isPrismaUniqueConstraintError = (error) =>
+  error?.code === "P2002" ||
+  String(error?.message ?? "").includes("Unique constraint failed");
+
+const assertUniqueAnalysisFormProfileField = async (request, recordId = null) => {
+  if (request.method !== "post") {
+    return;
+  }
+
+  const profileFieldKey = String(request.payload?.profileFieldKey ?? "").trim();
+  const formId = normalizeAdminReferenceId(
+    request.payload?.formId ?? request.payload?.form,
+  );
+
+  if (!formId || !profileFieldKey) {
+    return;
+  }
+
+  const existing = await prisma.analysisFormProfileField.findFirst({
+    where: {
+      formId,
+      profileFieldKey,
+      ...(recordId ? { NOT: { id: recordId } } : {}),
+    },
+    select: { id: true },
+  });
+
+  if (existing) {
+    throw new ValidationError({
+      profileFieldKey: {
+        message: DUPLICATE_ANALYSIS_FORM_PROFILE_FIELD_MESSAGE,
+      },
+    });
+  }
+};
+
+const assertUniqueMultiAnalysisFormProfileField = async (
+  request,
+  recordId = null,
+) => {
+  if (request.method !== "post") {
+    return;
+  }
+
+  const profileFieldKey = String(request.payload?.profileFieldKey ?? "").trim();
+  const multiAnalysisFormId = normalizeAdminReferenceId(
+    request.payload?.multiAnalysisFormId ?? request.payload?.multiAnalysisForm,
+  );
+
+  if (!multiAnalysisFormId || !profileFieldKey) {
+    return;
+  }
+
+  const existing = await prisma.multiAnalysisFormProfileField.findFirst({
+    where: {
+      multiAnalysisFormId,
+      profileFieldKey,
+      ...(recordId ? { NOT: { id: recordId } } : {}),
+    },
+    select: { id: true },
+  });
+
+  if (existing) {
+    throw new ValidationError({
+      profileFieldKey: {
+        message: DUPLICATE_MULTI_ANALYSIS_FORM_PROFILE_FIELD_MESSAGE,
+      },
+    });
+  }
+};
+
+const withAdminDuplicateProfileFieldError =
+  (message, handler) =>
+  async (request, response, context) => {
+    try {
+      return await handler(request, response, context);
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+
+      if (isPrismaUniqueConstraintError(error)) {
+        throw new ValidationError({
+          profileFieldKey: { message },
+        });
+      }
+
+      throw error;
+    }
+  };
+
+const parseProfileFieldKeysFromPayload = (payload = {}) => {
+  const raw = payload.profileFieldKeys ?? payload.profileFieldKey;
+
+  if (Array.isArray(raw)) {
+    return [
+      ...new Set(raw.map((item) => String(item).trim()).filter(Boolean)),
+    ];
+  }
+
+  const flatProfileFieldKeys = Object.keys(payload)
+    .filter((key) => /^profileFieldKeys\.(\d+)$/.test(key))
+    .sort(
+      (left, right) =>
+        Number(left.split(".")[1]) - Number(right.split(".")[1]),
+    )
+    .map((key) => String(payload[key] ?? "").trim())
+    .filter(Boolean);
+
+  if (flatProfileFieldKeys.length) {
+    return [...new Set(flatProfileFieldKeys)];
+  }
+
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return [
+            ...new Set(
+              parsed.map((item) => String(item).trim()).filter(Boolean),
+            ),
+          ];
+        }
+      } catch {
+        return [trimmed];
+      }
+    }
+
+    return [trimmed];
+  }
+
+  if (raw && typeof raw === "object") {
+    return [
+      ...new Set(
+        Object.values(raw)
+          .map((item) => String(item).trim())
+          .filter(Boolean),
+      ),
+    ];
+  }
+
+  return [];
+};
+
+const validateProfileFieldKeysForCreate = (profileFieldKeys) => {
+  if (!profileFieldKeys.length) {
+    throw new ValidationError({
+      profileFieldKeys: {
+        message: "حداقل یک فیلد پروفایل انتخاب کنید.",
+      },
+    });
+  }
+
+  const errors = {};
+
+  for (const profileFieldKey of profileFieldKeys) {
+    try {
+      validateProfileFieldKey(profileFieldKey);
+    } catch (error) {
+      errors.profileFieldKeys = {
+        message: error.message,
+      };
+      break;
+    }
+  }
+
+  if (Object.keys(errors).length) {
+    throw new ValidationError(errors);
+  }
+};
+
+const buildBulkCreateAnalysisFormProfileFieldHandler = () => {
+  return async (request, response, context) => {
+    const { resource, h, currentAdmin } = context;
+
+    if (request.method === "get") {
+      return {
+        resource: resource.decorate().toJSON(currentAdmin),
+        record: {
+          params: { isArray: false, profileFieldKeys: [] },
+          errors: {},
+          populated: {},
+        },
+      };
+    }
+
+    const payload = request.payload ?? {};
+    const formId = normalizeAdminReferenceId(
+      payload.formId ?? payload.form,
+    );
+    const profileFieldKeys = parseProfileFieldKeysFromPayload(payload);
+    const isArray = parseBooleanValue(payload.isArray) ?? false;
+
+    const errors = {};
+
+    if (!formId) {
+      errors.form = { message: "انتخاب تحلیل تکی الزامی است." };
+    }
+
+    validateProfileFieldKeysForCreate(profileFieldKeys);
+
+    if (Object.keys(errors).length) {
+      throw new ValidationError(errors);
+    }
+
+    const duplicateKeys = [];
+    const createdIds = [];
+
+    for (const profileFieldKey of profileFieldKeys) {
+      const existing = await prisma.analysisFormProfileField.findFirst({
+        where: { formId, profileFieldKey },
+        select: { id: true },
+      });
+
+      if (existing) {
+        duplicateKeys.push(profileFieldKey);
+        continue;
+      }
+
+      try {
+        const created = await prisma.analysisFormProfileField.create({
+          data: {
+            formId,
+            profileFieldKey,
+            isArray,
+          },
+        });
+        createdIds.push(created.id);
+      } catch (error) {
+        if (isPrismaUniqueConstraintError(error)) {
+          duplicateKeys.push(profileFieldKey);
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!createdIds.length) {
+      throw new ValidationError({
+        profileFieldKeys: {
+          message: DUPLICATE_ANALYSIS_FORM_PROFILE_FIELD_MESSAGE,
+        },
+      });
+    }
+
+    const duplicateNotice =
+      duplicateKeys.length > 0
+        ? ` (${duplicateKeys.length} مورد تکراری نادیده گرفته شد)`
+        : "";
+
+    return {
+      redirectUrl: h.resourceUrl({
+        resourceId: resource._decorated?.id() || resource.id(),
+      }),
+      notice: {
+        message: `${createdIds.length} فیلد پروفایل با موفقیت ایجاد شد${duplicateNotice}`,
+        type: duplicateKeys.length ? "info" : "success",
+      },
+    };
+  };
+};
+
+const buildBulkCreateMultiAnalysisFormProfileFieldHandler = () => {
+  return async (request, response, context) => {
+    const { resource, h, currentAdmin } = context;
+
+    if (request.method === "get") {
+      return {
+        resource: resource.decorate().toJSON(currentAdmin),
+        record: {
+          params: { isArray: false, profileFieldKeys: [] },
+          errors: {},
+          populated: {},
+        },
+      };
+    }
+
+    const payload = request.payload ?? {};
+    const multiAnalysisFormId = normalizeAdminReferenceId(
+      payload.multiAnalysisFormId ?? payload.multiAnalysisForm,
+    );
+    const profileFieldKeys = parseProfileFieldKeysFromPayload(payload);
+    const isArray = parseBooleanValue(payload.isArray) ?? false;
+
+    const errors = {};
+
+    if (!multiAnalysisFormId) {
+      errors.multiAnalysisForm = {
+        message: "انتخاب تحلیل صفر تا صد الزامی است.",
+      };
+    }
+
+    validateProfileFieldKeysForCreate(profileFieldKeys);
+
+    if (Object.keys(errors).length) {
+      throw new ValidationError(errors);
+    }
+
+    const duplicateKeys = [];
+    const createdIds = [];
+
+    for (const profileFieldKey of profileFieldKeys) {
+      const existing = await prisma.multiAnalysisFormProfileField.findFirst({
+        where: { multiAnalysisFormId, profileFieldKey },
+        select: { id: true },
+      });
+
+      if (existing) {
+        duplicateKeys.push(profileFieldKey);
+        continue;
+      }
+
+      try {
+        const created = await prisma.multiAnalysisFormProfileField.create({
+          data: {
+            multiAnalysisFormId,
+            profileFieldKey,
+            isArray,
+          },
+        });
+        createdIds.push(created.id);
+      } catch (error) {
+        if (isPrismaUniqueConstraintError(error)) {
+          duplicateKeys.push(profileFieldKey);
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!createdIds.length) {
+      throw new ValidationError({
+        profileFieldKeys: {
+          message: DUPLICATE_MULTI_ANALYSIS_FORM_PROFILE_FIELD_MESSAGE,
+        },
+      });
+    }
+
+    const duplicateNotice =
+      duplicateKeys.length > 0
+        ? ` (${duplicateKeys.length} مورد تکراری نادیده گرفته شد)`
+        : "";
+
+    return {
+      redirectUrl: h.resourceUrl({
+        resourceId: resource._decorated?.id() || resource.id(),
+      }),
+      notice: {
+        message: `${createdIds.length} فیلد پروفایل با موفقیت ایجاد شد${duplicateNotice}`,
+        type: duplicateKeys.length ? "info" : "success",
+      },
+    };
+  };
+};
 
 function validateMultiAnalysisRequiredFormPayload(request) {
   if (request.method !== "post") {
@@ -1021,91 +1990,685 @@ const prepareRequest = (request, currentAdmin) => {
 
   return request;
 };
+const enrichUserChildListRecordsWithUser = async (records = []) => {
+  if (!records.length) {
+    return;
+  }
+
+  const userIds = [
+    ...new Set(
+      records
+        .map((record) => normalizeAdminReferenceId(record.params?.userId))
+        .filter(Boolean),
+    ),
+  ];
+
+  const userMap = Object.create(null);
+
+  if (userIds.length > 0) {
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, username: true },
+    });
+
+    for (const user of users) {
+      userMap[user.id] = user;
+    }
+  }
+
+  for (const record of records) {
+    const userId = normalizeAdminReferenceId(record.params?.userId);
+    if (!userId) {
+      continue;
+    }
+
+    const user = userMap[userId];
+    const title = user?.username ?? userId;
+
+    record.params.userId = userId;
+    record.params.user = userId;
+    record.populated = record.populated ?? {};
+    record.populated.user = {
+      params: { id: userId, username: title },
+      title,
+    };
+  }
+};
+
+const userChildListAfter = async (response) => {
+  await enrichUserChildListRecordsWithUser(response.records ?? []);
+  return response;
+};
+
+const userChildEditAfter = (prismaModelKey) => async (response, request) => {
+  if (request.method?.toLowerCase() === "get" && response?.record) {
+    await enrichAdminRecordUserIdReference(response.record, {
+      modelName: prismaModelKey,
+    });
+  }
+
+  return response;
+};
+
 ////
 
 export const userInfoResource = prismaResource("UserInfo", {
   navigation: userProfileNavigation,
 
+  listProperties: ["firstName", "lastName", "nationalCode"],
+
+  filterProperties: ["company", "firstName", "lastName", "nationalCode"],
+
   properties: {
+    firstName: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    lastName: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    nationalCode: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    jobTitle: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    id: {
+      isVisible: {
+        list: false,
+        show: true,
+        edit: false,
+        filter: false,
+      },
+    },
+
     userId: {
       reference: "User",
       isVisible: {
-        list: true,
+        list: false,
         show: true,
         edit: true,
         filter: false,
       },
     },
 
+    company: {
+      reference: "Company",
+      label: "شرکت",
+      isVisible: {
+        list: false,
+        filter: true,
+        show: false,
+        edit: false,
+      },
+    },
+
+    createdAt: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    updatedAt: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    birthDate: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    lastJobTitle: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
     organizationalLevel: {
       availableValues: ORGANIZATIONAL_LEVELS,
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    isboardMember: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    isshareholder: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    isstrategyTeamMember: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
     },
   },
 
   actions: {
     ...userInfoActions,
+    list: {
+      before: applyUserInfoCompanyFilter,
+      handler: runUserLinkedResourceListWithCompanyUserIds(
+        "UserInfo",
+        "_userInfoCompanyUserIds",
+      ),
+    },
+    edit: {
+      ...userInfoActions.edit,
+      after: userChildEditAfter("userInfo"),
+    },
   },
 });
 
 export const userEducationResource = prismaResource("UserEducation", {
   navigation: userProfileNavigation,
 
+  listProperties: [
+    "user",
+    "degree",
+    "fieldOfStudy",
+    "graduationYear",
+    "university",
+  ],
+
+  newProperties: [
+    "userId",
+    "degree",
+    "fieldOfStudy",
+    "specialization",
+    "graduationYear",
+    "university",
+  ],
+
+  editProperties: [
+    "userId",
+    "degree",
+    "fieldOfStudy",
+    "specialization",
+    "graduationYear",
+    "university",
+  ],
+
+  filterProperties: [
+    "company",
+    "userId",
+    "degree",
+    "fieldOfStudy",
+    "specialization",
+  ],
+
   properties: {
-    userId: {
+    id: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    user: {
       reference: "User",
+      isVirtual: true,
       isVisible: {
         list: true,
         show: true,
-        edit: true,
+        edit: false,
         filter: false,
+        new: false,
+      },
+    },
+
+    userId: {
+      reference: "User",
+      isVisible: {
+        list: false,
+        show: false,
+        edit: true,
+        filter: true,
+      },
+    },
+
+    company: {
+      reference: "Company",
+      label: "شرکت",
+      isVisible: {
+        list: false,
+        filter: true,
+        show: false,
+        edit: false,
+      },
+    },
+
+    createdAt: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    updatedAt: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
       },
     },
 
     degree: {
       availableValues: DEGREE_TYPES,
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    fieldOfStudy: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    specialization: {
+      isVisible: {
+        list: false,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    graduationYear: {
+      isVisible: {
+        list: true,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    university: {
+      isVisible: {
+        list: true,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    sortOrder: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+        new: false,
+      },
     },
   },
 
+  showProperties: [
+    "user",
+    "degree",
+    "fieldOfStudy",
+    "specialization",
+    "graduationYear",
+    "university",
+    "sortOrder",
+    "createdAt",
+    "updatedAt",
+  ],
+
   actions: {
     ...userEducationActions,
+    list: {
+      before: applyUserEducationCompanyFilter,
+      handler: runUserLinkedResourceListWithCompanyUserIds(
+        "UserEducation",
+        "_userEducationCompanyUserIds",
+      ),
+      after: userChildListAfter,
+    },
+    show: {
+      after: async (response) => {
+        if (response?.record) {
+          await enrichUserChildListRecordsWithUser([response.record]);
+        }
+        return response;
+      },
+    },
+    edit: {
+      ...userEducationActions.edit,
+      after: userChildEditAfter("userEducation"),
+    },
   },
 });
 
 export const userTrainingCourseResource = prismaResource("UserTrainingCourse", {
   navigation: userProfileNavigation,
 
+  listProperties: ["user", "courseName", "level", "hours", "provider"],
+
+  newProperties: ["userId", "courseName", "level", "hours", "provider", "date"],
+
+  editProperties: ["userId", "courseName", "level", "hours", "provider", "date"],
+
+  filterProperties: ["company", "userId", "courseName", "level", "hours", "provider"],
+
   properties: {
-    userId: {
+    id: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    user: {
       reference: "User",
+      isVirtual: true,
       isVisible: {
         list: true,
         show: true,
-        edit: true,
+        edit: false,
         filter: false,
+        new: false,
+      },
+    },
+
+    userId: {
+      reference: "User",
+      isVisible: {
+        list: false,
+        show: false,
+        edit: true,
+        filter: true,
+      },
+    },
+
+    company: {
+      reference: "Company",
+      label: "شرکت",
+      isVisible: {
+        list: false,
+        filter: true,
+        show: false,
+        edit: false,
+      },
+    },
+
+    createdAt: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    updatedAt: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    courseName: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
       },
     },
 
     level: {
       availableValues: COURSE_LEVELS,
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    hours: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    provider: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    date: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    sortOrder: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+        new: false,
+      },
     },
   },
 
+  showProperties: [
+    "user",
+    "courseName",
+    "level",
+    "hours",
+    "provider",
+    "date",
+    "sortOrder",
+    "createdAt",
+    "updatedAt",
+  ],
+
   actions: {
     ...userTrainingCourseActions,
+    list: {
+      before: applyUserTrainingCourseCompanyFilter,
+      handler: runUserLinkedResourceListWithCompanyUserIds(
+        "UserTrainingCourse",
+        "_userTrainingCourseCompanyUserIds",
+      ),
+      after: userChildListAfter,
+    },
+    show: {
+      after: async (response) => {
+        if (response?.record) {
+          await enrichUserChildListRecordsWithUser([response.record]);
+        }
+        return response;
+      },
+    },
+    edit: {
+      ...userTrainingCourseActions.edit,
+      after: userChildEditAfter("userTrainingCourse"),
+    },
   },
 });
 
 export const userCompetencyResource = prismaResource("UserCompetency", {
   navigation: userProfileNavigation,
 
+  listProperties: [
+    "user",
+    "competencyName",
+    "type",
+    "expectedLevel",
+    "currentLevel",
+    "jobRelevance",
+    "importance",
+  ],
+
+  newProperties: [
+    "userId",
+    "competencyName",
+    "type",
+    "expectedLevel",
+    "currentLevel",
+    "jobRelevance",
+    "importance",
+  ],
+
+  editProperties: [
+    "userId",
+    "competencyName",
+    "type",
+    "expectedLevel",
+    "currentLevel",
+    "jobRelevance",
+    "importance",
+  ],
+
+  showProperties: [
+    "user",
+    "competencyName",
+    "type",
+    "expectedLevel",
+    "currentLevel",
+    "jobRelevance",
+    "importance",
+  ],
+
+  filterProperties: [
+    "company",
+    "userId",
+    "competencyName",
+    "type",
+    "expectedLevel",
+    "currentLevel",
+    "jobRelevance",
+    "importance",
+  ],
+
   properties: {
-    userId: {
+    id: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    user: {
       reference: "User",
+      isVirtual: true,
       isVisible: {
         list: true,
         show: true,
-        edit: true,
+        edit: false,
         filter: false,
+        new: false,
+      },
+    },
+
+    userId: {
+      reference: "User",
+      label: "کاربر",
+      isVisible: {
+        list: false,
+        show: false,
+        edit: true,
+        filter: true,
+      },
+    },
+
+    company: {
+      reference: "Company",
+      label: "شرکت",
+      isVisible: {
+        list: false,
+        filter: true,
+        show: false,
+        edit: false,
       },
     },
 
@@ -1128,10 +2691,40 @@ export const userCompetencyResource = prismaResource("UserCompetency", {
     importance: {
       availableValues: IMPORTANCE_LEVELS,
     },
+
+    sortOrder: {
+      isVisible: {
+        list: false,
+        show: false,
+        edit: false,
+        new: false,
+        filter: false,
+      },
+    },
   },
 
   actions: {
     ...userCompetencyActions,
+    list: {
+      before: applyUserCompetencyCompanyFilter,
+      handler: runUserLinkedResourceListWithCompanyUserIds(
+        "UserCompetency",
+        "_userCompetencyCompanyUserIds",
+      ),
+      after: userChildListAfter,
+    },
+    show: {
+      after: async (response) => {
+        if (response?.record) {
+          await enrichUserChildListRecordsWithUser([response.record]);
+        }
+        return response;
+      },
+    },
+    edit: {
+      ...userCompetencyActions.edit,
+      after: userChildEditAfter("userCompetency"),
+    },
   },
 });
 
@@ -1151,8 +2744,757 @@ const formatJsonForDisplay = (value) => {
   return JSON.stringify(value, null, 2);
 };
 
+const parseJsonFieldValue = (value) => {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+
+  return value;
+};
+
+const formatSuggestedAnalysesForDisplay = (value) => {
+  const parsed = parseJsonFieldValue(value);
+
+  if (parsed == null) {
+    return "";
+  }
+
+  if (!Array.isArray(parsed)) {
+    return formatJsonForDisplay(parsed);
+  }
+
+  if (parsed.length === 0) {
+    return "";
+  }
+
+  return parsed
+    .map((item, index) => {
+      if (!item || typeof item !== "object") {
+        return `${index + 1}. ${String(item)}`;
+      }
+
+      const priority =
+        item.priority != null && item.priority !== ""
+          ? item.priority
+          : index + 1;
+      const title = item.title ?? item.titleFa ?? "—";
+      const lines = [
+        `#${priority} — ${title}`,
+        item.analysisId ? `شناسه تحلیل: ${item.analysisId}` : null,
+        item.reason ? `دلیل: ${item.reason}` : null,
+      ].filter(Boolean);
+
+      return lines.join("\n");
+    })
+    .join("\n\n---\n\n");
+};
+
+const enrichCompanyInsightRecords = async (
+  records = [],
+  { asJsonText = false } = {},
+) => {
+  if (!records?.length) {
+    return;
+  }
+
+  const idsMissingAnalyses = records
+    .filter((record) => {
+      const raw = record?.params?.suggestedAnalyses;
+      return raw == null || raw === "";
+    })
+    .map((record) => record.params?.id)
+    .filter(Boolean);
+
+  const analysesById = Object.create(null);
+
+  if (idsMissingAnalyses.length > 0) {
+    const rows = await prisma.companyInsight.findMany({
+      where: { id: { in: idsMissingAnalyses } },
+      select: { id: true, suggestedAnalyses: true },
+    });
+
+    for (const row of rows) {
+      analysesById[row.id] = row.suggestedAnalyses;
+    }
+  }
+
+  for (const record of records) {
+    if (!record?.params) {
+      continue;
+    }
+
+    let analyses = record.params.suggestedAnalyses;
+
+    if ((analyses == null || analyses === "") && record.params.id) {
+      analyses = analysesById[record.params.id] ?? analyses;
+      if (analyses != null) {
+        record.params.suggestedAnalyses = analyses;
+      }
+    }
+
+    record.params.suggestedAnalysesText = asJsonText
+      ? formatJsonForDisplay(analyses)
+      : formatSuggestedAnalysesForDisplay(analyses);
+  }
+
+  await enrichRecordsWithCompanyName(records);
+};
+
 const getCompanyIdFromRecordParams = (params) =>
   params?.companyId || params?.company || null;
+
+const enrichUserRecordCompanyIdForEdit = async (recordJson) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  let companyId = normalizeAdminReferenceId(
+    getCompanyIdFromRecordParams(recordJson.params),
+  );
+
+  if (!companyId && recordJson.params.id) {
+    const user = await prisma.user.findUnique({
+      where: { id: recordJson.params.id },
+      select: { companyId: true },
+    });
+    companyId = user?.companyId ?? null;
+  }
+
+  if (companyId) {
+    recordJson.params.companyId = companyId;
+    recordJson.params.company = companyId;
+  }
+
+  await enrichRecordsWithCompanyName([recordJson]);
+  return recordJson;
+};
+
+const enrichProjectPlanActionRecordsWithProject = async (records = []) => {
+  if (!records.length) {
+    return;
+  }
+
+  const planIds = [
+    ...new Set(
+      records
+        .map((record) =>
+          normalizeAdminReferenceId(record.params?.planId ?? record.params?.plan),
+        )
+        .filter(Boolean),
+    ),
+  ];
+
+  if (planIds.length === 0) {
+    return;
+  }
+
+  const plans = await prisma.projectPlan.findMany({
+    where: { id: { in: planIds } },
+    select: {
+      id: true,
+      project: { select: { id: true, title: true } },
+    },
+  });
+
+  const projectByPlanId = Object.fromEntries(
+    plans.map((plan) => [plan.id, plan.project]),
+  );
+
+  for (const record of records) {
+    const planId = normalizeAdminReferenceId(
+      record.params?.planId ?? record.params?.plan,
+    );
+    const project = planId ? projectByPlanId[planId] : null;
+    const projectId = project?.id;
+    const title = project?.title ?? "—";
+
+    if (!projectId) {
+      continue;
+    }
+
+    record.params.project = projectId;
+    record.populated = record.populated ?? {};
+    record.populated.project = {
+      params: { id: projectId, title },
+      title,
+    };
+  }
+};
+
+const enrichAdminRecordProjectIdReference = async (recordJson) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const projectId = normalizeAdminReferenceId(
+    recordJson.params.projectId ?? recordJson.params.project,
+  );
+
+  if (!projectId) {
+    return recordJson;
+  }
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true, title: true },
+  });
+
+  const title = project?.title ?? projectId;
+
+  recordJson.params.projectId = projectId;
+  recordJson.populated = recordJson.populated ?? {};
+  recordJson.populated.projectId = {
+    params: { id: projectId, title },
+    title,
+  };
+
+  return recordJson;
+};
+
+const enrichAdminRecordAnalysisFormIdReference = async (recordJson) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const analysisFormId = normalizeAdminReferenceId(
+    recordJson.params.analysisFormId ?? recordJson.params.analysisForm,
+  );
+
+  if (!analysisFormId) {
+    return recordJson;
+  }
+
+  const form = await prisma.analysisForm.findUnique({
+    where: { id: analysisFormId },
+    select: { id: true, title: true },
+  });
+
+  const title = form?.title ?? analysisFormId;
+
+  recordJson.params.analysisFormId = analysisFormId;
+  recordJson.populated = recordJson.populated ?? {};
+  recordJson.populated.analysisFormId = {
+    params: { id: analysisFormId, title },
+    title,
+  };
+
+  return recordJson;
+};
+
+const enrichAdminRecordMultiAnalysisFormIdReference = async (recordJson) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const multiAnalysisFormId = normalizeAdminReferenceId(
+    recordJson.params.multiAnalysisFormId ??
+      recordJson.params.multiAnalysisForm,
+  );
+
+  if (!multiAnalysisFormId) {
+    return recordJson;
+  }
+
+  const form = await prisma.multiAnalysisForm.findUnique({
+    where: { id: multiAnalysisFormId },
+    select: { id: true, title: true },
+  });
+
+  const title = form?.title ?? multiAnalysisFormId;
+
+  recordJson.params.multiAnalysisFormId = multiAnalysisFormId;
+  recordJson.populated = recordJson.populated ?? {};
+  recordJson.populated.multiAnalysisFormId = {
+    params: { id: multiAnalysisFormId, title },
+    title,
+  };
+
+  return recordJson;
+};
+
+const enrichAdminRecordMultiAnalysisGoalFormReference = async (recordJson) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  let multiAnalysisFormId = normalizeAdminReferenceId(
+    recordJson.params.multiAnalysisFormId ??
+      recordJson.params.multiAnalysisForm,
+  );
+
+  if (!multiAnalysisFormId && recordJson.params.id) {
+    const row = await prisma.multiAnalysisGoal.findUnique({
+      where: { id: recordJson.params.id },
+      select: { multiAnalysisFormId: true },
+    });
+    multiAnalysisFormId = row?.multiAnalysisFormId ?? null;
+  }
+
+  if (!multiAnalysisFormId) {
+    return recordJson;
+  }
+
+  recordJson.params.multiAnalysisFormId = multiAnalysisFormId;
+  recordJson.params.multiAnalysisForm = multiAnalysisFormId;
+
+  return enrichAdminRecordMultiAnalysisFormIdReference(recordJson);
+};
+
+const enrichAdminRecordFormGoalFormIdReference = async (recordJson) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const formId = normalizeAdminReferenceId(
+    recordJson.params.formId ?? recordJson.params.form,
+  );
+
+  if (!formId) {
+    return recordJson;
+  }
+
+  const form = await prisma.analysisForm.findUnique({
+    where: { id: formId },
+    select: { id: true, title: true },
+  });
+
+  const title = form?.title ?? formId;
+
+  recordJson.params.formId = formId;
+  recordJson.populated = recordJson.populated ?? {};
+  recordJson.populated.formId = {
+    params: { id: formId, title },
+    title,
+  };
+
+  return recordJson;
+};
+
+const enrichAdminRecordFormQuestionCategoryParentIdReference = async (
+  recordJson,
+) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const parentId = normalizeAdminReferenceId(
+    recordJson.params.parentId ?? recordJson.params.parent,
+  );
+
+  if (!parentId) {
+    return recordJson;
+  }
+
+  const parent = await prisma.formQuestionCategory.findUnique({
+    where: { id: parentId },
+    select: { id: true, title: true },
+  });
+
+  const title = parent?.title ?? parentId;
+
+  recordJson.params.parentId = parentId;
+  recordJson.populated = recordJson.populated ?? {};
+  recordJson.populated.parentId = {
+    params: { id: parentId, title },
+    title,
+  };
+
+  return recordJson;
+};
+
+const enrichAdminRecordFormQuestionCategoryEditReferences = async (
+  recordJson,
+) => {
+  if (!recordJson?.params?.id) {
+    return recordJson;
+  }
+
+  const row = await prisma.formQuestionCategory.findUnique({
+    where: { id: recordJson.params.id },
+    select: {
+      analysisFormId: true,
+      multiAnalysisFormId: true,
+      parentId: true,
+    },
+  });
+
+  if (row?.analysisFormId) {
+    recordJson.params.analysisFormId = row.analysisFormId;
+    recordJson.params.analysisForm = row.analysisFormId;
+  }
+
+  if (row?.multiAnalysisFormId) {
+    recordJson.params.multiAnalysisFormId = row.multiAnalysisFormId;
+    recordJson.params.multiAnalysisForm = row.multiAnalysisFormId;
+  }
+
+  if (row?.parentId) {
+    recordJson.params.parentId = row.parentId;
+    recordJson.params.parent = row.parentId;
+  }
+
+  await enrichAdminRecordAnalysisFormIdReference(recordJson);
+  await enrichAdminRecordMultiAnalysisFormIdReference(recordJson);
+  await enrichAdminRecordFormQuestionCategoryParentIdReference(recordJson);
+
+  return recordJson;
+};
+
+const enrichAdminRecordFormQuestionCategoryIdReference = async (
+  recordJson,
+) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  let categoryId = normalizeAdminReferenceId(
+    recordJson.params.categoryId ?? recordJson.params.category,
+  );
+
+  if (!categoryId && recordJson.params.id) {
+    const row = await prisma.formQuestion.findUnique({
+      where: { id: recordJson.params.id },
+      select: { categoryId: true },
+    });
+    categoryId = row?.categoryId ?? null;
+  }
+
+  if (!categoryId) {
+    return recordJson;
+  }
+
+  const category = await prisma.formQuestionCategory.findUnique({
+    where: { id: categoryId },
+    select: { id: true, title: true },
+  });
+
+  const title = category?.title ?? categoryId;
+
+  recordJson.params.categoryId = categoryId;
+  recordJson.params.category = categoryId;
+  recordJson.populated = recordJson.populated ?? {};
+  recordJson.populated.categoryId = {
+    params: { id: categoryId, title },
+    title,
+  };
+
+  return recordJson;
+};
+
+const enrichFormQuestionRecordWithOptionsJson = async (recordJson) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const questionId = recordJson.params.id;
+  if (!questionId) {
+    recordJson.params.optionsJson = "[]";
+    return recordJson;
+  }
+
+  const options = await prisma.formQuestionOption.findMany({
+    where: { questionId },
+    orderBy: { order: "asc" },
+    select: {
+      label: true,
+      value: true,
+      score: true,
+      order: true,
+    },
+  });
+
+  recordJson.params.optionsJson = JSON.stringify(
+    options.map((option) => ({
+      label: option.label,
+      value: option.value,
+      score: option.score,
+      order: option.order,
+    })),
+  );
+
+  return recordJson;
+};
+
+const enrichFollowUpFormRecordWithQuestionsJson = async (recordJson) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const formId = recordJson.params.id;
+  if (!formId) {
+    recordJson.params.questionsJson = "[]";
+    return recordJson;
+  }
+
+  const questions = await prisma.followUpFormQuestion.findMany({
+    where: { formId },
+    orderBy: { order: "asc" },
+    select: {
+      label: true,
+      type: true,
+      required: true,
+      order: true,
+      options: true,
+    },
+  });
+
+  recordJson.params.questionsJson = JSON.stringify(
+    questions.map((question) => ({
+      label: question.label,
+      type: question.type,
+      required: question.required,
+      order: question.order,
+      options: Array.isArray(question.options) ? question.options : [],
+    })),
+  );
+
+  return recordJson;
+};
+
+const persistFollowUpFormQuestions = async (formId, questions, tx = prisma) => {
+  await tx.followUpFormQuestion.deleteMany({
+    where: { formId },
+  });
+
+  for (const question of questions) {
+    await tx.followUpFormQuestion.create({
+      data: {
+        formId,
+        label: question.label,
+        type: question.type,
+        required: question.required,
+        order: question.order,
+        options: question.options,
+      },
+    });
+  }
+};
+
+const enrichPromptDefinitionRecordWithEditorJson = async (recordJson) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const definitionId = recordJson.params.id;
+  if (!definitionId) {
+    recordJson.params.promptEditorJson = JSON.stringify({
+      status: "DRAFT",
+      segments: [],
+    });
+    return recordJson;
+  }
+
+  const latestVersion = await prisma.promptVersion.findFirst({
+    where: { promptDefinitionId: definitionId },
+    orderBy: { versionNumber: "desc" },
+    include: {
+      values: {
+        include: {
+          segmentDefinition: true,
+        },
+      },
+    },
+  });
+
+  if (!latestVersion) {
+    recordJson.params.promptEditorJson = JSON.stringify({
+      status: "DRAFT",
+      segments: [],
+    });
+    return recordJson;
+  }
+
+  const segments = [...latestVersion.values]
+    .sort((a, b) => {
+      const aOrder =
+        a.segmentDefinition?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+      const bOrder =
+        b.segmentDefinition?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+      return aOrder - bOrder;
+    })
+    .map((row) => ({
+      label: row.segmentDefinition?.label ?? "",
+      description: row.segmentDefinition?.description ?? "",
+      isRequired: row.segmentDefinition?.isRequired ?? true,
+      content: row.content ?? "",
+    }));
+
+  recordJson.params.promptEditorJson = JSON.stringify({
+    status: latestVersion.status,
+    segments,
+  });
+
+  return recordJson;
+};
+
+const persistPromptDefinitionEditorContent = async (
+  definitionId,
+  title,
+  editorPayload,
+  tx = prisma,
+) => {
+  await tx.promptDefinition.update({
+    where: { id: definitionId },
+    data: { title },
+  });
+
+  const aggregate = await tx.promptVersion.aggregate({
+    where: { promptDefinitionId: definitionId },
+    _max: { versionNumber: true },
+  });
+
+  const versionNumber = (aggregate._max.versionNumber ?? 0) + 1;
+  const versionKey = `v${versionNumber}`;
+
+  const publishedAt =
+    editorPayload.status === "PUBLISHED" ? new Date() : null;
+
+  const version = await tx.promptVersion.create({
+    data: {
+      promptDefinitionId: definitionId,
+      versionNumber,
+      versionKey,
+      status: editorPayload.status,
+      publishedAt,
+    },
+  });
+
+  for (let index = 0; index < editorPayload.segments.length; index += 1) {
+    const segment = editorPayload.segments[index];
+    const segmentDefinition = await tx.promptSegmentDefinition.create({
+      data: {
+        promptDefinitionId: definitionId,
+        key: `section_${index + 1}`,
+        label: segment.label,
+        description: segment.description,
+        sortOrder: index + 1,
+        isRequired: segment.isRequired,
+      },
+    });
+
+    await tx.promptVersionSegmentValue.create({
+      data: {
+        promptVersionId: version.id,
+        segmentDefinitionId: segmentDefinition.id,
+        content: segment.content,
+      },
+    });
+  }
+
+  return version;
+};
+
+const assertPromptDefinitionCanBeDeleted = async (definitionId, tx = prisma) => {
+  const linkedProjectCount = await tx.project.count({
+    where: {
+      promptVersion: {
+        promptDefinitionId: definitionId,
+      },
+    },
+  });
+
+  if (linkedProjectCount > 0) {
+    throw new ValidationError({
+      id: {
+        message: `امکان حذف نیست: ${linkedProjectCount} پروژه به نسخه‌های این پرامپت وصل هستند.`,
+      },
+    });
+  }
+};
+
+const deletePromptDefinitionWithDependents = async (definitionId, tx = prisma) => {
+  await assertPromptDefinitionCanBeDeleted(definitionId, tx);
+
+  await tx.promptVersionSegmentValue.deleteMany({
+    where: {
+      OR: [
+        { promptVersion: { promptDefinitionId: definitionId } },
+        { segmentDefinition: { promptDefinitionId: definitionId } },
+      ],
+    },
+  });
+
+  await tx.promptVersion.deleteMany({
+    where: { promptDefinitionId: definitionId },
+  });
+
+  await tx.promptSegmentDefinition.deleteMany({
+    where: { promptDefinitionId: definitionId },
+  });
+
+  await tx.promptDefinition.delete({
+    where: { id: definitionId },
+  });
+};
+
+const persistFormQuestionOptions = async (questionId, options, tx = prisma) => {
+  await tx.formQuestionOption.deleteMany({
+    where: { questionId },
+  });
+
+  if (!options.length) {
+    return;
+  }
+
+  await tx.formQuestionOption.createMany({
+    data: options.map((option) => ({
+      questionId,
+      label: option.label,
+      value: option.value,
+      score: option.score,
+      order: option.order,
+    })),
+  });
+};
+
+const enrichAdminRecordFormQuestionOptionQuestionIdReference = async (
+  recordJson,
+) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  let questionId = normalizeAdminReferenceId(
+    recordJson.params.questionId ?? recordJson.params.question,
+  );
+
+  if (!questionId && recordJson.params.id) {
+    const row = await prisma.formQuestionOption.findUnique({
+      where: { id: recordJson.params.id },
+      select: { questionId: true },
+    });
+    questionId = row?.questionId ?? null;
+  }
+
+  if (!questionId) {
+    return recordJson;
+  }
+
+  const question = await prisma.formQuestion.findUnique({
+    where: { id: questionId },
+    select: { id: true, label: true },
+  });
+
+  const title = question?.label ?? questionId;
+
+  recordJson.params.questionId = questionId;
+  recordJson.params.question = questionId;
+  recordJson.populated = recordJson.populated ?? {};
+  recordJson.populated.questionId = {
+    params: { id: questionId, title },
+    title,
+  };
+
+  return recordJson;
+};
 
 const enrichRecordsWithCompanyName = async (records) => {
   if (!records?.length) {
@@ -1184,8 +3526,17 @@ const enrichRecordsWithCompanyName = async (records) => {
     const companyId = getCompanyIdFromRecordParams(record.params);
     const name = companyId ? (companyMap[companyId] ?? "—") : "—";
 
+    if (companyId) {
+      record.params.companyId = companyId;
+      record.params.company = companyId;
+    }
+
     record.populated = record.populated ?? {};
     record.populated.companyId = {
+      params: { id: companyId, name },
+      title: name,
+    };
+    record.populated.company = {
       params: { id: companyId, name },
       title: name,
     };
@@ -1194,7 +3545,51 @@ const enrichRecordsWithCompanyName = async (records) => {
   }
 };
 
-const enrichIndustryInsightRecords = async (records) => {
+/** فیلتر/فرم: companyId — ستون لیست از فیلد مجازی company پر می‌شود */
+const companyProfileCompanyFilterProperty = {
+  reference: "Company",
+  label: "Company",
+  isVisible: {
+    list: false,
+    show: true,
+    edit: true,
+    filter: true,
+  },
+};
+
+const companyProfileCompanyListProperty = {
+  reference: "Company",
+  label: "Company",
+  isVirtual: true,
+  isVisible: {
+    list: true,
+    filter: false,
+    show: false,
+    edit: false,
+    new: false,
+  },
+};
+
+const companyProfileCompanyListAfter = async (response, requestOrEnrichExtra) => {
+  await enrichRecordsWithCompanyName(response.records ?? []);
+  if (typeof requestOrEnrichExtra === "function") {
+    requestOrEnrichExtra(response.records ?? []);
+  }
+  return response;
+};
+
+const companyIdShowEditOnlyProperty = {
+  reference: "Company",
+  label: "شرکت",
+  isVisible: {
+    list: false,
+    show: true,
+    edit: true,
+    filter: false,
+  },
+};
+
+const enrichIndustryInsightRecords = async (records = []) => {
   if (!records?.length) {
     return;
   }
@@ -1228,14 +3623,43 @@ const enrichIndustryInsightRecords = async (records) => {
     }
   }
 
+  const idsMissingInsightData = records
+    .filter((record) => {
+      const raw = record?.params?.insightData;
+      return raw == null || raw === "";
+    })
+    .map((record) => record.params?.id)
+    .filter(Boolean);
+
+  const insightDataById = Object.create(null);
+
+  if (idsMissingInsightData.length > 0) {
+    const rows = await prisma.industryInsight.findMany({
+      where: { id: { in: idsMissingInsightData } },
+      select: { id: true, insightData: true },
+    });
+
+    for (const row of rows) {
+      insightDataById[row.id] = row.insightData;
+    }
+  }
+
   for (const record of records) {
     const industry = record.params.industryName?.trim();
     const names = industry ? (companiesByIndustry[industry] ?? []) : [];
 
     record.params.relatedCompanies = names.join("، ") || "—";
-    record.params.insightDataText = formatJsonForDisplay(
-      record.params.insightData,
-    );
+
+    let insightData = record.params.insightData;
+
+    if ((insightData == null || insightData === "") && record.params.id) {
+      insightData = insightDataById[record.params.id] ?? insightData;
+      if (insightData != null) {
+        record.params.insightData = insightData;
+      }
+    }
+
+    record.params.insightDataText = formatJsonForDisplay(insightData);
   }
 };
 
@@ -1311,6 +3735,7 @@ export const companyInsightResource = prismaResource("CompanyInsight", {
     },
 
     suggestedAnalyses: {
+      type: "mixed",
       isVisible: {
         list: false,
         filter: false,
@@ -1393,12 +3818,13 @@ export const companyInsightResource = prismaResource("CompanyInsight", {
       },
 
       after: async (response, request) => {
-        if (request.method === "get" && response.record) {
-          await enrichRecordsWithCompanyName([response.record]);
-
-          response.record.params.suggestedAnalysesText = formatJsonForDisplay(
-            response.record.params.suggestedAnalyses,
-          );
+        if (
+          request.method?.toLowerCase() === "get" &&
+          response?.record
+        ) {
+          await enrichCompanyInsightRecords([response.record], {
+            asJsonText: true,
+          });
         }
 
         return response;
@@ -1440,7 +3866,7 @@ export const companyInsightResource = prismaResource("CompanyInsight", {
     },
     list: {
       after: async (response) => {
-        await enrichRecordsWithCompanyName(response.records);
+        await enrichCompanyInsightRecords(response.records ?? []);
         return response;
       },
     },
@@ -1450,12 +3876,7 @@ export const companyInsightResource = prismaResource("CompanyInsight", {
           return response;
         }
 
-        await enrichRecordsWithCompanyName([response.record]);
-
-        response.record.params.suggestedAnalysesText = formatJsonForDisplay(
-          response.record.params.suggestedAnalyses,
-        );
-
+        await enrichCompanyInsightRecords([response.record]);
         return response;
       },
     },
@@ -1477,13 +3898,24 @@ export const industryInsightResource = prismaResource("IndustryInsight", {
       },
     },
 
+    company: {
+      reference: "Company",
+      label: "شرکت",
+      isVisible: {
+        list: false,
+        filter: true,
+        show: false,
+        edit: false,
+      },
+    },
+
     title: {
       label: "عنوان",
       isVisible: {
-        list: true,
-        filter: true,
-        show: true,
-        edit: true,
+        list: false,
+        filter: false,
+        show: false,
+        edit: false,
       },
     },
 
@@ -1515,6 +3947,7 @@ export const industryInsightResource = prismaResource("IndustryInsight", {
     },
 
     insightData: {
+      type: "mixed",
       isVisible: {
         list: false,
         filter: false,
@@ -1528,18 +3961,18 @@ export const industryInsightResource = prismaResource("IndustryInsight", {
       isVisible: {
         list: false,
         filter: false,
-        show: true,
-        edit: true,
+        show: false,
+        edit: false,
       },
     },
 
     fetchedAt: {
       label: "تاریخ دریافت",
       isVisible: {
-        list: true,
-        filter: true,
-        show: true,
-        edit: true,
+        list: false,
+        filter: false,
+        show: false,
+        edit: false,
       },
     },
 
@@ -1556,30 +3989,22 @@ export const industryInsightResource = prismaResource("IndustryInsight", {
   listProperties: [
     "id",
     "industryName",
-    "title",
     "relatedCompanies",
-    "fetchedAt",
     "createdAt",
   ],
   showProperties: [
     "id",
     "industryName",
-    "title",
     "relatedCompanies",
     "insightDataText",
-    "source",
-    "fetchedAt",
     "createdAt",
   ],
-  filterProperties: ["industryName", "title", "fetchedAt", "createdAt"],
+  filterProperties: ["company", "industryName", "createdAt"],
   editProperties: [
     "id",
     "industryName",
-    "title",
     "relatedCompanies",
     "insightDataText",
-    "source",
-    "fetchedAt",
     "createdAt",
   ],
 
@@ -1607,7 +4032,10 @@ export const industryInsightResource = prismaResource("IndustryInsight", {
       },
 
       after: async (response, request) => {
-        if (request.method === "get" && response.record) {
+        if (
+          request.method?.toLowerCase() === "get" &&
+          response?.record
+        ) {
           await enrichIndustryInsightRecords([response.record]);
         }
 
@@ -1615,8 +4043,9 @@ export const industryInsightResource = prismaResource("IndustryInsight", {
       },
     },
     list: {
+      before: applyIndustryInsightCompanyFilter,
       after: async (response) => {
-        await enrichIndustryInsightRecords(response.records);
+        await enrichIndustryInsightRecords(response.records ?? []);
         return response;
       },
     },
@@ -1633,12 +4062,114 @@ export const industryInsightResource = prismaResource("IndustryInsight", {
   },
 });
 
+const getCompanyBasicInfoTypeLabel = (params = {}) => {
+  if (params.isHolding) {
+    return (
+      COMPANY_TYPES.find((item) => item.value === "HOLDING")?.label ?? "هلدینگ"
+    );
+  }
+
+  if (params.isHoldingSubsidiary) {
+    return (
+      COMPANY_TYPES.find((item) => item.value === "HOLDING_SUBSIDIARY")?.label ??
+      "زیرمجموعه هلدینگ"
+    );
+  }
+
+  if (params.isPublicCompany) {
+    return (
+      COMPANY_TYPES.find((item) => item.value === "PUBLIC_COMPANY")?.label ??
+      "شرکت بورسی"
+    );
+  }
+
+  return "—";
+};
+
+const enrichCompanyBasicInfoRecords = (records = []) => {
+  for (const record of records) {
+    record.params.companyTypeLabel = getCompanyBasicInfoTypeLabel(
+      record.params,
+    );
+  }
+};
+
 export const companyBasicInfoResource = prismaResource("CompanyBasicInfo", {
   navigation: companyProfileNavigation,
 
+  listProperties: [
+    "company",
+    "brandTitle",
+    "knownAs",
+    "nationalId",
+    "companyTypeLabel",
+    "establishmentYear",
+    "region",
+  ],
+
+  filterProperties: [
+    "companyId",
+    "brandTitle",
+    "knownAs",
+    "nationalId",
+    "region",
+  ],
+
   properties: {
-    companyId: {
-      reference: "Company",
+    id: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    companyId: companyProfileCompanyFilterProperty,
+
+    company: companyProfileCompanyListProperty,
+
+    companyTypeLabel: {
+      type: "string",
+      isVirtual: true,
+      label: "نوع شرکت",
+      isVisible: {
+        list: true,
+        filter: false,
+        show: true,
+        edit: false,
+        new: false,
+      },
+    },
+
+    brandTitle: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    knownAs: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    nationalId: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    establishmentYear: {
       isVisible: {
         list: true,
         filter: false,
@@ -1646,80 +4177,296 @@ export const companyBasicInfoResource = prismaResource("CompanyBasicInfo", {
         edit: true,
       },
     },
-    companyType: {
-      availableValues: COMPANY_TYPES,
-    },
 
     region: {
       availableValues: ACTIVITY_SCOPE,
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
     },
   },
 
   actions: {
     ...companyBasicInfoActions,
+    list: {
+      after: async (response) =>
+        companyProfileCompanyListAfter(response, enrichCompanyBasicInfoRecords),
+    },
+    show: {
+      after: async (response) => {
+        if (response?.record) {
+          enrichCompanyBasicInfoRecords([response.record]);
+        }
+        return response;
+      },
+    },
   },
 });
 
 export const companyManagerResource = prismaResource("CompanyManager", {
   navigation: companyProfileNavigation,
 
+  listProperties: [
+    "company",
+    "fullName",
+    "positionTitle",
+    "isBoardMember",
+    "isStrategyTeamMember",
+    "companyWorkExperience",
+    "totalWorkExperience",
+  ],
+
+  newProperties: [
+    "companyId",
+    "fullName",
+    "positionTitle",
+    "isBoardMember",
+    "isStrategyTeamMember",
+    "companyWorkExperience",
+    "totalWorkExperience",
+    "resumeFileId",
+  ],
+
+  editProperties: [
+    "companyId",
+    "fullName",
+    "positionTitle",
+    "isBoardMember",
+    "isStrategyTeamMember",
+    "companyWorkExperience",
+    "totalWorkExperience",
+    "resumeFileId",
+  ],
+
+  filterProperties: [
+    "companyId",
+    "fullName",
+    "positionTitle",
+    "isBoardMember",
+    "isStrategyTeamMember",
+    "companyWorkExperience",
+    "totalWorkExperience",
+  ],
+
   properties: {
-    companyId: {
-      reference: "Company",
+    id: {
       isVisible: {
-        list: true,
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    companyId: companyProfileCompanyFilterProperty,
+
+    company: companyProfileCompanyListProperty,
+
+    resumeFileId: {
+      reference: "FileAttachment",
+      label: "رزومه",
+      isVisible: {
+        list: false,
         filter: false,
         show: true,
         edit: true,
       },
     },
 
-    resumeFileId: {
+    resumeFile: {
       reference: "FileAttachment",
       isVisible: {
-        list: true,
+        list: false,
         filter: false,
+        show: false,
+        edit: false,
+      },
+    },
+
+    fullName: {
+      isVisible: {
+        list: true,
+        filter: true,
         show: true,
         edit: true,
+      },
+    },
+
+    positionTitle: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    isBoardMember: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    isStrategyTeamMember: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    companyWorkExperience: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    totalWorkExperience: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    sortOrder: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: false,
+        edit: false,
+        new: false,
       },
     },
   },
 
   actions: {
     ...companyManagerActions,
+    list: {
+      after: companyProfileCompanyListAfter,
+    },
   },
 });
 
 export const organizationUnitResource = prismaResource("OrganizationUnit", {
   navigation: companyProfileNavigation,
 
+  listProperties: [
+    "company",
+    "unitName",
+    "structureLevel",
+    "isRevenueCenter",
+    "managerName",
+    "employeeCount",
+  ],
+
+  filterProperties: [
+    "companyId",
+    "unitName",
+    "structureLevel",
+    "isRevenueCenter",
+    "managerName",
+    "employeeCount",
+  ],
+
   properties: {
-    companyId: {
-      reference: "Company",
+    id: {
       isVisible: {
-        list: true,
-        show: true,
-        edit: true,
+        list: false,
         filter: false,
+        show: true,
+        edit: false,
       },
     },
 
+    companyId: companyProfileCompanyFilterProperty,
+
+    company: companyProfileCompanyListProperty,
+
     structureFileId: {
       reference: "FileAttachment",
+      label: "فایل ساختار",
       isVisible: {
-        list: true,
+        list: false,
+        filter: false,
         show: true,
         edit: true,
-        filter: false,
       },
     },
+
+    structureFile: {
+      reference: "FileAttachment",
+      isVisible: {
+        list: false,
+        filter: false,
+        show: false,
+        edit: false,
+      },
+    },
+
+    unitName: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
     structureLevel: {
       availableValues: ORG_STRUCTURE_LEVELS,
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    isRevenueCenter: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    managerName: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    employeeCount: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
     },
   },
 
   actions: {
     ...organizationUnitActions,
+    list: {
+      after: companyProfileCompanyListAfter,
+    },
   },
 });
 
@@ -1729,23 +4476,24 @@ export const companyLicenseCertificateResource = prismaResource(
     navigation: companyProfileNavigation,
 
     properties: {
-      companyId: {
-        reference: "Company",
+      companyId: companyIdShowEditOnlyProperty,
+
+      attachmentFileId: {
+        reference: "FileAttachment",
         isVisible: {
-          list: true,
+          list: false,
           show: true,
           edit: true,
           filter: false,
         },
       },
 
-      attachmentFileId: {
-        reference: "FileAttachment",
+      attachmentFile: {
         isVisible: {
-          list: true,
-          show: true,
-          edit: true,
+          list: false,
           filter: false,
+          show: true,
+          edit: false,
         },
       },
     },
@@ -1762,29 +4510,46 @@ export const companyBalanceSheetResource = prismaResource(
     navigation: companyProfileNavigation,
 
     properties: {
-      companyId: {
-        reference: "Company",
-        isVisible: {
-          list: true,
-          show: true,
-          edit: true,
-          filter: false,
-        },
-      },
+      companyId: companyIdShowEditOnlyProperty,
 
       balanceFileId: {
         reference: "FileAttachment",
         isVisible: {
-          list: true,
+          list: false,
           show: true,
           edit: true,
           filter: false,
         },
       },
 
-      balanceSheetAnalysisInput: {
+      balanceFile: {
+        isVisible: {
+          list: false,
+          filter: false,
+          show: true,
+          edit: false,
+        },
+      },
+
+      balanceSheet: {
         type: "textarea",
         label: "ورودی تحلیل ترازنامه",
+        isVisible: {
+          list: false,
+          filter: false,
+          show: true,
+          edit: true,
+        },
+      },
+
+      sortOrder: {
+        isVisible: {
+          list: false,
+          filter: false,
+          show: true,
+          edit: false,
+          new: false,
+        },
       },
     },
 
@@ -1800,29 +4565,46 @@ export const companyIncomeStatementResource = prismaResource(
     navigation: companyProfileNavigation,
 
     properties: {
-      companyId: {
-        reference: "Company",
+      companyId: companyIdShowEditOnlyProperty,
+
+      incomeFileId: {
+        reference: "FileAttachment",
         isVisible: {
-          list: true,
+          list: false,
           show: true,
           edit: true,
           filter: false,
         },
       },
 
-      incomeFileId: {
-        reference: "FileAttachment",
+      incomeFile: {
         isVisible: {
-          list: true,
-          show: true,
-          edit: true,
+          list: false,
           filter: false,
+          show: true,
+          edit: false,
         },
       },
 
       incomeStatement: {
         type: "textarea",
         label: "ورودی تحلیل صورت سود و زیان",
+        isVisible: {
+          list: false,
+          filter: false,
+          show: true,
+          edit: true,
+        },
+      },
+
+      sortOrder: {
+        isVisible: {
+          list: false,
+          filter: false,
+          show: true,
+          edit: false,
+          new: false,
+        },
       },
     },
 
@@ -1835,20 +4617,117 @@ export const companyIncomeStatementResource = prismaResource(
 export const revenueCenterResource = prismaResource("RevenueCenter", {
   navigation: companyProfileNavigation,
 
+  listProperties: [
+    "company",
+    "title",
+    "activityYearsCount",
+    "totalRevenueSharePercent",
+    "lastYearEstimatedRevenue",
+    "personnelCount",
+  ],
+
+  newProperties: [
+    "companyId",
+    "title",
+    "activityYearsCount",
+    "totalRevenueSharePercent",
+    "lastYearEstimatedRevenue",
+    "personnelCount",
+  ],
+
+  editProperties: [
+    "companyId",
+    "title",
+    "activityYearsCount",
+    "totalRevenueSharePercent",
+    "lastYearEstimatedRevenue",
+    "personnelCount",
+  ],
+
+  filterProperties: [
+    "companyId",
+    "title",
+    "activityYearsCount",
+    "totalRevenueSharePercent",
+    "lastYearEstimatedRevenue",
+    "personnelCount",
+  ],
+
   properties: {
-    companyId: {
-      reference: "Company",
+    id: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+      },
+    },
+
+    companyId: companyProfileCompanyFilterProperty,
+
+    company: companyProfileCompanyListProperty,
+
+    title: {
       isVisible: {
         list: true,
+        filter: true,
         show: true,
         edit: true,
+      },
+    },
+
+    activityYearsCount: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    totalRevenueSharePercent: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    lastYearEstimatedRevenue: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    personnelCount: {
+      isVisible: {
+        list: true,
+        filter: true,
+        show: true,
+        edit: true,
+      },
+    },
+
+    sortOrder: {
+      isVisible: {
+        list: false,
         filter: false,
+        show: false,
+        edit: false,
+        new: false,
       },
     },
   },
 
   actions: {
     ...revenueCenterActions,
+    list: {
+      after: companyProfileCompanyListAfter,
+    },
   },
 });
 
@@ -1856,15 +4735,7 @@ export const companyShareholderResource = prismaResource("CompanyShareholder", {
   navigation: companyProfileNavigation,
 
   properties: {
-    companyId: {
-      reference: "Company",
-      isVisible: {
-        list: true,
-        show: true,
-        edit: true,
-        filter: false,
-      },
-    },
+    companyId: companyIdShowEditOnlyProperty,
     shareholderType: {
       availableValues: SHAREHOLDER_TYPES_COMPANY,
     },
@@ -1879,15 +4750,7 @@ export const companyMembershipResource = prismaResource("CompanyMembership", {
   navigation: companyProfileNavigation,
 
   properties: {
-    companyId: {
-      reference: "Company",
-      isVisible: {
-        list: true,
-        show: true,
-        edit: true,
-        filter: false,
-      },
-    },
+    companyId: companyIdShowEditOnlyProperty,
   },
 
   actions: {
@@ -1901,15 +4764,7 @@ export const companyProductServiceResource = prismaResource(
     navigation: companyProfileNavigation,
 
     properties: {
-      companyId: {
-        reference: "Company",
-        isVisible: {
-          list: true,
-          show: true,
-          edit: true,
-          filter: false,
-        },
-      },
+      companyId: companyIdShowEditOnlyProperty,
       revenueCenter: {
         availableValues: revenueCenters,
       },
@@ -1925,6 +4780,15 @@ export const companyProductServiceResource = prismaResource(
       marketPosition: {
         availableValues: marketPositions,
       },
+
+      sortOrder: {
+        isVisible: {
+          filter: false,
+          show: true,
+          edit: false,
+          new: false,
+        },
+      },
     },
 
     actions: {
@@ -1937,15 +4801,7 @@ export const companyMarketResource = prismaResource("CompanyMarket", {
   navigation: companyProfileNavigation,
 
   properties: {
-    companyId: {
-      reference: "Company",
-      isVisible: {
-        list: true,
-        show: true,
-        edit: true,
-        filter: false,
-      },
-    },
+    companyId: companyIdShowEditOnlyProperty,
 
     marketType: {
       availableValues: marketTypes,
@@ -1959,6 +4815,15 @@ export const companyMarketResource = prismaResource("CompanyMarket", {
       type: "textarea",
       description:
         "هر محصول یا خدمت را در یک خط وارد کنید. مثال:\nProduct 1\nProduct 2\nProduct 3",
+    },
+
+    sortOrder: {
+      isVisible: {
+        filter: false,
+        show: true,
+        edit: false,
+        new: false,
+      },
     },
   },
 
@@ -2001,15 +4866,7 @@ export const keyCustomerResource = prismaResource("KeyCustomer", {
   navigation: companyProfileNavigation,
 
   properties: {
-    companyId: {
-      reference: "Company",
-      isVisible: {
-        list: true,
-        show: true,
-        edit: true,
-        filter: false,
-      },
-    },
+    companyId: companyIdShowEditOnlyProperty,
     category: {
       availableValues: customerCategories,
     },
@@ -2025,6 +4882,16 @@ export const keyCustomerResource = prismaResource("KeyCustomer", {
     walletShareLevel: {
       availableValues: shareOfWallet,
     },
+
+    sortOrder: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+        new: false,
+      },
+    },
   },
 
   actions: {
@@ -2038,15 +4905,7 @@ export const companyResourceCapabilityResource = prismaResource(
     navigation: companyProfileNavigation,
 
     properties: {
-      companyId: {
-        reference: "Company",
-        isVisible: {
-          list: true,
-          show: true,
-          edit: true,
-          filter: false,
-        },
-      },
+      companyId: companyIdShowEditOnlyProperty,
       category: {
         availableValues: categoryOptions,
       },
@@ -2057,6 +4916,16 @@ export const companyResourceCapabilityResource = prismaResource(
 
       inimitabilityLevel: {
         availableValues: imitabilityOptions,
+      },
+
+      sortOrder: {
+        isVisible: {
+          list: false,
+          filter: false,
+          show: true,
+          edit: false,
+          new: false,
+        },
       },
     },
 
@@ -2070,18 +4939,29 @@ export const companySupplierResource = prismaResource("CompanySupplier", {
   navigation: companyProfileNavigation,
 
   properties: {
-    companyId: {
-      reference: "Company",
-      isVisible: {
-        list: true,
-        show: true,
-        edit: true,
-        filter: false,
-      },
-    },
+    companyId: companyIdShowEditOnlyProperty,
 
     bargainingPower: {
       availableValues: BARGAINING_POWER,
+    },
+
+    description: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: true,
+      },
+    },
+
+    sortOrder: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+        new: false,
+      },
     },
   },
 
@@ -2094,15 +4974,7 @@ export const companyRawMaterialResource = prismaResource("CompanyRawMaterial", {
   navigation: companyProfileNavigation,
 
   properties: {
-    companyId: {
-      reference: "Company",
-      isVisible: {
-        list: true,
-        show: true,
-        edit: true,
-        filter: false,
-      },
-    },
+    companyId: companyIdShowEditOnlyProperty,
 
     costImpactLevel: {
       availableValues: COST_IMPACT_LEVELS,
@@ -2114,6 +4986,22 @@ export const companyRawMaterialResource = prismaResource("CompanyRawMaterial", {
 
     category: {
       availableValues: PROCUREMENT_CATEGORIES,
+    },
+
+    description: {
+      isVisible: {
+        filter: false,
+      },
+    },
+
+    sortOrder: {
+      isVisible: {
+        list: false,
+        filter: false,
+        show: true,
+        edit: false,
+        new: false,
+      },
     },
   },
 
@@ -2482,7 +5370,12 @@ const fileAttachmentResource = {
   ],
 };
 
-const admin = new AdminJS({
+let admin;
+
+async function createAdmin() {
+  await loadFormQuestionAnalysisTitleFilterOptions();
+
+  admin = new AdminJS({
   rootPath: ADMIN_ROOT_PATH,
   componentLoader,
   branding: {
@@ -2493,65 +5386,157 @@ const admin = new AdminJS({
 
   locale: {
     language: "fa",
+    availableLanguages: ["fa"],
     translations: {
-      labels: {
-        ProjectComment: "کامنت ها",
-        User: "کاربران",
+      fa: {
+        labels: {
+        AnalysisCategory: "دسته‌بندی تحلیل‌ها",
+        AnalysisForm: "تحلیل های تکی",
+        AnalysisFormProfileField: "فیلدهای ورودی پروفایل (تحلیل تکی)",
+        ChatMessage: "پیام‌های چت",
         Company: "شرکت‌ها",
+        CompanyAdminData: "داده‌های ادمین شرکت",
         CompanyAnalysisTierConfig: "طبقه‌های تحلیل شرکت",
         CompanyAnalysisTierItem: "تحلیل‌های هر طبقه",
-        tierLabel: "طبقه",
-        tierSelection: "طبقه",
-        Project: "پروژه‌ها",
-        AnalysisForm: "فرم‌های تحلیل",
-        FormQuestion: "سوالات فرم تحلیل",
-        FormGoal: "اهداف فرم تحلیل",
-        ProjectGoal: "اهداف پروژه",
-        ChatMessage: "پیام‌های چت",
-        Notification: "اعلان‌ها",
-        RefreshToken: "رفرش توکن‌ها",
-        ProjectAccess: "دسترسی پروژه",
-        ProfileViewAccess: "دسترسی مشاهده پروفایل",
-        CompanyAdminData: "داده‌های ادمین شرکت",
-        ProjectRatingHistory: "امتیازدهی پروژه",
-        MultiAnalysisForm: "فرم تحلیل چندگانه",
-        MultiAnalysisRequiredForm: "فرم‌های موردنیاز تحلیل چندگانه",
-        MultiAnalysisGoal: "اهداف تحلیل چندگانه",
-        ProjectMultiGoal: "اهداف چندگانه پروژه",
-        MultiAnalysisProjectSource: "منابع پروژه چندگانه",
+        CompanyBalanceSheet: "ترازنامه",
+        CompanyBasicInfo: "اطلاعات پایه شرکت",
+        CompanyIncomeStatement: "صورت سود و زیان",
+        CompanyInsight: "بینش شرکت",
+        CompanyLicenseCertificate: "مجوزها و گواهینامه‌ها",
+        CompanyManager: "مدیران شرکت",
+        CompanyMarket: "بازارها",
+        CompanyMembership: "عضویت‌ها",
+        CompanyProductService: "محصولات و خدمات",
+        CompanyRawMaterial: "مواد اولیه",
+        CompanyResourceCapability: "قابلیت‌های منابع",
+        CompanyShareholder: "سهامداران",
+        CompanySupplier: "تأمین‌کنندگان",
+        FeaturedAnalysis: "تحلیل های منتخب در داشبورد",
+        FileAttachment: "فایل‌های پیوست",
         FollowUpForm: "فرم‌های پیگیری",
         FollowUpFormQuestion: "سوالات فرم پیگیری",
         FollowUpRequest: "درخواست‌های پیگیری",
+        FormGoal: "اهداف تحلیل تکی",
+        FormQuestion: "متن سوالات",
+        FormQuestionCategory: "دسته‌بندی سوالات",
+        FormQuestionOption: "گزینه‌های سوال",
+        IndustryInsight: "بینش صنعت",
+        KeyCustomer: "مشتریان کلیدی",
+        MultiAnalysisForm: "تحلیل های صفر تاصد",
+        MultiAnalysisFormProfileField: "فیلدهای ورودی پروفایل (تحلیل صفر تاصد)",
+        MultiAnalysisGoal: "اهداف تحلیل صفرتاصد",
+        MultiAnalysisProjectSource: "منابع پروژه چندگانه",
+        MultiAnalysisRequiredForm: "پروژه های ورودی موردنیاز تحلیل ها",
+        Notification: "اعلان‌ها",
+        OrganizationUnit: "ساختار سازمانی",
+        ProfileViewAccess: "دسترسی مشاهده پروفایل",
+        Project: "پروژه‌ها",
+        ProjectAccess: "دسترسی پروژه",
+        ProjectComment: "کامنت‌ها",
+        ProjectGoal: "اهداف پروژه",
+        ProjectMultiGoal: "اهداف چندگانه پروژه",
+        ProjectPlan: "برنامه پروژه",
+        ProjectPlanAction: "اقدامات برنامه پروژه",
+        ProjectRatingHistory: "امتیازدهی پروژه",
         PromptDefinition: "تعریف پرامپت",
         PromptSegmentDefinition: "سگمنت‌های پرامپت",
         PromptVersion: "نسخه‌های پرامپت",
         PromptVersionSegmentValue: "مقادیر سگمنت نسخه پرامپت",
+        RefreshToken: "رفرش توکن‌ها",
+        RevenueCenter: "مراکز درآمد",
+        StrategyAiRun: "اجرای هوش مصنوعی پایش",
+        StrategyApproval: "تأییدهای پایش",
+        StrategyMap: "نقشه پایش",
+        StrategyMeasure: "شاخص‌های پایش",
+        StrategyMeasureMeasurement: "اندازه‌گیری شاخص",
+        StrategyMeasureTarget: "اهداف شاخص",
+        StrategyObjective: "اهداف پایش",
+        StrategyObjectiveRelation: "ارتباط اهداف",
+        StrategyPlan: "برنامه پایش",
+        User: "کاربران",
+        UserCompetency: "شایستگی‌های کاربر",
+        UserEducation: "تحصیلات کاربر",
+        UserInfo: "اطلاعات کاربر",
+        UserTrainingCourse: "دوره‌های آموزشی کاربر",
+        tierLabel: "طبقه",
+        tierSelection: "طبقه",
+        navigation: "ناوبری",
       },
-      buttons: {
-        save: "ذخیره",
-        addNewItem: "افزودن",
-        filter: "فیلتر",
-        applyChanges: "اعمال تغییرات",
-        resetFilter: "حذف فیلتر",
-        confirmRemovalMany: "تایید حذف",
-        confirmRemovalMany_plural: "تایید حذف",
-        logout: "خروج",
-        login: "ورود",
-      },
-      actions: {
-        new: "ایجاد",
-        edit: "ویرایش",
-        show: "نمایش",
-        delete: "حذف",
-        bulkDelete: "حذف گروهی",
-        list: "لیست",
-      },
-      messages: {
-        successfullyBulkDeleted: "موارد انتخاب‌شده با موفقیت حذف شدند",
-        successfullyBulkDeleted_plural: "موارد انتخاب‌شده با موفقیت حذف شدند",
-        successfullyDeleted: "با موفقیت حذف شد",
-        successfullyUpdated: "با موفقیت ویرایش شد",
-        successfullyCreated: "با موفقیت ایجاد شد",
+        resources: {
+          FormGoal: {
+            properties: {
+              analysisForm: "analysisForm",
+              form: "analysisForm",
+              formId: "analysisForm",
+              title: "goal title",
+            },
+          },
+          MultiAnalysisRequiredForm: {
+            properties: {
+              multiAnalysisForm: "Multi Analysis",
+              form: "Required single analysis",
+              requiredMultiAnalysisForm: "Required Multi Analysis",
+            },
+          },
+          MultiAnalysisGoal: {
+            properties: {
+              multiAnalysisFormTitle: "Multi Analysis",
+              multiAnalysisForm: "Multi Analysis",
+              multiAnalysisFormId: "Multi Analysis",
+              title: "goal title",
+            },
+          },
+          AnalysisFormProfileField: {
+            properties: {
+              form: "analysis title",
+            },
+          },
+          MultiAnalysisFormProfileField: {
+            properties: {
+              multiAnalysisForm: "Multi Analysis",
+            },
+          },
+          FormQuestionCategory: {
+            properties: {
+              formTitle: "analysis title",
+              analysisForm: "analysis title",
+              analysisFormId: "analysis title",
+              multiAnalysisForm: "Multi Analysis title",
+              multiAnalysisFormId: "Multi Analysis title",
+            },
+          },
+          FormQuestion: {
+            properties: {
+              formTitle: "analysis title",
+            },
+          },
+        },
+        buttons: {
+          save: "ذخیره",
+          addNewItem: "افزودن",
+          filter: "فیلتر",
+          applyChanges: "اعمال تغییرات",
+          resetFilter: "حذف فیلتر",
+          confirmRemovalMany: "تایید حذف",
+          confirmRemovalMany_plural: "تایید حذف",
+          logout: "خروج",
+          login: "ورود",
+        },
+        actions: {
+          new: "ایجاد",
+          edit: "ویرایش",
+          show: "نمایش",
+          delete: "حذف",
+          bulkDelete: "حذف گروهی",
+          list: "لیست",
+        },
+        messages: {
+          successfullyBulkDeleted: "موارد انتخاب‌شده با موفقیت حذف شدند",
+          successfullyBulkDeleted_plural: "موارد انتخاب‌شده با موفقیت حذف شدند",
+          successfullyDeleted: "با موفقیت حذف شد",
+          successfullyUpdated: "با موفقیت ویرایش شد",
+          successfullyCreated: "با موفقیت ایجاد شد",
+        },
       },
     },
   },
@@ -2582,7 +5567,7 @@ const admin = new AdminJS({
         "industry",
         "userLimit",
         "chatMessageLimit",
-        "monitoringUnlockedAt",
+        // "monitoringUnlockedAt",
         "createdAt",
       ],
 
@@ -2609,21 +5594,28 @@ const admin = new AdminJS({
           actionType: "record",
           icon: "Brain",
           label: "دریافت تحلیل AI",
-
-          component: false,
+          component: Components.AsyncRecordActionLoader,
 
           handler: async (request, response, context) => {
-            await syncCompanyInsightService(context.record.params.id);
+            const { record, h, currentAdmin } = context;
+
+            if (request.method?.toLowerCase() === "get") {
+              return {
+                record: record.toJSON(currentAdmin),
+              };
+            }
+
+            await syncCompanyInsightService(record.params.id);
 
             return {
-              record: context.record.toJSON(),
+              record: record.toJSON(currentAdmin),
               notice: {
                 message: "تحلیل ساخته شد",
                 type: "success",
               },
-              redirectUrl: context.h.recordActionUrl({
+              redirectUrl: h.recordActionUrl({
                 resourceId: "Company",
-                recordId: context.record.id(),
+                recordId: record.id(),
                 actionName: "show",
               }),
             };
@@ -2634,20 +5626,34 @@ const admin = new AdminJS({
           actionType: "record",
           icon: "Activity",
           label: "دریافت تحلیل صنعت",
-          component: false,
+          component: Components.AsyncRecordActionLoader,
 
           handler: async (request, response, context) => {
-            await syncIndustryInsightService(context.record.params.id);
+            const { record, h, currentAdmin } = context;
+
+            if (request.method?.toLowerCase() === "get") {
+              return {
+                record: record.toJSON(currentAdmin),
+              };
+            }
+
+            const result = await syncIndustryInsightService(record.params.id);
 
             return {
-              record: context.record.toJSON(),
-              notice: {
-                message: "تحلیل صنعت با موفقیت دریافت شد.",
-                type: "success",
-              },
-              redirectUrl: context.h.recordActionUrl({
+              record: record.toJSON(currentAdmin),
+              notice: result
+                ? {
+                    message: "تحلیل صنعت با موفقیت دریافت شد.",
+                    type: "success",
+                  }
+                : {
+                    message:
+                      "دریافت تحلیل صنعت ناموفق بود. لاگ سرور را بررسی کنید.",
+                    type: "error",
+                  },
+              redirectUrl: h.recordActionUrl({
                 resourceId: "Company",
-                recordId: context.record.id(),
+                recordId: record.id(),
                 actionName: "show",
               }),
             };
@@ -2909,8 +5915,7 @@ const admin = new AdminJS({
             const firstProperty = listProperties.find((p) => p.isSortable());
             let sort;
             if (firstProperty) {
-              const { default: sortSetter } =
-                await import("adminjs/lib/backend/services/sort-setter/sort-setter.js");
+              const sortSetter = await getAdminJsSortSetter();
               sort = sortSetter(
                 { sortBy, direction },
                 firstProperty.name(),
@@ -2921,7 +5926,6 @@ const admin = new AdminJS({
             const filter = await new Filter(filters, resource).populate(
               context,
             );
-            const baseResource = resource.decorate().resource;
             const where = {
               ...convertFilter(
                 getModelByName("CompanyAnalysisTierItem").fields,
@@ -2930,7 +5934,7 @@ const admin = new AdminJS({
               configId: { in: configIds },
             };
 
-            const orderBy = baseResource.buildSortBy(sort);
+            const orderBy = resource.buildSortBy(sort);
             const [results, total] = await Promise.all([
               prisma.companyAnalysisTierItem.findMany({
                 where,
@@ -2941,10 +5945,9 @@ const admin = new AdminJS({
               prisma.companyAnalysisTierItem.count({ where }),
             ]);
 
-            const { default: populator } =
-              await import("adminjs/lib/backend/utils/populator/populator.js");
+            const populator = await getAdminJsPopulator();
             const records = results.map((result) =>
-              baseResource.build(baseResource.prepareReturnValues(result)),
+              resource.build(resource.prepareReturnValues(result)),
             );
             const populatedRecords = await populator(records, context);
             context.records = populatedRecords;
@@ -2990,28 +5993,21 @@ const admin = new AdminJS({
         },
         edit: {
           before: async (request, context) => {
-            if (request.method?.toLowerCase() === "get" && context.record) {
-              const configId = context.record.params.config;
-              if (configId) {
-                const config =
-                  await prisma.companyAnalysisTierConfig.findUnique({
-                    where: { id: configId },
-                    select: { tier: true },
-                  });
-                request.payload = {
-                  ...(request.payload || {}),
-                  tierSelection: config?.tier,
-                };
-              }
-
-              return request;
-            }
-
             if (request.method?.toLowerCase() !== "post") {
               return request;
             }
 
             return prepareCompanyAnalysisTierItemPayload(request, context);
+          },
+          after: async (response, request) => {
+            if (
+              request.method?.toLowerCase() === "get" &&
+              response?.record
+            ) {
+              await enrichCompanyAnalysisTierItemRecords([response.record]);
+            }
+
+            return response;
           },
         },
       },
@@ -3054,26 +6050,29 @@ const admin = new AdminJS({
           },
         },
 
-        user: {
-          reference: "User",
-          isVisible: {
-            list: false,
-            filter: true,
-            show: false,
-            edit: false,
-          },
-        },
         project: {
           reference: "Project",
+          label: "پروژه",
           isVisible: {
             list: false,
             filter: true,
             show: false,
-            edit: false,
+            edit: true,
+          },
+        },
+        user: {
+          reference: "User",
+          label: "کاربر",
+          isVisible: {
+            list: false,
+            filter: true,
+            show: false,
+            edit: true,
           },
         },
         content: {
           type: "textarea",
+          label: "متن کامنت",
           isVisible: {
             list: false,
             filter: false,
@@ -3083,11 +6082,27 @@ const admin = new AdminJS({
         },
 
         projectId: {
-          isVisible: false,
+          reference: "Project",
+          label: "پروژه",
+          isVisible: {
+            list: false,
+            filter: false,
+            show: true,
+            edit: false,
+            new: false,
+          },
         },
 
         userId: {
-          isVisible: false,
+          reference: "User",
+          label: "کاربر",
+          isVisible: {
+            list: false,
+            filter: false,
+            show: true,
+            edit: false,
+            new: false,
+          },
         },
 
         projectName: {
@@ -3148,6 +6163,83 @@ const admin = new AdminJS({
 
       filterProperties: ["user", "project", "createdAt", "updatedAt"],
       actions: {
+        new: {
+          layout: ["project", "user", "content"],
+          handler: async (request, response, context) => {
+            const { resource, h, currentAdmin } = context;
+
+            if (request.method?.toLowerCase() !== "post") {
+              return {
+                record: resource.build({}),
+              };
+            }
+
+            const payload = request.payload ?? {};
+            const projectId = normalizeAdminReferenceId(
+              payload.projectId ?? payload.project,
+            );
+            const userId = normalizeAdminReferenceId(
+              payload.userId ?? payload.user,
+            );
+            const content =
+              typeof payload.content === "string"
+                ? payload.content.trim()
+                : "";
+
+            const propertyErrors = {};
+
+            if (!projectId) {
+              propertyErrors.project = {
+                message: "انتخاب پروژه الزامی است",
+              };
+            }
+
+            if (!userId) {
+              propertyErrors.user = {
+                message: "انتخاب کاربر الزامی است",
+              };
+            }
+
+            if (!content) {
+              propertyErrors.content = {
+                message: "متن کامنت الزامی است",
+              };
+            }
+
+            if (Object.keys(propertyErrors).length > 0) {
+              const record = resource.build(payload);
+              return {
+                record: {
+                  ...record.toJSON(currentAdmin),
+                  errors: propertyErrors,
+                },
+                notice: {
+                  message: "خطا در اعتبارسنجی",
+                  type: "error",
+                },
+              };
+            }
+
+            const created = await prisma.projectComment.create({
+              data: {
+                content,
+                projectId,
+                userId,
+              },
+            });
+
+            return {
+              record: resource.build(created).toJSON(currentAdmin),
+              redirectUrl: h.resourceUrl({
+                resourceId: resource.id(),
+              }),
+              notice: {
+                message: "کامنت با موفقیت ایجاد شد",
+                type: "success",
+              },
+            };
+          },
+        },
         list: {
           after: async (response) => {
             if (!response.records?.length) {
@@ -3157,7 +6249,10 @@ const admin = new AdminJS({
             const projectIds = [
               ...new Set(
                 response.records
-                  .map((record) => record.params.project)
+                  .map(
+                    (record) =>
+                      record.params.projectId ?? record.params.project,
+                  )
                   .filter(Boolean),
               ),
             ];
@@ -3165,7 +6260,9 @@ const admin = new AdminJS({
             const userIds = [
               ...new Set(
                 response.records
-                  .map((record) => record.params.user)
+                  .map(
+                    (record) => record.params.userId ?? record.params.user,
+                  )
                   .filter(Boolean),
               ),
             ];
@@ -3205,10 +6302,12 @@ const admin = new AdminJS({
             );
 
             response.records.forEach((record) => {
-              record.params.projectName =
-                projectMap[record.params.project] || "—";
+              const projectId =
+                record.params.projectId ?? record.params.project;
+              const userId = record.params.userId ?? record.params.user;
 
-              record.params.username = userMap[record.params.user] || "—";
+              record.params.projectName = projectMap[projectId] || "—";
+              record.params.username = userMap[userId] || "—";
             });
 
             return response;
@@ -3222,27 +6321,22 @@ const admin = new AdminJS({
             }
 
             const record = response.record;
+            const projectId =
+              record.params.projectId ?? record.params.project;
+            const userId = record.params.userId ?? record.params.user;
 
             const [project, user] = await Promise.all([
-              record.params.project
+              projectId
                 ? prisma.project.findUnique({
-                    where: {
-                      id: record.params.project,
-                    },
-                    select: {
-                      title: true,
-                    },
+                    where: { id: projectId },
+                    select: { title: true },
                   })
                 : null,
 
-              record.params.user
+              userId
                 ? prisma.user.findUnique({
-                    where: {
-                      id: record.params.user,
-                    },
-                    select: {
-                      username: true,
-                    },
+                    where: { id: userId },
+                    select: { username: true },
                   })
                 : null,
             ]);
@@ -3256,10 +6350,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("User", {
-      navigation: {
-        name: "مدیریت کاربران",
-        icon: "User",
-      },
+      navigation: userManagementNavigation,
 
       properties: {
         id: {
@@ -3395,7 +6486,11 @@ const admin = new AdminJS({
 
             const companyIds = [
               ...new Set(
-                response.records.map((r) => r.params.company).filter(Boolean),
+                response.records
+                  .map((record) =>
+                    getCompanyIdFromRecordParams(record.params),
+                  )
+                  .filter(Boolean),
               ),
             ];
 
@@ -3416,8 +6511,10 @@ const admin = new AdminJS({
             );
 
             response.records.forEach((record) => {
-              record.params.companyName =
-                companyMap[record.params.company] ?? "—";
+              const companyId = getCompanyIdFromRecordParams(record.params);
+              record.params.companyName = companyId
+                ? (companyMap[companyId] ?? "—")
+                : "—";
             });
 
             return response;
@@ -3427,22 +6524,7 @@ const admin = new AdminJS({
           after: async (response) => {
             if (!response.record) return response;
 
-            const companyId = response.record.params.company;
-
-            if (companyId) {
-              const company = await prisma.company.findUnique({
-                where: {
-                  id: companyId,
-                },
-                select: {
-                  name: true,
-                },
-              });
-
-              response.record.params.companyName = company?.name ?? "—";
-            } else {
-              response.record.params.companyName = "—";
-            }
+            await enrichUserRecordCompanyIdForEdit(response.record);
 
             return response;
           },
@@ -3552,9 +6634,11 @@ const admin = new AdminJS({
               throwRecordNotFound();
             }
 
-            if (request.method === "get") {
+            if (request.method?.toLowerCase() !== "post") {
+              const recordJson = record.toJSON(currentAdmin);
+              await enrichUserRecordCompanyIdForEdit(recordJson);
               return {
-                record: record.toJSON(currentAdmin),
+                record: recordJson,
                 resource: resource.decorate().toJSON(currentAdmin),
               };
             }
@@ -3713,11 +6797,41 @@ const admin = new AdminJS({
         companyProfile: String(payload?.companyProfileText || ""),
       });
 
+      const enrichCompanyAdminDataRecordWithCompany = async (recordJson) => {
+        if (!recordJson?.params) {
+          return recordJson;
+        }
+
+        const companyId =
+          normalizeAdminReferenceId(recordJson.params.companyId) ||
+          normalizeAdminReferenceId(recordJson.params.company);
+
+        if (!companyId) {
+          recordJson.params.companyName = "—";
+          return recordJson;
+        }
+
+        const company = await prisma.company.findUnique({
+          where: { id: companyId },
+          select: { id: true, name: true },
+        });
+
+        const companyName = company?.name ?? "—";
+
+        recordJson.params.companyId = companyId;
+        recordJson.params.company = companyId;
+        recordJson.params.companyName = companyName;
+        recordJson.populated = recordJson.populated ?? {};
+        recordJson.populated.companyId = {
+          params: { id: companyId, name: companyName },
+          title: companyName,
+        };
+
+        return recordJson;
+      };
+
       return prismaResource("CompanyAdminData", {
-        navigation: {
-          name: "مدیریت کاربران",
-          icon: "Database",
-        },
+        navigation: companyManagementNavigation,
 
         properties: {
           id: {
@@ -3974,7 +7088,7 @@ const admin = new AdminJS({
               if (request.method !== "post") {
                 const dbRecord = await prisma.companyAdminData.findUnique({
                   where: { id: record.params.id },
-                  select: { data: true },
+                  select: { data: true, companyId: true },
                 });
 
                 const virtualFields = mapCompanyAdminDataToVirtualFields(
@@ -3984,11 +7098,17 @@ const admin = new AdminJS({
 
                 const editRecord = resource.build({
                   ...record.params,
+                  companyId: dbRecord?.companyId ?? record.params.companyId,
                   ...virtualFields,
                 });
 
+                let recordJson = editRecord.toJSON(currentAdmin);
+                recordJson = await enrichCompanyAdminDataRecordWithCompany(
+                  recordJson,
+                );
+
                 return {
-                  record: editRecord.toJSON(currentAdmin),
+                  record: recordJson,
                 };
               }
 
@@ -4074,19 +7194,6 @@ const admin = new AdminJS({
             after: async (response) => {
               if (!response.record) return response;
 
-              const companyId = response.record.params.company;
-
-              if (companyId) {
-                const company = await prisma.company.findUnique({
-                  where: { id: companyId },
-                  select: { name: true },
-                });
-
-                response.record.params.companyName = company?.name ?? "—";
-              } else {
-                response.record.params.companyName = "—";
-              }
-
               const rawData = response.record.params.data;
 
               Object.assign(
@@ -4097,6 +7204,8 @@ const admin = new AdminJS({
                 ),
               );
 
+              await enrichCompanyAdminDataRecordWithCompany(response.record);
+
               return response;
             },
           },
@@ -4105,25 +7214,6 @@ const admin = new AdminJS({
             after: async (response) => {
               if (!response.records?.length) return response;
 
-              const companyIds = [
-                ...new Set(
-                  response.records.map((r) => r.params.company).filter(Boolean),
-                ),
-              ];
-
-              const companyMap = Object.create(null);
-
-              if (companyIds.length > 0) {
-                const companies = await prisma.company.findMany({
-                  where: { id: { in: companyIds } },
-                  select: { id: true, name: true },
-                });
-
-                for (const c of companies) {
-                  companyMap[c.id] = c.name;
-                }
-              }
-
               for (const record of response.records) {
                 const rawData = record.params.data;
                 Object.assign(
@@ -4131,16 +7221,7 @@ const admin = new AdminJS({
                   mapCompanyAdminDataToVirtualFields(rawData, record.params),
                 );
 
-                const companyId = record.params.company;
-                const name = companyId ? (companyMap[companyId] ?? "—") : "—";
-
-                record.populated = record.populated ?? {};
-                record.populated["companyId"] = {
-                  params: { id: companyId, name },
-                  title: name,
-                };
-
-                record.params["companyName"] = name;
+                await enrichCompanyAdminDataRecordWithCompany(record);
               }
 
               return response;
@@ -4150,10 +7231,7 @@ const admin = new AdminJS({
       });
     })(),
     prismaResource("ProfileViewAccess", {
-      navigation: {
-        name: "دسترسی‌ها",
-        icon: "View",
-      },
+      navigation: false,
       properties: {
         userId: {
           isVisible: { list: true, filter: true, show: true, edit: true },
@@ -4169,10 +7247,7 @@ const admin = new AdminJS({
       editProperties: ["userId", "companyId", "section"],
     }),
     prismaResource("ProjectAccess", {
-      navigation: {
-        name: "دسترسی‌ها",
-        icon: "Lock",
-      },
+      navigation: false,
       properties: {
         projectId: {
           isVisible: { list: true, filter: true, show: true, edit: true },
@@ -4194,9 +7269,35 @@ const admin = new AdminJS({
           isTitle: true,
         },
 
-        formResponses: { type: "mixed" },
+        formResponses: {
+          type: "mixed",
+          isVisible: {
+            list: false,
+            filter: false,
+            show: false,
+            edit: false,
+          },
+        },
         initialAnalysis: { type: "textarea" },
-        riskAnalysis: { type: "textarea" },
+        summaryAnalysis: {
+          type: "textarea",
+          label: "Summary Analysis",
+          isVisible: {
+            list: false,
+            filter: false,
+            show: true,
+            edit: true,
+          },
+        },
+        riskAnalysis: {
+          type: "textarea",
+          isVisible: {
+            list: false,
+            filter: false,
+            show: false,
+            edit: false,
+          },
+        },
         finalAnalysis: { type: "textarea" },
 
         averageRating: {
@@ -4298,6 +7399,7 @@ const admin = new AdminJS({
         },
         creatorId: {
           reference: "User",
+          label: "Creator",
           isVisible: {
             list: false,
             filter: false,
@@ -4320,7 +7422,7 @@ const admin = new AdminJS({
         "updatedAt",
 
         "initialAnalysis",
-        "riskAnalysis",
+        "summaryAnalysis",
         "finalAnalysis",
 
         "riskPercentage",
@@ -4334,10 +7436,9 @@ const admin = new AdminJS({
         "title",
         "mode",
         "status",
-        "formResponses",
         "creatorId",
         "initialAnalysis",
-        "riskAnalysis",
+        "summaryAnalysis",
         "finalAnalysis",
         "riskPercentage",
         "keyStrategicInsights",
@@ -4358,6 +7459,51 @@ const admin = new AdminJS({
       ],
 
       actions: {
+        new: {
+          layout: [
+            "title",
+            "mode",
+            "status",
+            "creatorId",
+            "initialAnalysis",
+            "summaryAnalysis",
+            "finalAnalysis",
+            "riskPercentage",
+            "keyStrategicInsights",
+          ],
+        },
+        edit: {
+          after: async (response, request) => {
+            if (request.method?.toLowerCase() !== "get" || !response?.record) {
+              return response;
+            }
+
+            const recordJson = response.record;
+            const creatorId = normalizeAdminReferenceId(
+              recordJson.params?.creatorId ?? recordJson.params?.creator,
+            );
+
+            if (!creatorId) {
+              return response;
+            }
+
+            const user = await prisma.user.findUnique({
+              where: { id: creatorId },
+              select: { id: true, username: true },
+            });
+
+            const title = user?.username ?? creatorId;
+
+            recordJson.params.creatorId = creatorId;
+            recordJson.populated = recordJson.populated ?? {};
+            recordJson.populated.creatorId = {
+              params: { id: creatorId, username: title },
+              title,
+            };
+
+            return response;
+          },
+        },
         list: {
           after: async (response) => {
             if (!response.records?.length) return response;
@@ -4615,8 +7761,11 @@ const admin = new AdminJS({
             if (!record) throwRecordNotFound();
 
             if (request.method === "get") {
+              const recordJson = record.toJSON(currentAdmin);
+              await enrichAdminRecordProjectIdReference(recordJson);
+
               return {
-                record: record.toJSON(currentAdmin),
+                record: recordJson,
                 resource: resource.decorate().toJSON(currentAdmin),
               };
             }
@@ -4684,10 +7833,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("AnalysisCategory", {
-      navigation: {
-        name: "دسته‌بندی تحلیل‌ها",
-        icon: "FolderTree",
-      },
+      navigation: analysisFormsNavigation,
 
       properties: {
         title: {
@@ -4696,7 +7842,7 @@ const admin = new AdminJS({
 
         image: {
           isVisible: {
-            list: true,
+            list: false,
             show: true,
             edit: false,
             filter: false,
@@ -4761,7 +7907,7 @@ const admin = new AdminJS({
         }),
       ],
 
-      listProperties: ["id", "image", "title", "order", "createdAt"],
+      listProperties: ["id", "title", "order", "createdAt"],
 
       filterProperties: ["title", "createdAt"],
 
@@ -4778,10 +7924,7 @@ const admin = new AdminJS({
       editProperties: ["title", "description", "order", "uploadFile"],
     }),
     prismaResource("AnalysisForm", {
-      navigation: {
-        name: "تحلیل های تکی",
-        icon: "FileText",
-      },
+      navigation: analysisFormsNavigation,
 
       properties: {
         title: {
@@ -4794,8 +7937,23 @@ const admin = new AdminJS({
           reference: "AnalysisCategory",
         },
 
+        order: {
+          isVisible: {
+            list: true,
+            filter: false,
+            show: true,
+            edit: true,
+          },
+        },
+
         temperature: {
           type: "number",
+          isVisible: {
+            list: true,
+            filter: false,
+            show: true,
+            edit: true,
+          },
         },
 
         directFinalAnalysis: {
@@ -4846,8 +8004,6 @@ const admin = new AdminJS({
         "isActive",
         "directFinalAnalysis",
         "isShowText",
-        "order",
-        "temperature",
         "createdAt",
       ],
 
@@ -4881,10 +8037,7 @@ const admin = new AdminJS({
       ],
     }),
     prismaResource("FormQuestionCategory", {
-      navigation: {
-        name: "دسته بندی سوالات",
-        icon: "FolderTree",
-      },
+      navigation: formQuestionsNavigation,
 
       properties: {
         id: {
@@ -4913,13 +8066,11 @@ const admin = new AdminJS({
 
         analysisForm: {
           reference: "AnalysisForm",
-          label: "فرم تحلیل (فیلتر)",
           isVisible: { list: false, filter: true, show: false, edit: false },
         },
 
         multiAnalysisForm: {
           reference: "MultiAnalysisForm",
-          label: "فرم چند-تحلیل (فیلتر)",
           isVisible: { list: false, filter: true, show: false, edit: false },
         },
 
@@ -4947,7 +8098,6 @@ const admin = new AdminJS({
         formTitle: {
           type: "string",
           isVirtual: true,
-          label: "فرم تحلیل",
           isVisible: { list: true, show: true, edit: false, filter: false },
         },
 
@@ -5237,8 +8387,12 @@ const admin = new AdminJS({
             const { record, resource, h, currentAdmin } = context;
 
             if (request.method === "get") {
+              const recordJson = record?.toJSON(currentAdmin);
+              await enrichAdminRecordFormQuestionCategoryEditReferences(
+                recordJson,
+              );
               return {
-                record: record?.toJSON(currentAdmin),
+                record: recordJson,
                 resource: resource.decorate().toJSON(currentAdmin),
               };
             }
@@ -5335,8 +8489,17 @@ const admin = new AdminJS({
                 },
               });
 
+              const recordJson = buildRecordJson(
+                resource,
+                updated,
+                currentAdmin,
+              );
+              await enrichAdminRecordFormQuestionCategoryEditReferences(
+                recordJson,
+              );
+
               return {
-                record: buildRecordJson(resource, updated, currentAdmin),
+                record: recordJson,
                 notice: {
                   message: "دسته‌بندی با موفقیت ویرایش شد.",
                   type: "success",
@@ -5361,10 +8524,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("FormQuestion", {
-      navigation: {
-        name: "سوالات",
-        icon: "HelpCircle",
-      },
+      navigation: formQuestionsNavigation,
 
       properties: {
         id: {
@@ -5393,7 +8553,13 @@ const admin = new AdminJS({
 
         required: {
           type: "boolean",
-          isRequired: true,
+          isVisible: {
+            list: true,
+            show: true,
+            edit: false,
+            filter: false,
+            new: false,
+          },
         },
 
         isScored: {
@@ -5414,8 +8580,10 @@ const admin = new AdminJS({
         formTitle: {
           type: "string",
           isVirtual: true,
-          label: "فرم",
-          isVisible: { list: true, show: true, edit: false, filter: false },
+          label: "analysis title",
+          availableValues: formQuestionAnalysisTitleFilterOptions,
+          props: { isSearchable: true },
+          isVisible: { list: true, show: true, edit: false, filter: true },
         },
 
         categoryTitle: {
@@ -5426,6 +8594,23 @@ const admin = new AdminJS({
         },
 
         options: { isVisible: false },
+
+        optionsJson: {
+          type: "string",
+          isVirtual: true,
+          label: "گزینه‌های سوال",
+          isVisible: {
+            list: false,
+            show: false,
+            edit: true,
+            filter: false,
+            new: true,
+          },
+          components: {
+            edit: Components.FormQuestionOptionsEditor,
+            new: Components.FormQuestionOptionsEditor,
+          },
+        },
 
         createdAt: { isVisible: false },
         updatedAt: { isVisible: false },
@@ -5443,7 +8628,13 @@ const admin = new AdminJS({
         "order",
       ],
 
-      filterProperties: ["category", "label", "type", "isScored", "required"],
+      filterProperties: [
+        "formTitle",
+        "category",
+        "label",
+        "type",
+        "isScored",
+      ],
 
       showProperties: [
         "id",
@@ -5465,12 +8656,93 @@ const admin = new AdminJS({
         "type",
         "isScored",
         "weight",
-        "required",
         "order",
+        "optionsJson",
+      ],
+
+      newProperties: [
+        "categoryId",
+        "label",
+        "type",
+        "isScored",
+        "weight",
+        "order",
+        "optionsJson",
       ],
 
       actions: {
         list: {
+          before: applyFormQuestionFormTitleFilter,
+          handler: async (request, response, context) => {
+            const categoryIds = request._formQuestionCategoryIds;
+            if (!categoryIds?.length) {
+              return ListAction.handler(request, response, context);
+            }
+
+            const { query } = request;
+            const {
+              sortBy,
+              direction,
+              filters = {},
+              page,
+              perPage: perPageRaw,
+            } = flat.unflatten(query || {});
+            const { resource, _admin, currentAdmin } = context;
+
+            const perPage = perPageRaw
+              ? Math.min(+perPageRaw, 500)
+              : (_admin.options.settings?.defaultPerPage ?? 10);
+            const pageNum = Number(page) || 1;
+
+            const listProperties = resource.decorate().getListProperties();
+            const firstProperty = listProperties.find((p) => p.isSortable());
+            let sort;
+            if (firstProperty) {
+              const sortSetter = await getAdminJsSortSetter();
+              sort = sortSetter(
+                { sortBy, direction },
+                firstProperty.name(),
+                resource.decorate().options,
+              );
+            }
+
+            const filter = await new Filter(filters, resource).populate(
+              context,
+            );
+            const where = {
+              ...convertFilter(getModelByName("FormQuestion").fields, filter),
+              categoryId: { in: categoryIds },
+            };
+
+            const orderBy = resource.buildSortBy(sort);
+            const [results, total] = await Promise.all([
+              prisma.formQuestion.findMany({
+                where,
+                skip: (pageNum - 1) * perPage,
+                take: perPage,
+                orderBy,
+              }),
+              prisma.formQuestion.count({ where }),
+            ]);
+
+            const populator = await getAdminJsPopulator();
+            const records = results.map((result) =>
+              resource.build(resource.prepareReturnValues(result)),
+            );
+            const populatedRecords = await populator(records, context);
+            context.records = populatedRecords;
+
+            return {
+              meta: {
+                total,
+                perPage,
+                page: pageNum,
+                direction: sort?.direction,
+                sortBy: sort?.sortBy,
+              },
+              records: populatedRecords.map((r) => r.toJSON(currentAdmin)),
+            };
+          },
           after: async (response) => {
             if (!response.records?.length) return response;
 
@@ -5545,13 +8817,25 @@ const admin = new AdminJS({
         },
 
         new: {
+          layout: [
+            "categoryId",
+            "label",
+            "type",
+            "isScored",
+            "weight",
+            "order",
+            "optionsJson",
+          ],
           handler: async (request, response, context) => {
             const { resource, h, currentAdmin } = context;
 
             if (request.method === "get") {
+              const recordJson = resource
+                .build({ optionsJson: "[]" })
+                .toJSON(currentAdmin);
               return {
                 resource: resource.decorate().toJSON(currentAdmin),
-                record: null,
+                record: recordJson,
               };
             }
 
@@ -5560,7 +8844,6 @@ const admin = new AdminJS({
             const categoryId = String(payload.categoryId || "").trim();
             const label = String(payload.label || "").trim();
             const type = String(payload.type || "").trim();
-            const required = parseBooleanValue(payload.required);
             const isScored = parseBooleanValue(payload.isScored);
             const order = parseIntegerValue(payload.order);
 
@@ -5638,22 +8921,44 @@ const admin = new AdminJS({
               }
             }
 
-            const created = await prisma.formQuestion.create({
-              data: {
-                categoryId,
-                label,
-                type,
-                required,
-                isScored,
-                weight,
-                order,
-              },
+            const parsedOptions = parseFormQuestionOptionsJson(
+              payload.optionsJson,
+            );
+            const normalizedOptions = validateFormQuestionOptionsForSave({
+              type,
+              isScored,
+              weight,
+              options: parsedOptions,
             });
 
+            const created = await prisma.$transaction(async (tx) => {
+              const question = await tx.formQuestion.create({
+                data: {
+                  categoryId,
+                  label,
+                  type,
+                  isScored,
+                  weight,
+                  order,
+                },
+              });
+
+              await persistFormQuestionOptions(
+                question.id,
+                normalizedOptions,
+                tx,
+              );
+
+              return question;
+            });
+
+            const recordJson = buildRecordJson(resource, created, currentAdmin);
+            await enrichFormQuestionRecordWithOptionsJson(recordJson);
+
             return {
-              record: buildRecordJson(resource, created, currentAdmin),
+              record: recordJson,
               notice: {
-                message: "سوال با موفقیت ایجاد شد.",
+                message: "سوال و گزینه‌ها با موفقیت ایجاد شد.",
                 type: "success",
               },
               redirectUrl: h.recordActionUrl({
@@ -5666,12 +8971,26 @@ const admin = new AdminJS({
         },
 
         edit: {
+          layout: [
+            "categoryId",
+            "label",
+            "type",
+            "isScored",
+            "weight",
+            "order",
+            "optionsJson",
+          ],
           handler: async (request, response, context) => {
             const { record, resource, h, currentAdmin } = context;
 
             if (request.method === "get") {
+              const recordJson = record?.toJSON(currentAdmin);
+              await enrichAdminRecordFormQuestionCategoryIdReference(
+                recordJson,
+              );
+              await enrichFormQuestionRecordWithOptionsJson(recordJson);
               return {
-                record: record?.toJSON(currentAdmin),
+                record: recordJson,
                 resource: resource.decorate().toJSON(currentAdmin),
               };
             }
@@ -5681,7 +9000,6 @@ const admin = new AdminJS({
             const categoryId = String(payload.categoryId || "");
             const label = String(payload.label || "").trim();
             const type = String(payload.type || "");
-            const required = parseBooleanValue(payload.required);
             const isScored = parseBooleanValue(payload.isScored);
             const order = parseIntegerValue(payload.order);
             const weight =
@@ -5715,7 +9033,6 @@ const admin = new AdminJS({
               });
             }
 
-            // چک وزن (بدون خود سوال فعلی)
             if (weight !== null) {
               const aggregate = await prisma.formQuestion.aggregate({
                 where: {
@@ -5736,22 +9053,50 @@ const admin = new AdminJS({
               }
             }
 
-            const updated = await prisma.formQuestion.update({
-              where: { id: record.params.id },
-              data: {
-                label,
-                type,
-                required,
-                isScored,
-                weight,
-                order,
-                category: { connect: { id: categoryId } },
-              },
+            const parsedOptions = parseFormQuestionOptionsJson(
+              payload.optionsJson,
+            );
+            const normalizedOptions = validateFormQuestionOptionsForSave({
+              type,
+              isScored,
+              weight,
+              options: parsedOptions,
             });
 
+            const questionId = record.params.id;
+
+            const updated = await prisma.$transaction(async (tx) => {
+              const question = await tx.formQuestion.update({
+                where: { id: questionId },
+                data: {
+                  label,
+                  type,
+                  isScored,
+                  weight,
+                  order,
+                  category: { connect: { id: categoryId } },
+                },
+              });
+
+              await persistFormQuestionOptions(
+                question.id,
+                normalizedOptions,
+                tx,
+              );
+
+              return question;
+            });
+
+            const recordJson = buildRecordJson(resource, updated, currentAdmin);
+            await enrichAdminRecordFormQuestionCategoryIdReference(recordJson);
+            await enrichFormQuestionRecordWithOptionsJson(recordJson);
+
             return {
-              record: buildRecordJson(resource, updated, currentAdmin),
-              notice: { message: "سوال با موفقیت ویرایش شد.", type: "success" },
+              record: recordJson,
+              notice: {
+                message: "سوال و گزینه‌ها با موفقیت ویرایش شد.",
+                type: "success",
+              },
               redirectUrl: h.recordActionUrl({
                 resourceId: resource.id(),
                 recordId: record.params.id,
@@ -5763,10 +9108,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("FormQuestionOption", {
-      navigation: {
-        name: "گزینه‌های سوالات",
-        icon: "HelpCircle",
-      },
+      navigation: { ...formQuestionsNavigation, show: false },
 
       properties: {
         id: {
@@ -5878,8 +9220,7 @@ const admin = new AdminJS({
             const firstProperty = listProperties.find((p) => p.isSortable());
             let sort;
             if (firstProperty) {
-              const { default: sortSetter } =
-                await import("adminjs/lib/backend/services/sort-setter/sort-setter.js");
+              const sortSetter = await getAdminJsSortSetter();
               sort = sortSetter(
                 { sortBy, direction },
                 firstProperty.name(),
@@ -5890,7 +9231,6 @@ const admin = new AdminJS({
             const filter = await new Filter(filters, resource).populate(
               context,
             );
-            const baseResource = resource.decorate().resource;
             const where = {
               ...convertFilter(
                 getModelByName("FormQuestionOption").fields,
@@ -5899,7 +9239,7 @@ const admin = new AdminJS({
               questionId: { in: questionIds },
             };
 
-            const orderBy = baseResource.buildSortBy(sort);
+            const orderBy = resource.buildSortBy(sort);
             const [results, total] = await Promise.all([
               prisma.formQuestionOption.findMany({
                 where,
@@ -5910,10 +9250,9 @@ const admin = new AdminJS({
               prisma.formQuestionOption.count({ where }),
             ]);
 
-            const { default: populator } =
-              await import("adminjs/lib/backend/utils/populator/populator.js");
+            const populator = await getAdminJsPopulator();
             const records = results.map((result) =>
-              baseResource.build(baseResource.prepareReturnValues(result)),
+              resource.build(resource.prepareReturnValues(result)),
             );
             const populatedRecords = await populator(records, context);
             context.records = populatedRecords;
@@ -6075,8 +9414,12 @@ const admin = new AdminJS({
             const { record, resource, h, currentAdmin } = context;
 
             if (request.method === "get") {
+              const recordJson = record?.toJSON(currentAdmin);
+              await enrichAdminRecordFormQuestionOptionQuestionIdReference(
+                recordJson,
+              );
               return {
-                record: record?.toJSON(currentAdmin),
+                record: recordJson,
                 resource: resource.decorate().toJSON(currentAdmin),
               };
             }
@@ -6139,8 +9482,13 @@ const admin = new AdminJS({
               },
             });
 
+            const recordJson = buildRecordJson(resource, updated, currentAdmin);
+            await enrichAdminRecordFormQuestionOptionQuestionIdReference(
+              recordJson,
+            );
+
             return {
-              record: buildRecordJson(resource, updated, currentAdmin),
+              record: recordJson,
               notice: {
                 message: "گزینه با موفقیت ویرایش شد.",
                 type: "success",
@@ -6156,10 +9504,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("FeaturedAnalysis", {
-      navigation: {
-        name: "تحلیل های منتخب",
-        icon: "Star",
-      },
+      navigation: analysisFormsNavigation,
 
       properties: {
         analysisFormId: {
@@ -6350,8 +9695,11 @@ const admin = new AdminJS({
             const { resource, record, h, currentAdmin } = context;
 
             if (request.method === "get") {
+              const recordJson = record?.toJSON(currentAdmin);
+              await enrichAdminRecordAnalysisFormIdReference(recordJson);
+              await enrichAdminRecordMultiAnalysisFormIdReference(recordJson);
               return {
-                record: record?.toJSON(currentAdmin),
+                record: recordJson,
                 resource: resource.decorate().toJSON(currentAdmin),
               };
             }
@@ -6398,6 +9746,14 @@ const admin = new AdminJS({
                 },
               });
 
+              const recordJson = buildRecordJson(
+                resource,
+                updated,
+                currentAdmin,
+              );
+              await enrichAdminRecordAnalysisFormIdReference(recordJson);
+              await enrichAdminRecordMultiAnalysisFormIdReference(recordJson);
+
               return {
                 redirectUrl: h.resourceUrl({
                   resourceId: resource._decorated?.id() || resource.id(),
@@ -6406,7 +9762,7 @@ const admin = new AdminJS({
                   message: "رکورد با موفقیت ویرایش شد",
                   type: "success",
                 },
-                record: buildRecordJson(resource, updated, currentAdmin),
+                record: recordJson,
               };
             } catch (error) {
               return {
@@ -6427,16 +9783,13 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("FormGoal", {
-      navigation: {
-        name: "فرم‌های تحلیل",
-        icon: "Target",
-      },
+      navigation: analysisFormsNavigation,
 
       properties: {
         id: {
           isVisible: {
             list: true,
-            filter: true,
+            filter: false,
             show: true,
             edit: false,
           },
@@ -6495,10 +9848,9 @@ const admin = new AdminJS({
             edit: false,
           },
         },
-        formTitle: {
+        analysisForm: {
           type: "string",
           isVirtual: true,
-          label: "فرم تحلیل",
           isVisible: {
             list: true,
             show: true,
@@ -6508,9 +9860,9 @@ const admin = new AdminJS({
         },
       },
 
-      listProperties: ["id", "formTitle", "title", "createdAt"],
-      filterProperties: ["id", "form", "title", "createdAt"],
-      showProperties: ["id", "formTitle", "title", "createdAt", "updatedAt"],
+      listProperties: ["id", "analysisForm", "title", "createdAt"],
+      filterProperties: ["form", "title", "createdAt"],
+      showProperties: ["id", "analysisForm", "title", "createdAt", "updatedAt"],
       editProperties: ["formId", "title"],
 
       actions: {
@@ -6545,7 +9897,7 @@ const admin = new AdminJS({
             );
 
             response.records.forEach((record) => {
-              record.params.formTitle = formMap[record.params.form] || "—";
+              record.params.analysisForm = formMap[record.params.form] || "—";
             });
 
             return response;
@@ -6560,7 +9912,7 @@ const admin = new AdminJS({
             const formId = response.record.params.form;
 
             if (!formId) {
-              response.record.params.formTitle = "—";
+              response.record.params.analysisForm = "—";
               return response;
             }
 
@@ -6569,7 +9921,7 @@ const admin = new AdminJS({
               select: { title: true },
             });
 
-            response.record.params.formTitle = form?.title || "—";
+            response.record.params.analysisForm = form?.title || "—";
 
             return response;
           },
@@ -6648,8 +10000,10 @@ const admin = new AdminJS({
             }
 
             if (request.method === "get") {
+              const recordJson = record.toJSON(currentAdmin);
+              await enrichAdminRecordFormGoalFormIdReference(recordJson);
               return {
-                record: record.toJSON(currentAdmin),
+                record: recordJson,
                 resource: resource.decorate().toJSON(currentAdmin),
               };
             }
@@ -6714,14 +10068,11 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("MultiAnalysisRequiredForm", {
-      navigation: {
-        name: "تحلیل چندگانه",
-        icon: "List",
-      },
+      navigation: analysisFormsNavigation,
 
       properties: {
         id: {
-          isVisible: { list: true, filter: true, show: true, edit: false },
+          isVisible: { list: true, filter: false, show: true, edit: false },
         },
 
         multiAnalysisForm: {
@@ -6737,7 +10088,7 @@ const admin = new AdminJS({
             { value: "MULTI", label: "تحلیل چندگانه" },
           ],
           isRequired: true,
-          isVisible: { list: true, filter: true, show: true, edit: true },
+          isVisible: { list: false, filter: false, show: true, edit: true },
           position: 2,
         },
 
@@ -6769,6 +10120,7 @@ const admin = new AdminJS({
 
         order: {
           isRequired: true,
+          isVisible: { list: false, filter: false, show: true, edit: true },
           position: 5,
         },
 
@@ -6784,20 +10136,15 @@ const admin = new AdminJS({
       listProperties: [
         "id",
         "multiAnalysisForm",
-        "type",
         "form",
         "requiredMultiAnalysisForm",
-        "order",
         "createdAt",
       ],
 
       filterProperties: [
-        "id",
         "multiAnalysisForm",
-        "type",
         "form",
         "requiredMultiAnalysisForm",
-        "order",
         "createdAt",
       ],
 
@@ -6837,10 +10184,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("MultiAnalysisForm", {
-      navigation: {
-        name: "تحلیل چندگانه",
-        icon: "Layers",
-      },
+      navigation: analysisFormsNavigation,
 
       properties: {
         title: {
@@ -6852,8 +10196,23 @@ const admin = new AdminJS({
           reference: "AnalysisCategory",
         },
 
+        order: {
+          isVisible: {
+            list: true,
+            filter: false,
+            show: true,
+            edit: true,
+          },
+        },
+
         temperature: {
           type: "number",
+          isVisible: {
+            list: true,
+            filter: false,
+            show: true,
+            edit: true,
+          },
         },
 
         directFinalAnalysis: {
@@ -6901,8 +10260,6 @@ const admin = new AdminJS({
         "isActive",
         "directFinalAnalysis",
         "isShowText",
-        "order",
-        "temperature",
         "createdAt",
       ],
 
@@ -6936,16 +10293,13 @@ const admin = new AdminJS({
       ],
     }),
     prismaResource("MultiAnalysisGoal", {
-      navigation: {
-        name: "تحلیل چندگانه",
-        icon: "Target",
-      },
+      navigation: analysisFormsNavigation,
 
       properties: {
         id: {
           isVisible: {
             list: true,
-            filter: true,
+            filter: false,
             show: true,
             edit: false,
           },
@@ -6955,9 +10309,9 @@ const admin = new AdminJS({
           reference: "MultiAnalysisForm",
           isRequired: true,
           isVisible: {
-            list: true,
-            filter: true,
-            show: true,
+            list: false,
+            filter: false,
+            show: false,
             edit: true,
           },
           position: 1,
@@ -6995,7 +10349,6 @@ const admin = new AdminJS({
         multiAnalysisFormTitle: {
           type: "string",
           isVirtual: true,
-          label: "فرم تحلیل چندگانه",
           isVisible: {
             list: true,
             show: true,
@@ -7015,7 +10368,7 @@ const admin = new AdminJS({
       },
 
       listProperties: ["id", "multiAnalysisFormTitle", "title", "createdAt"],
-      filterProperties: ["id", "multiAnalysisForm", "title", "createdAt"],
+      filterProperties: ["multiAnalysisForm", "title", "createdAt"],
       showProperties: [
         "id",
         "multiAnalysisFormTitle",
@@ -7177,8 +10530,10 @@ const admin = new AdminJS({
             }
 
             if (request.method === "get") {
+              const recordJson = record.toJSON(currentAdmin);
+              await enrichAdminRecordMultiAnalysisGoalFormReference(recordJson);
               return {
-                record: record.toJSON(currentAdmin),
+                record: recordJson,
                 resource: resource.decorate().toJSON(currentAdmin),
               };
             }
@@ -7226,8 +10581,15 @@ const admin = new AdminJS({
                 },
               });
 
+              const recordJson = buildRecordJson(
+                resource,
+                updated,
+                currentAdmin,
+              );
+              await enrichAdminRecordMultiAnalysisGoalFormReference(recordJson);
+
               return {
-                record: buildRecordJson(resource, updated, currentAdmin),
+                record: recordJson,
 
                 notice: {
                   message: "هدف تحلیل چندگانه با موفقیت ویرایش شد.",
@@ -7259,14 +10621,11 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("FollowUpForm", {
-      navigation: {
-        name: "پیگیری‌ها",
-        icon: "Clipboard",
-      },
+      navigation: followUpNavigation,
 
       properties: {
         id: {
-          isVisible: { list: true, filter: true, show: true, edit: false },
+          isVisible: { list: true, filter: false, show: true, edit: false },
         },
 
         title: {
@@ -7276,7 +10635,7 @@ const admin = new AdminJS({
 
         description: {
           type: "textarea",
-          isVisible: { list: true, filter: true, show: true, edit: true },
+          isVisible: { list: false, filter: false, show: true, edit: true },
         },
 
         isActive: {
@@ -7284,8 +10643,30 @@ const admin = new AdminJS({
         },
 
         order: {
-          isVisible: { list: true, filter: true, show: true, edit: true },
+          isVisible: { list: false, filter: false, show: true, edit: true },
           isRequired: true,
+        },
+
+        questions: { isVisible: false },
+
+        questionsJson: {
+          type: "string",
+          isVirtual: true,
+          label: "سوالات",
+          props: {
+            typeOptions: questionTypeValues,
+          },
+          isVisible: {
+            list: false,
+            show: false,
+            edit: true,
+            filter: false,
+            new: true,
+          },
+          components: {
+            edit: Components.FollowUpFormQuestionsEditor,
+            new: Components.FollowUpFormQuestionsEditor,
+          },
         },
 
         createdAt: {
@@ -7297,16 +10678,23 @@ const admin = new AdminJS({
         },
       },
 
-      listProperties: [
-        "id",
+      listProperties: ["id", "title", "isActive", "createdAt"],
+
+      editProperties: [
         "title",
         "description",
         "isActive",
         "order",
-        "createdAt",
+        "questionsJson",
       ],
 
-      editProperties: ["title", "description", "isActive", "order"],
+      newProperties: [
+        "title",
+        "description",
+        "isActive",
+        "order",
+        "questionsJson",
+      ],
 
       showProperties: [
         "id",
@@ -7318,25 +10706,27 @@ const admin = new AdminJS({
         "updatedAt",
       ],
 
-      filterProperties: [
-        "id",
-        "title",
-        "description",
-        "isActive",
-        "order",
-        "createdAt",
-        "updatedAt",
-      ],
+      filterProperties: ["title", "isActive", "createdAt", "updatedAt"],
 
       actions: {
         new: {
+          layout: [
+            "title",
+            "description",
+            "isActive",
+            "order",
+            "questionsJson",
+          ],
           handler: async (request, response, context) => {
             const { resource, h, currentAdmin } = context;
 
             if (request.method === "get") {
+              const recordJson = resource
+                .build({ questionsJson: "[]" })
+                .toJSON(currentAdmin);
               return {
                 resource: resource.decorate().toJSON(currentAdmin),
-                record: resource.build({}).toJSON(currentAdmin),
+                record: recordJson,
               };
             }
 
@@ -7371,21 +10761,38 @@ const admin = new AdminJS({
               throw new ValidationError(errors);
             }
 
-            const data = {
-              title,
-              description,
-              isActive,
-              order,
-            };
+            const parsedQuestions = parseFollowUpFormQuestionsJson(
+              payload.questionsJson,
+            );
+            const normalizedQuestions =
+              validateFollowUpFormQuestionsForSave(parsedQuestions);
 
-            const created = await prisma.followUpForm.create({
-              data,
+            const created = await prisma.$transaction(async (tx) => {
+              const form = await tx.followUpForm.create({
+                data: {
+                  title,
+                  description,
+                  isActive,
+                  order,
+                },
+              });
+
+              await persistFollowUpFormQuestions(
+                form.id,
+                normalizedQuestions,
+                tx,
+              );
+
+              return form;
             });
 
+            const recordJson = buildRecordJson(resource, created, currentAdmin);
+            await enrichFollowUpFormRecordWithQuestionsJson(recordJson);
+
             return {
-              record: buildRecordJson(resource, created, currentAdmin),
+              record: recordJson,
               notice: {
-                message: "فرم پیگیری با موفقیت ایجاد شد.",
+                message: "فرم و سوالات با موفقیت ایجاد شد.",
                 type: "success",
               },
               redirectUrl: h.recordActionUrl({
@@ -7398,6 +10805,13 @@ const admin = new AdminJS({
         },
 
         edit: {
+          layout: [
+            "title",
+            "description",
+            "isActive",
+            "order",
+            "questionsJson",
+          ],
           handler: async (request, response, context) => {
             const { record, resource, h, currentAdmin } = context;
 
@@ -7406,8 +10820,10 @@ const admin = new AdminJS({
             }
 
             if (request.method === "get") {
+              const recordJson = record.toJSON(currentAdmin);
+              await enrichFollowUpFormRecordWithQuestionsJson(recordJson);
               return {
-                record: record.toJSON(currentAdmin),
+                record: recordJson,
                 resource: resource.decorate().toJSON(currentAdmin),
               };
             }
@@ -7445,24 +10861,41 @@ const admin = new AdminJS({
               throw new ValidationError(errors);
             }
 
-            const data = {
-              title,
-              description,
-              isActive,
-              order,
-            };
+            const parsedQuestions = parseFollowUpFormQuestionsJson(
+              payload.questionsJson,
+            );
+            const normalizedQuestions =
+              validateFollowUpFormQuestionsForSave(parsedQuestions);
 
-            const updated = await prisma.followUpForm.update({
-              where: {
-                id: recordId,
-              },
-              data,
+            const updated = await prisma.$transaction(async (tx) => {
+              const form = await tx.followUpForm.update({
+                where: {
+                  id: recordId,
+                },
+                data: {
+                  title,
+                  description,
+                  isActive,
+                  order,
+                },
+              });
+
+              await persistFollowUpFormQuestions(
+                form.id,
+                normalizedQuestions,
+                tx,
+              );
+
+              return form;
             });
 
+            const recordJson = buildRecordJson(resource, updated, currentAdmin);
+            await enrichFollowUpFormRecordWithQuestionsJson(recordJson);
+
             return {
-              record: buildRecordJson(resource, updated, currentAdmin),
+              record: recordJson,
               notice: {
-                message: "فرم پیگیری با موفقیت ویرایش شد.",
+                message: "فرم و سوالات با موفقیت ویرایش شد.",
                 type: "success",
               },
               redirectUrl: h.recordActionUrl({
@@ -7476,10 +10909,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("FollowUpFormQuestion", {
-      navigation: {
-        name: "پیگیری‌ها",
-        icon: "HelpCircle",
-      },
+      navigation: { ...followUpNavigation, show: false },
 
       properties: {
         id: {
@@ -7751,10 +11181,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("FollowUpRequest", {
-      navigation: {
-        name: "درخواست‌های پیگیری",
-        icon: "MessageSquare",
-      },
+      navigation: followUpNavigation,
 
       properties: {
         id: {
@@ -8026,8 +11453,11 @@ const admin = new AdminJS({
             edit: true,
           },
         },
+        type: {
+          isVisible: { list: true, filter: false, show: true, edit: true },
+        },
         referenceId: {
-          isVisible: { list: true, filter: true, show: true, edit: true },
+          isVisible: { list: true, filter: false, show: true, edit: true },
         },
         referenceType: {
           isVisible: { list: true, filter: true, show: true, edit: true },
@@ -8080,14 +11510,7 @@ const admin = new AdminJS({
         "referenceId",
         "referenceType",
       ],
-      filterProperties: [
-        "user",
-        "type",
-        "title",
-        "isRead",
-        "referenceId",
-        "createdAt",
-      ],
+      filterProperties: ["user", "title", "isRead", "createdAt"],
       actions: {
         list: {
           after: async (response) => {
@@ -8157,10 +11580,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("RefreshToken", {
-      navigation: {
-        name: "امنیت",
-        icon: "Key",
-      },
+      navigation: securityNavigationHidden,
       properties: {
         tokenHash: {
           isVisible: { list: false, filter: false, show: true, edit: false },
@@ -8185,16 +11605,13 @@ const admin = new AdminJS({
       editProperties: ["userId", "expiresAt", "revoked"],
     }),
     prismaResource("PromptDefinition", {
-      navigation: {
-        name: "پرامپت‌ها",
-        icon: "Terminal",
-      },
+      navigation: promptsNavigation,
 
       titleProperty: "title",
 
       properties: {
         id: {
-          isVisible: { list: true, filter: true, show: true, edit: false },
+          isVisible: { list: true, filter: false, show: true, edit: false },
         },
 
         title: {
@@ -8203,7 +11620,13 @@ const admin = new AdminJS({
         },
 
         ownerType: {
-          isVisible: { list: true, filter: true, show: true, edit: true },
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: false,
+            new: true,
+          },
           availableValues: [
             { value: "ANALYSIS_FORM", label: "Analysis Form" },
             { value: "MULTI_ANALYSIS_FORM", label: "Multi Analysis Form" },
@@ -8213,7 +11636,13 @@ const admin = new AdminJS({
 
         analysisFormId: {
           reference: "AnalysisForm",
-          isVisible: { list: true, filter: true, show: true, edit: true },
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: false,
+            new: true,
+          },
           position: 3,
         },
 
@@ -8228,7 +11657,13 @@ const admin = new AdminJS({
         },
         multiAnalysisFormId: {
           reference: "MultiAnalysisForm",
-          isVisible: { list: true, filter: true, show: true, edit: true },
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: false,
+            new: true,
+          },
           position: 4,
         },
 
@@ -8239,6 +11674,23 @@ const admin = new AdminJS({
             filter: true,
             show: false,
             edit: false,
+          },
+        },
+
+        promptEditorJson: {
+          type: "string",
+          isVirtual: true,
+          label: "بخش‌های پرامپت",
+          isVisible: {
+            list: false,
+            show: false,
+            edit: true,
+            filter: false,
+            new: true,
+          },
+          components: {
+            edit: Components.PromptDefinitionEditor,
+            new: Components.PromptDefinitionEditor,
           },
         },
 
@@ -8270,11 +11722,14 @@ const admin = new AdminJS({
         "createdAt",
       ],
 
-      editProperties: [
+      editProperties: ["title", "promptEditorJson"],
+
+      newProperties: [
         "title",
         "ownerType",
         "analysisFormId",
         "multiAnalysisFormId",
+        "promptEditorJson",
       ],
 
       showProperties: [
@@ -8287,7 +11742,6 @@ const admin = new AdminJS({
       ],
 
       filterProperties: [
-        "id",
         "title",
         "ownerType",
         "analysisForm",
@@ -8376,40 +11830,68 @@ const admin = new AdminJS({
             const params = response.record.params;
 
             if (params.ownerType === "ANALYSIS_FORM") {
-              const form = await prisma.analysisForm.findUnique({
-                where: {
-                  id: params.analysisForm,
-                },
-                select: {
-                  title: true,
-                },
-              });
+              const analysisFormId = normalizeAdminReferenceId(
+                params.analysisForm ?? params.analysisFormId,
+              );
 
-              params.analysisOwnerTitle = form?.title || "—";
+              if (analysisFormId) {
+                const form = await prisma.analysisForm.findUnique({
+                  where: { id: analysisFormId },
+                  select: { title: true },
+                });
+                params.analysisOwnerTitle = form?.title || "—";
+              } else {
+                params.analysisOwnerTitle = "—";
+              }
+            } else if (params.ownerType === "MULTI_ANALYSIS_FORM") {
+              const multiAnalysisFormId = normalizeAdminReferenceId(
+                params.multiAnalysisForm ?? params.multiAnalysisFormId,
+              );
+
+              if (multiAnalysisFormId) {
+                const form = await prisma.multiAnalysisForm.findUnique({
+                  where: { id: multiAnalysisFormId },
+                  select: { title: true },
+                });
+                params.analysisOwnerTitle = form?.title || "—";
+              } else {
+                params.analysisOwnerTitle = "—";
+              }
             } else {
-              const form = await prisma.multiAnalysisForm.findUnique({
-                where: {
-                  id: params.multiAnalysisForm,
-                },
-                select: {
-                  title: true,
-                },
-              });
-
-              params.analysisOwnerTitle = form?.title || "—";
+              params.analysisOwnerTitle = "—";
             }
 
             return response;
           },
         },
         new: {
+          layout: [
+            "title",
+            "ownerType",
+            "analysisFormId",
+            "multiAnalysisFormId",
+            "promptEditorJson",
+          ],
           handler: async (request, response, context) => {
             const { resource, h, currentAdmin } = context;
 
-            if (request.method !== "post") {
-              return {
-                record: resource.build({}).toJSON(currentAdmin),
-              };
+            if (request.method === "get") {
+              const recordJson = resource
+                .build({
+                  promptEditorJson: JSON.stringify({
+                    status: "DRAFT",
+                    segments: [
+                      {
+                        label: "بخش 1",
+                        description: "",
+                        isRequired: true,
+                        content: "",
+                      },
+                    ],
+                  }),
+                })
+                .toJSON(currentAdmin);
+              return { record: recordJson };
             }
 
             const payload = { ...(request.payload || {}) };
@@ -8428,6 +11910,10 @@ const admin = new AdminJS({
             if (!ownerType) {
               throwFieldValidation("ownerType", "نوع مالک الزامی است.");
             }
+
+            const parsedEditor = parsePromptEditorJson(payload.promptEditorJson);
+            const normalizedEditor =
+              validatePromptEditorSegmentsForSave(parsedEditor);
 
             const data = {
               ownerType,
@@ -8498,14 +11984,26 @@ const admin = new AdminJS({
               throwFieldValidation("ownerType", "نوع مالک معتبر نیست.");
             }
 
-            const created = await prisma.promptDefinition.create({
-              data,
+            const created = await prisma.$transaction(async (tx) => {
+              const definition = await tx.promptDefinition.create({
+                data,
+              });
+
+              await persistPromptDefinitionEditorContent(
+                definition.id,
+                title,
+                normalizedEditor,
+                tx,
+              );
+
+              return definition;
             });
 
-            const record = resource.build(created);
+            const recordJson = buildRecordJson(resource, created, currentAdmin);
+            await enrichPromptDefinitionRecordWithEditorJson(recordJson);
 
             return {
-              record: record.toJSON(currentAdmin),
+              record: recordJson,
               redirectUrl: h.recordActionUrl({
                 resourceId: resource.id(),
                 recordId: created.id,
@@ -8520,6 +12018,7 @@ const admin = new AdminJS({
         },
 
         edit: {
+          layout: ["title", "promptEditorJson"],
           handler: async (request, response, context) => {
             const { record, resource, h, currentAdmin } = context;
 
@@ -8527,117 +12026,50 @@ const admin = new AdminJS({
               throwRecordNotFound();
             }
 
-            const recordId = record.params.id;
+            const recordId = String(record.param("id"));
 
-            if (request.method !== "post") {
+            if (request.method === "get") {
+              const recordJson = record.toJSON(currentAdmin);
+              await enrichPromptDefinitionRecordWithEditorJson(recordJson);
               return {
-                record: record.toJSON(currentAdmin),
+                record: recordJson,
+                resource: resource.decorate().toJSON(currentAdmin),
               };
             }
 
             const payload = { ...(request.payload || {}) };
 
-            const ownerType = String(payload.ownerType || "").trim();
-            let title = payload.title ? String(payload.title).trim() : "";
+            const title = payload.title ? String(payload.title).trim() : "";
 
-            const analysisFormId = payload.analysisFormId
-              ? String(payload.analysisFormId).trim()
-              : null;
-
-            const multiAnalysisFormId = payload.multiAnalysisFormId
-              ? String(payload.multiAnalysisFormId).trim()
-              : null;
-
-            if (!ownerType) {
-              throwFieldValidation("ownerType", "نوع مالک الزامی است.");
+            if (!title) {
+              throwFieldValidation("title", "عنوان پرامپت الزامی است.");
             }
 
-            const data = {
-              ownerType,
-            };
+            const parsedEditor = parsePromptEditorJson(payload.promptEditorJson);
+            const normalizedEditor =
+              validatePromptEditorSegmentsForSave(parsedEditor);
 
-            if (ownerType === "ANALYSIS_FORM") {
-              if (!analysisFormId) {
-                throwFieldValidation(
-                  "analysisFormId",
-                  "انتخاب فرم تحلیل الزامی است.",
-                );
-              }
-
-              const analysisFormExists = await prisma.analysisForm.findUnique({
-                where: { id: analysisFormId },
-                select: { id: true, title: true },
+            const updated = await prisma.$transaction(async (tx) => {
+              const definition = await tx.promptDefinition.update({
+                where: { id: recordId },
+                data: { title },
               });
 
-              if (!analysisFormExists) {
-                throwFieldValidation(
-                  "analysisFormId",
-                  "فرم تحلیل انتخاب‌شده یافت نشد.",
-                );
-              }
+              await persistPromptDefinitionEditorContent(
+                definition.id,
+                title,
+                normalizedEditor,
+                tx,
+              );
 
-              if (!title) {
-                title = `پرامپت فرم: ${analysisFormExists.title}`;
-              }
-
-              data.title = title;
-              data.analysisForm = {
-                connect: {
-                  id: analysisFormId,
-                },
-              };
-              data.multiAnalysisForm = {
-                disconnect: true,
-              };
-            } else if (ownerType === "MULTI_ANALYSIS_FORM") {
-              if (!multiAnalysisFormId) {
-                throwFieldValidation(
-                  "multiAnalysisFormId",
-                  "انتخاب فرم تحلیل چندگانه الزامی است.",
-                );
-              }
-
-              const multiAnalysisFormExists =
-                await prisma.multiAnalysisForm.findUnique({
-                  where: { id: multiAnalysisFormId },
-                  select: { id: true, title: true },
-                });
-
-              if (!multiAnalysisFormExists) {
-                throwFieldValidation(
-                  "multiAnalysisFormId",
-                  "فرم تحلیل چندگانه انتخاب‌شده یافت نشد.",
-                );
-              }
-
-              if (!title) {
-                title = `پرامپت تحلیل چندگانه: ${multiAnalysisFormExists.title}`;
-              }
-
-              data.title = title;
-              data.multiAnalysisForm = {
-                connect: {
-                  id: multiAnalysisFormId,
-                },
-              };
-              data.analysisForm = {
-                disconnect: true,
-              };
-            } else {
-              throwFieldValidation("ownerType", "نوع مالک معتبر نیست.");
-            }
-
-            const updated = await prisma.promptDefinition.update({
-              where: {
-                id: recordId,
-              },
-              data,
+              return definition;
             });
 
-            const updatedRecord = resource.build(updated);
+            const recordJson = buildRecordJson(resource, updated, currentAdmin);
+            await enrichPromptDefinitionRecordWithEditorJson(recordJson);
 
             return {
-              record: updatedRecord.toJSON(currentAdmin),
+              record: recordJson,
               redirectUrl: h.recordActionUrl({
                 resourceId: resource.id(),
                 recordId,
@@ -8650,13 +12082,82 @@ const admin = new AdminJS({
             };
           },
         },
+
+        delete: {
+          handler: async (request, response, context) => {
+            const { record, resource, h, currentAdmin } = context;
+
+            if (!record) {
+              throwRecordNotFound();
+            }
+
+            if (request.method === "get") {
+              return {
+                record: record.toJSON(currentAdmin),
+              };
+            }
+
+            const definitionId = String(record.id());
+            const recordJson = record.toJSON(currentAdmin);
+
+            await prisma.$transaction(async (tx) => {
+              await deletePromptDefinitionWithDependents(definitionId, tx);
+            });
+
+            return {
+              record: recordJson,
+              notice: {
+                message: "پرامپت و بخش‌های وابسته با موفقیت حذف شد.",
+                type: "success",
+              },
+              redirectUrl: h.resourceActionUrl({
+                resourceId: resource.id(),
+                actionName: "list",
+              }),
+            };
+          },
+        },
+
+        bulkDelete: {
+          handler: async (request, response, context) => {
+            const { records, resource, h, currentAdmin } = context;
+
+            if (request.method === "get") {
+              return {
+                records: (records ?? []).map((item) =>
+                  item.toJSON(currentAdmin),
+                ),
+              };
+            }
+
+            const definitionIds = (records ?? []).map((item) => String(item.id()));
+            const recordsJson = (records ?? []).map((item) =>
+              item.toJSON(currentAdmin),
+            );
+
+            await prisma.$transaction(async (tx) => {
+              for (const definitionId of definitionIds) {
+                await deletePromptDefinitionWithDependents(definitionId, tx);
+              }
+            });
+
+            return {
+              records: recordsJson,
+              notice: {
+                message: "پرامپت‌های انتخاب‌شده با موفقیت حذف شدند.",
+                type: "success",
+              },
+              redirectUrl: h.resourceActionUrl({
+                resourceId: resource.id(),
+                actionName: "list",
+              }),
+            };
+          },
+        },
       },
     }),
     prismaResource("PromptSegmentDefinition", {
-      navigation: {
-        name: "پرامپت‌ها",
-        icon: "List",
-      },
+      navigation: promptsNavigationHidden,
       titleProperty: "label",
 
       properties: {
@@ -9042,10 +12543,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("PromptVersion", {
-      navigation: {
-        name: "پرامپت‌ها",
-        icon: "GitCommit",
-      },
+      navigation: promptsNavigationHidden,
 
       titleProperty: "versionKey",
 
@@ -9445,10 +12943,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("PromptVersionSegmentValue", {
-      navigation: {
-        name: "پرامپت‌ها",
-        icon: "FileText",
-      },
+      navigation: promptsNavigationHidden,
 
       properties: {
         id: {
@@ -9916,10 +13411,7 @@ const admin = new AdminJS({
       },
     }),
     prismaResource("AnalysisFormProfileField", {
-      navigation: {
-        name: "تنظیمات تحلیل",
-        icon: "Settings",
-      },
+      navigation: analysisFormsNavigation,
 
       properties: {
         id: {
@@ -9937,6 +13429,29 @@ const admin = new AdminJS({
 
         profileFieldKey: {
           availableValues: COMPANY_PROFILE_FIELD_OPTIONS,
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: true,
+          },
+        },
+
+        profileFieldKeys: {
+          type: "string",
+          isVirtual: true,
+          isArray: true,
+          availableValues: COMPANY_PROFILE_FIELD_OPTIONS,
+          isRequired: true,
+          isVisible: {
+            list: false,
+            filter: false,
+            show: false,
+            edit: true,
+          },
+          components: {
+            edit: Components.ProfileFieldKeyMultiSelect,
+          },
         },
 
         isArray: {
@@ -9964,29 +13479,33 @@ const admin = new AdminJS({
 
       showProperties: ["id", "form", "profileFieldKey", "isArray", "createdAt"],
 
+      newProperties: ["form", "profileFieldKeys", "isArray"],
       editProperties: ["form", "profileFieldKey", "isArray"],
 
       actions: {
         new: {
-          before: async (request) => {
-            validateAdminProfileFieldPayload(request);
-            return request;
-          },
+          layout: ["form", "profileFieldKeys", "isArray"],
+          handler: buildBulkCreateAnalysisFormProfileFieldHandler(),
         },
 
         edit: {
-          before: async (request) => {
+          before: async (request, context) => {
             validateAdminProfileFieldPayload(request);
+            await assertUniqueAnalysisFormProfileField(
+              request,
+              context.record?.params?.id,
+            );
             return request;
           },
+          handler: withAdminDuplicateProfileFieldError(
+            DUPLICATE_ANALYSIS_FORM_PROFILE_FIELD_MESSAGE,
+            actions.edit.handler,
+          ),
         },
       },
     }),
     prismaResource("MultiAnalysisFormProfileField", {
-      navigation: {
-        name: "تنظیمات تحلیل",
-        icon: "Settings",
-      },
+      navigation: analysisFormsNavigation,
 
       properties: {
         id: {
@@ -10004,6 +13523,29 @@ const admin = new AdminJS({
 
         profileFieldKey: {
           availableValues: COMPANY_PROFILE_FIELD_OPTIONS,
+          isVisible: {
+            list: true,
+            filter: true,
+            show: true,
+            edit: true,
+          },
+        },
+
+        profileFieldKeys: {
+          type: "string",
+          isVirtual: true,
+          isArray: true,
+          availableValues: COMPANY_PROFILE_FIELD_OPTIONS,
+          isRequired: true,
+          isVisible: {
+            list: false,
+            filter: false,
+            show: false,
+            edit: true,
+          },
+          components: {
+            edit: Components.ProfileFieldKeyMultiSelect,
+          },
         },
 
         isArray: {
@@ -10048,21 +13590,28 @@ const admin = new AdminJS({
         "createdAt",
       ],
 
+      newProperties: ["multiAnalysisForm", "profileFieldKeys", "isArray"],
       editProperties: ["multiAnalysisForm", "profileFieldKey", "isArray"],
 
       actions: {
         new: {
-          before: async (request) => {
-            validateAdminProfileFieldPayload(request);
-            return request;
-          },
+          layout: ["multiAnalysisForm", "profileFieldKeys", "isArray"],
+          handler: buildBulkCreateMultiAnalysisFormProfileFieldHandler(),
         },
 
         edit: {
-          before: async (request) => {
+          before: async (request, context) => {
             validateAdminProfileFieldPayload(request);
+            await assertUniqueMultiAnalysisFormProfileField(
+              request,
+              context.record?.params?.id,
+            );
             return request;
           },
+          handler: withAdminDuplicateProfileFieldError(
+            DUPLICATE_MULTI_ANALYSIS_FORM_PROFILE_FIELD_MESSAGE,
+            actions.edit.handler,
+          ),
         },
       },
     }),
@@ -10461,7 +14010,27 @@ const admin = new AdminJS({
       },
       properties: {
         title: { isTitle: true, type: "textarea", label: "عنوان" },
-        plan: { reference: "ProjectPlan", label: "برنامه پروژه" },
+        plan: {
+          reference: "ProjectPlan",
+          label: "برنامه پروژه",
+          isVisible: {
+            list: false,
+            filter: false,
+            show: true,
+            edit: true,
+          },
+        },
+        project: {
+          reference: "Project",
+          label: "پروژه",
+          isVirtual: true,
+          isVisible: {
+            list: true,
+            filter: true,
+            show: false,
+            edit: false,
+          },
+        },
         description: { type: "textarea", label: "توضیحات" },
         executor: { reference: "User", label: "مجری" },
         prerequisiteAction: {
@@ -10475,7 +14044,7 @@ const admin = new AdminJS({
       },
       listProperties: [
         "id",
-        "plan",
+        "project",
         "title",
         "status",
         "progress",
@@ -10512,30 +14081,37 @@ const admin = new AdminJS({
         "order",
         "prerequisiteAction",
       ],
-      filterProperties: ["plan", "executor", "status", "startDate", "endDate"],
-    }),
-    prismaResource("ProjectPlanActionProgressHistory", {
-      navigation: {
-        name: "پروژه‌ها",
-        icon: "Folder",
+      filterProperties: ["project", "executor", "status", "startDate", "endDate"],
+      actions: {
+        list: {
+          before: applyProjectPlanActionProjectFilter,
+          after: async (response) => {
+            await enrichProjectPlanActionRecordsWithProject(
+              response.records ?? [],
+            );
+            return response;
+          },
+        },
       },
-      properties: {
-        action: { reference: "ProjectPlanAction", label: "اقدام" },
-        user: { reference: "User", label: "کاربر" },
-        progress: { label: "پیشرفت" },
-      },
-      listProperties: ["id", "action", "progress", "user", "createdAt"],
-      showProperties: ["id", "action", "progress", "user", "createdAt"],
-      editProperties: ["action", "progress", "user"],
-      filterProperties: ["action", "user", "createdAt"],
     }),
   ],
-});
+  });
+}
 
 const authenticate = async (emailOrUsername, password) => {
+  const loginId = String(emailOrUsername ?? "").trim();
+  const plainPassword = String(password ?? "");
+
+  if (!loginId || !plainPassword) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[admin login] missing email/username or password in form");
+    }
+    return null;
+  }
+
   const user = await prisma.user.findFirst({
     where: {
-      OR: [{ email: emailOrUsername }, { username: emailOrUsername }],
+      OR: [{ email: loginId }, { username: loginId }],
       role: "SUPER_ADMIN",
     },
     select: {
@@ -10548,12 +14124,18 @@ const authenticate = async (emailOrUsername, password) => {
   });
 
   if (!user) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[admin login] no SUPER_ADMIN for:", loginId);
+    }
     return null;
   }
 
-  const isValid = await bcrypt.compare(password, user.password);
+  const isValid = await bcrypt.compare(plainPassword, user.password);
 
   if (!isValid) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[admin login] invalid password for:", user.username);
+    }
     return null;
   }
 
@@ -10566,6 +14148,7 @@ const authenticate = async (emailOrUsername, password) => {
 };
 
 const start = async () => {
+  await createAdmin();
   await admin.initialize();
   if (process.env.NODE_ENV !== "production") {
     await admin.watch();
@@ -10579,7 +14162,8 @@ const start = async () => {
     },
     null,
     {
-      secret: ADMIN_SESSION_SECRET,
+      // @adminjs/express overwrites `secret` with auth.cookiePassword at runtime.
+      secret: ADMIN_COOKIE_SECRET,
       resave: false,
       saveUninitialized: false,
       cookie: {
@@ -10587,6 +14171,7 @@ const start = async () => {
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         maxAge: 1000 * 60 * 60 * 8,
+        path: ADMIN_ROOT_PATH,
       },
     },
     {

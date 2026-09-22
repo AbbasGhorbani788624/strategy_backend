@@ -1,4 +1,6 @@
 //actions.mjs
+import path from "path";
+import { fileURLToPath, pathToFileURL } from "url";
 import { ValidationError } from "adminjs";
 import {
   extractReferenceId,
@@ -8,6 +10,24 @@ import {
   parseDecimalValue,
 } from "./component-loader.mjs";
 import { prisma } from "./prisma.mjs";
+
+const adminJsRoot = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "node_modules",
+  "adminjs",
+);
+
+let adminJsPopulatorPromise;
+
+const getAdminJsPopulator = () => {
+  adminJsPopulatorPromise ??= import(
+    pathToFileURL(
+      path.join(adminJsRoot, "lib/backend/utils/populator/populator.js"),
+    ).href
+  ).then((module) => module.default);
+  return adminJsPopulatorPromise;
+};
 
 const relationIdFieldMap = {
   resumeFileId: "resumeFile",
@@ -41,6 +61,114 @@ const mapPayloadToData = (payload, fields) => {
   }
 
   return data;
+};
+
+const resolveUserChildUserId = async (modelName, recordParams) => {
+  const fromParams = extractReferenceId(recordParams?.userId);
+  if (fromParams) {
+    return fromParams;
+  }
+
+  const recordId = recordParams?.id;
+  if (!recordId || !prisma[modelName]?.findUnique) {
+    return null;
+  }
+
+  const row = await prisma[modelName].findUnique({
+    where: { id: recordId },
+    select: { userId: true },
+  });
+
+  return row?.userId ?? null;
+};
+
+const resolveCompanyChildCompanyId = async (modelName, recordParams) => {
+  const fromParams = extractReferenceId(recordParams?.companyId);
+  if (fromParams) {
+    return fromParams;
+  }
+
+  const recordId = recordParams?.id;
+  if (!recordId || !prisma[modelName]?.findUnique) {
+    return null;
+  }
+
+  const row = await prisma[modelName].findUnique({
+    where: { id: recordId },
+    select: { companyId: true },
+  });
+
+  return row?.companyId ?? null;
+};
+
+export const enrichAdminRecordCompanyIdReference = async (
+  recordJson,
+  { modelName } = {},
+) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const companyId =
+    extractReferenceId(recordJson.params.companyId) ||
+    (modelName
+      ? await resolveCompanyChildCompanyId(modelName, recordJson.params)
+      : null);
+
+  if (!companyId) {
+    return recordJson;
+  }
+
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { id: true, name: true },
+  });
+
+  const title = company?.name ?? companyId;
+
+  recordJson.params.companyId = companyId;
+  recordJson.populated = recordJson.populated ?? {};
+  recordJson.populated.companyId = {
+    params: { id: companyId, name: title },
+    title,
+  };
+
+  return recordJson;
+};
+
+export const enrichAdminRecordUserIdReference = async (
+  recordJson,
+  { modelName } = {},
+) => {
+  if (!recordJson?.params) {
+    return recordJson;
+  }
+
+  const userId =
+    extractReferenceId(recordJson.params.userId) ||
+    (modelName
+      ? await resolveUserChildUserId(modelName, recordJson.params)
+      : null);
+
+  if (!userId) {
+    return recordJson;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, username: true },
+  });
+
+  const title = user?.username ?? userId;
+
+  recordJson.params.userId = userId;
+  recordJson.populated = recordJson.populated ?? {};
+  recordJson.populated.userId = {
+    params: { id: userId, username: title },
+    title,
+  };
+
+  return recordJson;
 };
 
 const applyRelationFields = (data, payload, mode = "update") => {
@@ -157,9 +285,11 @@ export const buildCompanyChildActions = (
       handler: async (request, response, context) => {
         const { record, resource, h, currentAdmin } = context;
 
-        if (request.method !== "post") {
+        if (request.method?.toLowerCase() !== "post") {
+          const recordJson = record.toJSON(currentAdmin);
+          await enrichAdminRecordCompanyIdReference(recordJson, { modelName });
           return {
-            record: record.toJSON(currentAdmin),
+            record: recordJson,
           };
         }
 
@@ -321,9 +451,19 @@ export const buildUserChildActions = (
       handler: async (request, response, context) => {
         const { record, resource, h, currentAdmin } = context;
 
-        if (request.method !== "post") {
+        if (request.method?.toLowerCase() !== "post") {
+          const userId = await resolveUserChildUserId(modelName, record.params);
+          if (userId) {
+            record.params.userId = userId;
+          }
+
+          const populator = await getAdminJsPopulator();
+          await populator([record], context);
+
+          const recordJson = record.toJSON(currentAdmin);
+          await enrichAdminRecordUserIdReference(recordJson, { modelName });
           return {
-            record: record.toJSON(currentAdmin),
+            record: recordJson,
           };
         }
 

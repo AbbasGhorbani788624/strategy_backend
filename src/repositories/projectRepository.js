@@ -353,11 +353,9 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     creator: project.creator,
     company: project.company,
 
-    form: {
-      id: project.formId,
-      multiAnalysisFormId: project.multiAnalysisFormId,
-      ...(formResponses || {}),
-    },
+    formId: project.formId,
+    multiAnalysisFormId: project.multiAnalysisFormId,
+    formResponses,
     goals: selectedGoals,
 
     adminAnswers: project.followUpRequests.map((item) => ({

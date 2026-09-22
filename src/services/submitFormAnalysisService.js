@@ -25,6 +25,19 @@ const buildCategoryTree = (categories) => {
   return roots;
 };
 
+const formatFormForClient = (form) => {
+  const categoryTree = buildCategoryTree(form.categories);
+
+  return {
+    id: form.id,
+    type: form.type,
+    title: form.title,
+    description: form.description ?? form.info,
+    checklistTitle: form.checklistTitle,
+    categories: categoryTree,
+  };
+};
+
 const getFormForUserService = async (companyId, formId) => {
   if (!formId) {
     createBadRequestError("ایدی فرم الزامی است");
@@ -38,16 +51,16 @@ const getFormForUserService = async (companyId, formId) => {
 
   await assertAnalysisFormAllowed(companyId, form.id, form.type);
 
-  const categoryTree = buildCategoryTree(form.categories);
-
-  return {
-    id: form.id,
-    type: form.type,
-    title: form.title,
-    description: form.description ?? form.info,
-    checklistTitle: form.checklistTitle,
-    categories: categoryTree,
-  };
+  return formatFormForClient(form);
 };
 
-module.exports = { getFormForUserService };
+const analysisFormHasQuestions = (form) =>
+  (form.categories || []).some(
+    (category) => (category.questions?.length ?? 0) > 0,
+  );
+
+module.exports = {
+  getFormForUserService,
+  formatFormForClient,
+  analysisFormHasQuestions,
+};

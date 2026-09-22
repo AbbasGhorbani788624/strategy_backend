@@ -20,6 +20,10 @@ const {
 const { startAnalysisProcessing } = require("./analysisProcessor.service");
 const { getFormById } = require("../repositories/analysisFormRepository");
 const { assertFormInEnabledTier } = require("./companyAnalysisTierService");
+const {
+  formatFormForClient,
+  analysisFormHasQuestions,
+} = require("./submitFormAnalysisService");
 
 const createAnalysisProjectService = async (currentUser, payload) => {
   const { formId, goalIds, domain, projectTitle } = payload;
@@ -620,7 +624,21 @@ const getProjectService = async (projectId, userId, userRole, companyId) => {
     creatorId && creatorId.toString() === userId.toString(),
   );
 
-  return project;
+  const analysisFormId = project.formId || project.multiAnalysisFormId;
+  let form = null;
+
+  if (analysisFormId) {
+    const analysisForm = await getFormById(analysisFormId);
+    if (analysisForm && analysisFormHasQuestions(analysisForm)) {
+      form = formatFormForClient(analysisForm);
+    }
+  }
+
+  return {
+    ...project,
+    form,
+    formResponses: project.formResponses ?? null,
+  };
 };
 
 const giveRateToProjectService = async (userId, projectId, body) => {

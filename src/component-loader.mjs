@@ -9,6 +9,311 @@ export const questionTypeValues = [
 
 const choiceQuestionTypes = ["RADIO", "CHECKBOX"];
 
+export const formQuestionChoiceTypes = choiceQuestionTypes;
+
+export const parseFormQuestionOptionsJson = (optionsJson) => {
+  if (optionsJson === undefined || optionsJson === null) {
+    return [];
+  }
+
+  const normalized = String(optionsJson).trim();
+  if (!normalized) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(normalized);
+    if (!Array.isArray(parsed)) {
+      throw new Error("NOT_ARRAY");
+    }
+    return parsed;
+  } catch {
+    throw new ValidationError({
+      optionsJson: {
+        message: "فرمت گزینه‌ها معتبر نیست.",
+      },
+    });
+  }
+};
+
+export const validateFormQuestionOptionsForSave = ({
+  type,
+  isScored,
+  weight,
+  options,
+}) => {
+  const isChoice = choiceQuestionTypes.includes(type);
+  const requiresOptionScore = Boolean(isScored) && weight !== null;
+
+  if (!isChoice) {
+    return [];
+  }
+
+  if (!options.length) {
+    throw new ValidationError({
+      optionsJson: {
+        message: "برای سوالات رادیویی و چک‌باکس حداقل یک گزینه لازم است.",
+      },
+    });
+  }
+
+  const normalized = [];
+
+  for (let index = 0; index < options.length; index += 1) {
+    const row = options[index] ?? {};
+    const label = String(row.label ?? "").trim();
+    const value = String(row.value ?? "").trim();
+    const order = parseIntegerValue(row.order) ?? index + 1;
+    const score =
+      row.score === null || row.score === undefined || row.score === ""
+        ? null
+        : parseIntegerValue(row.score);
+
+    if (!label) {
+      throw new ValidationError({
+        optionsJson: {
+          message: `گزینه ${index + 1}: عنوان الزامی است.`,
+        },
+      });
+    }
+
+    if (!value) {
+      throw new ValidationError({
+        optionsJson: {
+          message: `گزینه ${index + 1}: مقدار (value) الزامی است.`,
+        },
+      });
+    }
+
+    if (requiresOptionScore) {
+      if (score === null) {
+        throw new ValidationError({
+          optionsJson: {
+            message: `گزینه ${index + 1}: برای سوال امتیازی، نمره (۱ تا ۵) الزامی است.`,
+          },
+        });
+      }
+      if (![1, 2, 3, 4, 5].includes(score)) {
+        throw new ValidationError({
+          optionsJson: {
+            message: `گزینه ${index + 1}: نمره باید بین ۱ تا ۵ باشد.`,
+          },
+        });
+      }
+    } else if (score !== null) {
+      throw new ValidationError({
+        optionsJson: {
+          message: `گزینه ${index + 1}: برای سوال بدون وزن/امتیاز نمی‌توانید نمره وارد کنید.`,
+        },
+      });
+    }
+
+    normalized.push({ label, value, order, score });
+  }
+
+  return normalized;
+};
+
+export const parseFollowUpFormQuestionsJson = (questionsJson) => {
+  if (questionsJson === undefined || questionsJson === null) {
+    return [];
+  }
+
+  const normalized = String(questionsJson).trim();
+  if (!normalized) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(normalized);
+    if (!Array.isArray(parsed)) {
+      throw new Error("NOT_ARRAY");
+    }
+    return parsed;
+  } catch {
+    throw new ValidationError({
+      questionsJson: {
+        message: "فرمت سوالات فرم معتبر نیست.",
+      },
+    });
+  }
+};
+
+export const validateFollowUpFormQuestionsForSave = (questions) => {
+  if (!questions.length) {
+    return [];
+  }
+
+  const normalized = [];
+
+  for (let index = 0; index < questions.length; index += 1) {
+    const row = questions[index] ?? {};
+    const label = String(row.label ?? "").trim();
+    const type = String(row.type ?? "").trim();
+    const required = parseBooleanValue(row.required);
+    const order = parseIntegerValue(row.order) ?? index + 1;
+    const optionsRaw = Array.isArray(row.options) ? row.options : [];
+
+    if (!label) {
+      throw new ValidationError({
+        questionsJson: {
+          message: `سوال ${index + 1}: متن سوال الزامی است.`,
+        },
+      });
+    }
+
+    if (!type) {
+      throw new ValidationError({
+        questionsJson: {
+          message: `سوال ${index + 1}: نوع سوال الزامی است.`,
+        },
+      });
+    }
+
+    let options = null;
+
+    if (choiceQuestionTypes.includes(type)) {
+      if (!optionsRaw.length) {
+        throw new ValidationError({
+          questionsJson: {
+            message: `سوال ${index + 1}: برای ${type} حداقل یک گزینه لازم است.`,
+          },
+        });
+      }
+
+      options = [];
+
+      for (let optionIndex = 0; optionIndex < optionsRaw.length; optionIndex += 1) {
+        const option = optionsRaw[optionIndex] ?? {};
+        const optionLabel = String(option.label ?? "").trim();
+        const optionValue = String(option.value ?? "").trim();
+
+        if (!optionLabel) {
+          throw new ValidationError({
+            questionsJson: {
+              message: `سوال ${index + 1}، گزینه ${optionIndex + 1}: عنوان الزامی است.`,
+            },
+          });
+        }
+
+        if (!optionValue) {
+          throw new ValidationError({
+            questionsJson: {
+              message: `سوال ${index + 1}، گزینه ${optionIndex + 1}: value الزامی است.`,
+            },
+          });
+        }
+
+        options.push({ label: optionLabel, value: optionValue });
+      }
+    } else if (optionsRaw.length > 0) {
+      throw new ValidationError({
+        questionsJson: {
+          message: `سوال ${index + 1}: برای نوع ${type} نباید گزینه تعریف شود.`,
+        },
+      });
+    }
+
+    normalized.push({
+      label,
+      type,
+      required: required ?? true,
+      order,
+      options,
+    });
+  }
+
+  return normalized;
+};
+
+export const parsePromptEditorJson = (promptEditorJson) => {
+  if (promptEditorJson === undefined || promptEditorJson === null) {
+    return { status: "DRAFT", segments: [] };
+  }
+
+  const normalized = String(promptEditorJson).trim();
+  if (!normalized) {
+    return { status: "DRAFT", segments: [] };
+  }
+
+  try {
+    const parsed = JSON.parse(normalized);
+    return {
+      status: String(parsed.status || "DRAFT").trim(),
+      segments: Array.isArray(parsed.segments) ? parsed.segments : [],
+    };
+  } catch {
+    throw new ValidationError({
+      promptEditorJson: {
+        message: "فرمت بخش‌های پرامپت معتبر نیست.",
+      },
+    });
+  }
+};
+
+export const validatePromptEditorSegmentsForSave = ({
+  status,
+  segments,
+}) => {
+  if (!segments.length) {
+    throw new ValidationError({
+      promptEditorJson: {
+        message: "حداقل یک بخش برای پرامپت لازم است.",
+      },
+    });
+  }
+
+  const normalizedStatus = ["DRAFT", "PUBLISHED", "ARCHIVED"].includes(status)
+    ? status
+    : "DRAFT";
+
+  const normalizedSegments = [];
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const row = segments[index] ?? {};
+    const label = String(row.label ?? "").trim();
+    const description = String(row.description ?? "").trim();
+    const content = String(row.content ?? "").trim();
+    const isRequired = parseBooleanValue(row.isRequired) ?? true;
+
+    if (!label) {
+      throw new ValidationError({
+        promptEditorJson: {
+          message: `بخش ${index + 1}: عنوان الزامی است.`,
+        },
+      });
+    }
+
+    if (isRequired && !content) {
+      throw new ValidationError({
+        promptEditorJson: {
+          message: `بخش ${index + 1}: متن پرامپت الزامی است.`,
+        },
+      });
+    }
+
+    if (normalizedStatus === "PUBLISHED" && !content) {
+      throw new ValidationError({
+        promptEditorJson: {
+          message: `بخش ${index + 1}: برای انتشار، متن همه بخش‌ها باید پر باشد.`,
+        },
+      });
+    }
+
+    normalizedSegments.push({
+      label,
+      description: description || null,
+      isRequired,
+      content,
+    });
+  }
+
+  return {
+    status: normalizedStatus,
+    segments: normalizedSegments,
+  };
+};
+
 export const parseOptionsTextBeforeSave = async (request) => {
   if (request.method !== "post") {
     return request;

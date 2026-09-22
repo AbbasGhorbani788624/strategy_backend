@@ -354,13 +354,39 @@ const mergeAnalysisFormCategories = (singleCategories, multiCategories) => {
   return categoryOrder.map((id) => mergedMap.get(id));
 };
 
-const getAnalysisModesCategories = async ({ userId, companyId }) => {
-  const [singleCategories, multiCategories] = await Promise.all([
-    getSingleForms(companyId),
-    getAvailableMultiAnalysisFormsService({ userId, companyId }),
-  ]);
+const sortCategoriesByAnalysisCategoryOrder = (categories, orderedCategoryIds) => {
+  const orderIndex = new Map(
+    orderedCategoryIds.map((id, index) => [id, index]),
+  );
 
-  return mergeAnalysisFormCategories(singleCategories, multiCategories);
+  return [...categories].sort((a, b) => {
+    const indexA =
+      a.id == null
+        ? Number.MAX_SAFE_INTEGER
+        : (orderIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER);
+    const indexB =
+      b.id == null
+        ? Number.MAX_SAFE_INTEGER
+        : (orderIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER);
+    return indexA - indexB;
+  });
+};
+
+const getAnalysisModesCategories = async ({ userId, companyId }) => {
+  const [singleCategories, multiCategories, orderedCategories] =
+    await Promise.all([
+      getSingleForms(companyId),
+      getAvailableMultiAnalysisFormsService({ userId, companyId }),
+      prisma.analysisCategory.findMany({
+        select: { id: true },
+        orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+      }),
+    ]);
+
+  const merged = mergeAnalysisFormCategories(singleCategories, multiCategories);
+  const orderedCategoryIds = orderedCategories.map((category) => category.id);
+
+  return sortCategoriesByAnalysisCategoryOrder(merged, orderedCategoryIds);
 };
 
 module.exports = {

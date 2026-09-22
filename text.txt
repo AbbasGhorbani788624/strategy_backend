@@ -1,127 +1,28 @@
 https://strategy.ratorai.com/ai/
 http://127.0.0.1:8080/
 
-/////////
-@projectPlanRoutes.js (1-54) @projectPlanActionRoutes.js (1-44) @schema.prisma (1686-1744) 
-Backend باید ۳ کار اصلی انجام دهد: log کردن تغییرات progress، برگرداندن history در plan، و append کردن history در response PATCH.
-۲. Log کردن — موقع تغییر progress
-هر جایی progress عوض می‌شود، فقط اگر مقدار جدید ≠ قبلی:
+const extractPersistedAnalysisFields = (
+  parsedOutput,
+  { persistSummaryAnalysis = true } = {},
+) => {
+  let finalAnalysis = null;
 
-PATCH /project-plan-actions/:id/progress
-PATCH /project-plans/:id/actions/completions  (checkbox تکمیل → 0 یا 100)
-منطق
-if (newProgress !== oldProgress) {
-  INSERT INTO ActionProgressLog (actionId, progress, recordedAt, recordedById)
-  UPDATE action SET progress = newProgress, ...
-}
-duplicate log نساز
-recordedAt = server time
-checkbox 100/0 هم log شود
-۳. GET plan — history داخل action
-GET /project/:projectId/plan
-هر action در response:
-
-{
-  "id": "action-uuid",
-  "title": "نصب سرور",
-  "startDate": "2026-01-01",
-  "endDate": "2026-03-31",
-  "progress": 45,
-  "expectedProgress": 60,
-  "scheduleStatus": "AT_RISK",
-  "progressHistory": [
-    {
-      "progress": 10,
-      "recordedAt": "2026-01-15T10:00:00.000Z",
-      "recordedBy": { "id": "...", "username": "ali" }
-    },
-    {
-      "progress": 25,
-      "recordedAt": "2026-02-01T14:30:00.000Z",
-      "recordedBy": { "id": "...", "username": "ali" }
-    },
-    {
-      "progress": 45,
-      "recordedAt": "2026-03-01T09:00:00.000Z",
-      "recordedBy": { "id": "...", "username": "sara" }
-    }
-  ]
-}
-قوانین
-مرتب‌سازی: recordedAt صعودی
-Cap: فقط آخر ۳۰ رکورد (یا ۵۰) — برای Line chart کافی است
-اگر history خالی → progressHistory: []
-۴. PATCH progress — plan به‌روز برگردد
-PATCH /project-plan-actions/:actionId/progress
-Body: { "progress": 50 }
-Response (همان pattern فعلی)
-{
-  "plan": {
-    "id": "...",
-    "actions": [
-      {
-        "id": "action-uuid",
-        "progress": 50,
-        "progressHistory": [
-          ...رکوردهای قبلی,
-          {
-            "progress": 50,
-            "recordedAt": "2026-03-15T12:00:00.000Z",
-            "recordedBy": { "id": "...", "username": "ali" }
-          }
-        ]
-      }
-    ]
+  if (parsedOutput?.final_output != null) {
+    finalAnalysis = safeStringify(parsedOutput.final_output);
+  } else if (parsedOutput?.sections) {
+    finalAnalysis = safeStringify(parsedOutput);
   }
-}
-Frontend با applyPlanFromResponse state را update می‌کند — GET جدا لازم نیست.
 
-۵. Migration برای داده‌های قدیمی
-اقداماتی که قبل از این feature progress داشتند:
+  const summaryAnalysis = persistSummaryAnalysis
+    ? parsedOutput?.insight_summary ?? null
+    : null;
 
-برای هر action که progress > 0 و history ندارد:
-  INSERT یک رکورد seed:
-    progress = progress فعلی
-    recordedAt = action.updatedAt ?? plan.updatedAt ?? now()
-    source = 'SEED'
-تا Line chart از اول خالی نباشد.
+  const rawConfidence =
+    parsedOutput?.output_confidence_rate ??
+    parsedOutput?.metadata?.confidenceScore;
 
-۶. چیزهایی که backend نباید بفرستد
-مورد	دلیل
-Expected curve
-frontend از start/end می‌سازد
-GET history بعد از هر PATCH
-frontend از response استفاده می‌کند
-startDate/endDate دوباره
-از قبل در action هست
-۷. اختیاری (فاز بعد)
-الف) تاریخچه کامل (برای modal)
-GET /project-plan-actions/:id/progress-history?page=1&limit=50
-فقط وقتی کاربر «مشاهده تاریخچه کامل» بزند — نه برای chart روزمره.
+  const riskPercentage =
+    rawConfidence != null ? Number(rawConfidence) : null;
 
-ب) Bulk (اگر plan خیلی سنگین شد)
-GET /project-plans/:planId/progress-history
-→ { "byActionId": { "action-1": [...], "action-2": [...] } }
-Checklist برای backend dev
-□ جدول ActionProgressLog
-□ INSERT log در PATCH progress (فقط اگر مقدار عوض شد)
-□ INSERT log در PATCH completions (checkbox)
-□ progressHistory در GET /project/:id/plan (capped, sorted)
-□ progressHistory به‌روز در PATCH response
-□ Migration seed برای داده‌های قدیمی
-□ Validation: progress بین 0–100
-قرارداد با frontend
-Frontend از قبل این endpoint را stub کرده:
-
-
-projectPlanService.js
-Ln 58–63
-export async function fetchActionProgressHistory(actionId) {
-  const response = await apiClient.get(
-    `/project-plan-actions/${actionId}/progress-history`,
-  );
-الویت: history داخل plan — endpoint بالا اختیاری (فاز بعد، برای تاریخچه کامل).
-
-یک جمله برای backend
-موقع هر تغییر progress یک log بساز؛ history را (capped) داخل GET plan و PATCH response برگردان — frontend chart را از همان plan state می‌کشد، بدون GET اضافه.
-
+  return { finalAnalysis, summaryAnalysis, riskPercentage };
+};
