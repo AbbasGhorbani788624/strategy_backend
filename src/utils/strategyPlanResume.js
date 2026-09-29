@@ -1,23 +1,20 @@
 const INACTIVE_STRATEGY_STATUSES = ["ARCHIVED"];
 
-const buildActivePlanWhere = ({ projectId, framework, companyId }) => ({
+const buildActivePlanWhere = ({ projectId, companyId }) => ({
   projectId,
-  framework,
   companyId,
   status: { notIn: INACTIVE_STRATEGY_STATUSES },
 });
 
-const buildActiveCompanyPlanWhere = ({ companyId, framework }) => ({
+const buildActiveCompanyPlanWhere = ({ companyId }) => ({
   companyId,
-  framework,
   status: { notIn: INACTIVE_STRATEGY_STATUSES },
 });
 
 const isReadyForMonitoring = (plan, hasMeasuresApproval = false) =>
   Boolean(
     hasMeasuresApproval &&
-      (plan?.state === "READY_FOR_MONITORING" ||
-        plan?.state === "MONITORING"),
+    (plan?.state === "READY_FOR_MONITORING" || plan?.state === "MONITORING"),
   );
 
 const resolveContinueAction = (state) => {
@@ -81,10 +78,18 @@ const buildResumeMessage = (framework, continueAction) => {
     FAILED: `برنامه استراتژی ${frameworkLabel} این پروژه با خطا متوقف شده است.`,
   };
 
-  return actionMessages[continueAction] || `برنامه استراتژی ${frameworkLabel} برای این پروژه از قبل وجود دارد.`;
+  return (
+    actionMessages[continueAction] ||
+    `برنامه استراتژی ${frameworkLabel} برای این پروژه از قبل وجود دارد.`
+  );
 };
 
-const createStrategyFlowError = (code, message, statusCode = 400, data = null) => {
+const createStrategyFlowError = (
+  code,
+  message,
+  statusCode = 400,
+  data = null,
+) => {
   const err = new Error(message);
   err.statusCode = statusCode;
   err.code = code;

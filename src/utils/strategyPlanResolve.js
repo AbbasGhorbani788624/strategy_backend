@@ -177,17 +177,22 @@ const findActiveStrategyPlanForCompany = async (
 ) => {
   const accessWhere = buildStrategyPlanAccessWhere(user);
 
-  return prisma.strategyPlan.findFirst({
+  const plan = await prisma.strategyPlan.findFirst({
     where: {
       ...accessWhere,
       ...buildActiveCompanyPlanWhere({
         companyId: user.companyId,
-        framework,
       }),
     },
     include,
     orderBy: { updatedAt: "desc" },
   });
+
+  if (plan && framework && plan.framework !== framework) {
+    return null;
+  }
+
+  return plan;
 };
 
 const findActiveStrategyPlan = async (
@@ -197,14 +202,20 @@ const findActiveStrategyPlan = async (
 ) => {
   const accessWhere = buildStrategyPlanAccessWhere(user);
 
-  return prisma.strategyPlan.findFirst({
+  const plan = await prisma.strategyPlan.findFirst({
     where: {
       ...accessWhere,
-      ...buildActivePlanWhere({ projectId, framework, companyId }),
+      ...buildActivePlanWhere({ projectId, companyId }),
     },
     ...(include ? { include } : {}),
     orderBy: { updatedAt: "desc" },
   });
+
+  if (plan && framework && plan.framework !== framework) {
+    return null;
+  }
+
+  return plan;
 };
 
 const loadActiveStrategyPlan = async (
@@ -284,9 +295,9 @@ const parsePeriodIndex = (periodIndex) => {
   return index;
 };
 
-const deleteStrategyPlansForCompanyFramework = async (companyId, framework) => {
+const deleteStrategyPlansForCompany = async (companyId) => {
   await prisma.strategyPlan.deleteMany({
-    where: { companyId, framework },
+    where: { companyId },
   });
 };
 
@@ -331,6 +342,6 @@ module.exports = {
   loadStrategyPlanByProject,
   parseMeasureIndex,
   parsePeriodIndex,
-  deleteStrategyPlansForCompanyFramework,
+  deleteStrategyPlansForCompany,
   resolveMeasureIdForActivePlan,
 };

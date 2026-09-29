@@ -6,6 +6,7 @@ const { roleGuard } = require("../middleware/roleGuard");
 const {
   getAllProjects,
   getMultiProjects,
+  getStrategyFlowProjects,
   getProject,
   giveReteAndComment,
   createProject,
@@ -14,12 +15,11 @@ const {
   createStepAnalysisProject,
   getSelectableProjectsForMultiAnalysisController,
   getMyProjectsController,
-  getTopRatedProjectsHandler,
-  getAccessibleProjectsController,
-  getMostCommentedProjectsController,
   getCompanyMembers,
   globalSearch,
   deleteProject,
+  lockProjectDeletion,
+  unlockProjectDeletion,
   getProjectAnalysisStatus,
 } = require("../controllers/projectController");
 const {
@@ -32,16 +32,12 @@ const {
   createProjectPlan,
   getProjectPlanByProject,
 } = require("../controllers/projectPlanController");
+const formCollaborationRoutes = require("./formCollaborationRoutes");
 
-//گرفتن 10 پروژه با بیشترین امتیاز
-router.get("/top-rated", auth, getTopRatedProjectsHandler);
 
-//گرفتن 10 پروژه جدید که دسترسی دادن بهش
-router.get("/accessible-projects", auth, getAccessibleProjectsController);
 
-//گرفتن 10 پروژه با بیشترین کامنت
-router.get("/most-commented", auth, getMostCommentedProjectsController);
-//
+
+
 
 //گرفتن اعضای شرکت برای فیلتر
 router.get("/members", auth, getCompanyMembers);
@@ -63,7 +59,10 @@ router.post(
 //گرفتن همه پروژه ها
 router.get("/", auth, getAllProjects);
 
-//گرفتن همه پروژه‌های چندمرحله‌ای
+// لیست paginated پروژه برای flow استراتژی (OKR = همه پروژه‌ها، BSC = دسته استراتژی‌گذاری)
+router.get("/strategy-flow", auth, getStrategyFlowProjects);
+
+/** @deprecated Use GET /strategy-flow?framework=BSC — backward compatibility only. POST /multi unchanged. */
 router.get("/multi", auth, getMultiProjects);
 
 //گرفتن پروژه ها  خود شخص
@@ -81,6 +80,9 @@ router.get(
 
 const companyOnly = roleGuard(["COMPANY", "SUPER_ADMIN"]);
 
+// همکاری فرم (collaboration)
+router.use("/:id/form-collaboration", formCollaborationRoutes);
+
 //گرفتن وضعیت تحلیل پروژه
 router.get("/:id/analysis-status", auth, getProjectAnalysisStatus);
 
@@ -88,6 +90,9 @@ router.get("/:id/analysis-status", auth, getProjectAnalysisStatus);
 router.post("/:projectId/plan", auth, companyOnly, createProjectPlan);
 
 router.get("/:projectId/plan", auth, companyOnly, getProjectPlanByProject);
+
+router.post("/:id/deletion-lock", auth, companyOnly, lockProjectDeletion);
+router.delete("/:id/deletion-lock", auth, companyOnly, unlockProjectDeletion);
 
 //گرفتن پروژه
 router.get("/:id", auth, getProject);

@@ -1,4 +1,8 @@
 const { createBadRequestError, buildProjectAccessWhere } = require("../utils");
+const {
+  buildStrategyProjectQuery,
+  validateStrategyFlowListQuery,
+} = require("../utils/buildStrategyProjectQuery");
 const { buildAnalysisStatusPayload } = require("../utils/analysisFailure");
 const {
   getRequiredItemKey,
@@ -156,8 +160,24 @@ const getAllProjectsService = async (userId, userRole, companyId, query) => {
 const getMultiProjectsService = async (userId, userRole, companyId, query) => {
   return getAllProjectsService(userId, userRole, companyId, {
     ...query,
-    mode: "MULTI",
-    strategyCategoryOnly: true,
+    ...buildStrategyProjectQuery({ framework: "BSC" }),
+  });
+};
+
+const getStrategyFlowProjectsService = async (
+  userId,
+  userRole,
+  companyId,
+  query,
+) => {
+  const listQuery = validateStrategyFlowListQuery(query);
+  const { framework, ...rest } = listQuery;
+
+  return getAllProjectsService(userId, userRole, companyId, {
+    ...rest,
+    page: listQuery.page,
+    limit: listQuery.limit,
+    ...buildStrategyProjectQuery({ framework }),
   });
 };
 
@@ -977,151 +997,101 @@ const createStepAnalysisProjectService = async (
   };
 };
 
-// const getTopRatedProjectsByUser = async (userId, limit = 10) => {
-//   const topProjects = await prisma.project.findMany({
-//     where: {
-//       creatorId: userId,
-//       hasRating: true,
-//       ratingCount: { gt: 0 },
-//     },
-//     orderBy: [{ averageRating: "desc" }, { ratingCount: "desc" }],
-//     take: limit,
-//     select: {
-//       id: true,
-//       title: true,
-//       averageRating: true,
-//       createdAt: true,
-//     },
-//   });
 
-//   return topProjects;
-// };
+const {
+  loadProjectDeletionContext,
+  assertDeletionRoleAccess,
+  assertDeletionLockManagementAccess,
+  resolveDeletionAction,
+} = require("../utils/projectDeletionPolicy");
 
-// const getAccessibleProjectsService = async (userId) => {
-//   const user = await prisma.user.findUnique({
-//     where: { id: userId },
-//     select: {
-//       role: true,
-//       companyId: true,
-//     },
-//   });
+const deleteProjectService = async (projectId, user, options = {}) => {
+  const force = options.force === true;
+  const context = await loadProjectDeletionContext(projectId);
 
-//   if (!user) {
-//     createBadRequestError("کاربر یافت نشد", 404);
-//   }
+  assertDeletionRoleAccess(user, context.project);
 
-//   if (user.role === "COMPANY" && user.companyId) {
-//     return prisma.project.findMany({
-//       where: {
-//         creator: {
-//           is: {
-//             companyId: user.companyId,
-//             role: {
-//               not: "COMPANY",
-//             },
-//           },
-//         },
-//       },
-//       take: 10,
-//       orderBy: {
-//         createdAt: "desc",
-//       },
-//       select: {
-//         id: true,
-//         createdAt: true,
-//         title: true,
-//         creator: {
-//           select: {
-//             username: true,
-//           },
-//         },
-//       },
-//     });
-//   }
+  const { action, monitoringProtected, forced } = resolveDeletionAction(
+    user,
+    context,
+    { force },
+  );
 
-//   const accesses = await prisma.projectAccess.findMany({
-//     where: {
-//       userId,
-//     },
-//     take: 10,
-//     orderBy: {
-//       createdAt: "desc",
-//     },
-//     include: {
-//       project: {
-//         select: {
-//           id: true,
-//           title: true,
-//           status: true,
-//           createdAt: true,
-//           averageRating: true,
-//           creator: {
-//             select: {
-//               id: true,
-//               username: true,
-//             },
-//           },
-//         },
-//       },
-//     },
-//   });
+  if (action === "ARCHIVE") {
+    if (context.project.status === "ARCHIVED") {
+      return {
+        archived: true,
+        projectId,
+        alreadyArchived: true,
+      };
+    }
 
-//   return accesses.map((item) => item.project);
-// };
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { status: "ARCHIVED" },
+    });
 
-// const getMostCommentedProjectsService = async (userId) => {
-//   const projects = await prisma.project.findMany({
-//     where: {
-//       creatorId: userId,
-//     },
-//     take: 10,
-//     orderBy: {
-//       comments: {
-//         _count: "desc",
-//       },
-//     },
-//     select: {
-//       id: true,
-//       title: true,
-//       averageRating: true,
-//       createdAt: true,
-//       _count: {
-//         select: {
-//           comments: true,
-//         },
-//       },
-//     },
-//   });
-
-//   return projects;
-// };
-
-const deleteProjectService = async (projectId, userId) => {
-  const project = await prisma.project.findUnique({
-    where: {
-      id: projectId,
-    },
-    select: {
-      id: true,
-      creatorId: true,
-    },
-  });
-
-  if (!project) {
-    createBadRequestError("پروژه یافت نشد .", 404);
-  }
-
-  if (project.creatorId !== userId) {
-    createBadRequestError("شما مجوز حذف این پروژه را ندارید", 403);
+    return {
+      archived: true,
+      projectId,
+      reason: "MONITORING_ACTIVE",
+    };
   }
 
   await prisma.project.delete({
-    where: {
-      id: projectId,
+    where: { id: projectId },
+  });
+
+  return {
+    deleted: true,
+    projectId,
+    monitoringProtected: monitoringProtected === true,
+    forced: forced === true,
+  };
+};
+
+const lockProjectDeletionService = async (projectId, user, { reason } = {}) => {
+  const context = await loadProjectDeletionContext(projectId);
+  assertDeletionLockManagementAccess(user, context.project);
+
+  const trimmedReason =
+    typeof reason === "string" && reason.trim() ? reason.trim() : null;
+
+  const updated = await prisma.project.update({
+    where: { id: projectId },
+    data: {
+      deletionLockedAt: new Date(),
+      deletionLockedById: user.id,
+      deletionLockReason: trimmedReason,
+    },
+    select: {
+      id: true,
+      deletionLockedAt: true,
+      deletionLockReason: true,
     },
   });
 
-  return true;
+  return {
+    projectId: updated.id,
+    deletionLockedAt: updated.deletionLockedAt,
+    deletionLockReason: updated.deletionLockReason,
+  };
+};
+
+const unlockProjectDeletionService = async (projectId, user) => {
+  const context = await loadProjectDeletionContext(projectId);
+  assertDeletionLockManagementAccess(user, context.project);
+
+  await prisma.project.update({
+    where: { id: projectId },
+    data: {
+      deletionLockedAt: null,
+      deletionLockedById: null,
+      deletionLockReason: null,
+    },
+  });
+
+  return { projectId, deletionLocked: false };
 };
 
 const getProjectAnalysisStatusService = async (projectId, userId) => {
@@ -1252,6 +1222,7 @@ const attachProjectsToFeaturedAnalyses = async (
 module.exports = {
   getAllProjectsService,
   getMultiProjectsService,
+  getStrategyFlowProjectsService,
   getProjectService,
   giveRateToProjectService,
   createAnalysisProjectService,
@@ -1260,10 +1231,9 @@ module.exports = {
   createStepAnalysisProjectService,
   getSelectableProjectsForMultiAnalysisService,
   getMyProjects,
-  // getTopRatedProjectsByUser,
-  // getAccessibleProjectsService,
-  // getMostCommentedProjectsService,
   deleteProjectService,
+  lockProjectDeletionService,
+  unlockProjectDeletionService,
   getProjectAnalysisStatusService,
   attachProjectsToFeaturedAnalyses,
 };

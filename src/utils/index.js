@@ -434,6 +434,8 @@ const buildFinalAnalysisPrompt = ({
   temperature,
   companyProfileData,
   readableFormResponses,
+  mode,
+  sourceProjectSummaries,
 }) => {
   const promptObject = {
     "Analysis title": title,
@@ -449,6 +451,10 @@ const buildFinalAnalysisPrompt = ({
       ? { "Form responses": readableFormResponses }
       : {}),
   };
+
+  if (mode === "MULTI") {
+    promptObject.Summaries = sourceProjectSummaries || [];
+  }
 
   return JSON.stringify(promptObject, null, 2);
 };
@@ -466,11 +472,10 @@ const buildDirectFinalAnalysisPrompt = ({
 }) => {
   const promptObject = {
     "Analysis title": title,
-    Recipes: [
-      {
-        step1: lastPromptSegment?.content || "",
-      },
-    ],
+    Recipes: buildRecipeSteps(
+      lastPromptSegment ? [lastPromptSegment] : [],
+      3,
+    ),
     temperature: temperature ?? 0.7,
     "company information": companyProfileData?.companyProfile || {},
     ...buildCompanyAdminDataForPrompt(
@@ -528,6 +533,7 @@ const buildFinalAnalysisWithCorrectionPrompt = ({
 
   return JSON.stringify(promptObject, null, 2);
 };
+
 
 const buildSelectedSourceProjectSummaries = (selectedSourceProjects = []) => {
   return selectedSourceProjects

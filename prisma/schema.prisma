@@ -46,11 +46,38 @@ enum ProjectStatus {
   CHAT_MODE
   FINAL_ANALYSIS
   FAILED
+  ARCHIVED
 }
 
 enum NotificationType {
   PROJECT_ACCESS_GRANTED
   FOLLOW_UP_ANSWERED
+  FORM_COLLABORATION_INVITE
+  FORM_COLLABORATION_RESPONSE_SUBMITTED
+}
+
+enum FormCollaborationStatus {
+  OPEN
+  APPLIED
+  CANCELLED
+}
+
+enum CollaborationResponseStatus {
+  DRAFT
+  SUBMITTED
+}
+
+enum FormDelegationMode {
+  FILL
+  READ_ONLY
+}
+
+enum FormDelegationStatus {
+  PENDING
+  VIEWED
+  SUBMITTED
+  CANCELLED
+  EXPIRED
 }
 
 enum QuestionType {
@@ -246,6 +273,12 @@ model User {
   strategyMeasurementsSubmitted StrategyMeasureMeasurement[] @relation("StrategyMeasurementSubmittedBy")
   projectPlanActions                 ProjectPlanAction[]                 @relation("ProjectPlanActionExecutor")
   projectPlanActionProgressHistory   ProjectPlanActionProgressHistory[]  @relation("ProjectPlanActionProgressUpdatedBy")
+  projectsDeletionLocked             Project[]                           @relation("ProjectDeletionLockedBy")
+  formCollaborationsCreated          FormCollaboration[]                 @relation("FormCollaborationCreatedBy")
+  formCollaborationsApplied          FormCollaboration[]                 @relation("FormCollaborationAppliedBy")
+  formCollaborationResponses         FormCollaborationResponse[]
+  formDelegationsReceived            FormCollaborationDelegation[]       @relation("DelegationAssignee")
+  formDelegationsSent                FormCollaborationDelegation[]       @relation("DelegationSender")
 
   @@index([role])
   @@index([companyId])
@@ -406,11 +439,90 @@ model Project {
   strategyPlans StrategyPlan[]
   projectPlan            ProjectPlan?
 
+  deletionLockedAt   DateTime?
+  deletionLockedById String?
+  deletionLockReason String?   @db.Text
+  deletionLockedBy   User?     @relation("ProjectDeletionLockedBy", fields: [deletionLockedById], references: [id], onDelete: SetNull)
+
+  formCollaboration FormCollaboration?
+
   @@index([status])
   @@index([companyId])
+  @@index([deletionLockedById])
   @@index([formId])
   @@index([multiAnalysisFormId])
   @@index([promptVersionId])
+}
+
+model FormCollaboration {
+  id        String                  @id @default(uuid())
+  projectId String                  @unique
+  status    FormCollaborationStatus @default(OPEN)
+
+  createdById String
+  openedAt    DateTime  @default(now())
+  closedAt    DateTime?
+  appliedAt   DateTime?
+  appliedById String?
+
+  minSubmittedCount              Int?
+  requireAllDelegationsCompleted Boolean @default(false)
+  tieOverrides                   Json?
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("FormCollaborationCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  appliedBy User?   @relation("FormCollaborationAppliedBy", fields: [appliedById], references: [id], onDelete: SetNull)
+
+  responses   FormCollaborationResponse[]
+  delegations FormCollaborationDelegation[]
+
+  @@index([status])
+  @@index([createdById])
+}
+
+model FormCollaborationResponse {
+  id                 String                      @id @default(uuid())
+  collaborationId    String
+  respondentId       String
+  rawAnswers         Json
+  formattedResponses Json?
+  status             CollaborationResponseStatus @default(DRAFT)
+  submittedAt        DateTime?
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+
+  collaboration FormCollaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  respondent    User              @relation(fields: [respondentId], references: [id], onDelete: Cascade)
+
+  linkedDelegations FormCollaborationDelegation[]
+
+  @@unique([collaborationId, respondentId])
+  @@index([collaborationId])
+  @@index([respondentId])
+}
+
+model FormCollaborationDelegation {
+  id               String               @id @default(uuid())
+  collaborationId  String
+  assigneeId       String
+  senderId         String
+  mode             FormDelegationMode
+  status           FormDelegationStatus @default(PENDING)
+  snapshotResponses Json?
+  message          String?              @db.Text
+  dueAt            DateTime?
+  linkedResponseId String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  collaboration  FormCollaboration          @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  assignee       User                       @relation("DelegationAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+  sender         User                       @relation("DelegationSender", fields: [senderId], references: [id], onDelete: Cascade)
+  linkedResponse FormCollaborationResponse? @relation(fields: [linkedResponseId], references: [id], onDelete: SetNull)
+
+  @@unique([collaborationId, assigneeId])
+  @@index([assigneeId, status])
+  @@index([collaborationId])
 }
 
 model ProjectBookmark {
@@ -646,6 +758,7 @@ model Notification {
   isRead        Boolean          @default(false)
   referenceId   String?
   referenceType String?
+  metadata      Json?
   createdAt     DateTime         @default(now())
   user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 

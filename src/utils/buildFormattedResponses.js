@@ -10,7 +10,7 @@ function calculateOverallScore(categoryScores) {
   return average(scores);
 }
 
-function buildFormattedResponses(form, answers) {
+function buildFormattedResponsesInternal(form, answers) {
   const categoryScores = {};
 
   const categories = form.categories.map((category) =>
@@ -25,31 +25,172 @@ function buildFormattedResponses(form, answers) {
   };
 }
 
+function buildFormattedResponses(form, answers, options = {}) {
+  const formatted = buildFormattedResponsesInternal(form, answers);
+
+  if (options.keepInternalFields) {
+    return formatted;
+  }
+
+  return canonicalizeProjectFormResponses(formatted);
+}
+
+function isInternalIdKey(key) {
+  if (key === "id") return true;
+  return key.length > 2 && key.endsWith("Id");
+}
+
+function stripAnswerForAi(answer) {
+  if (answer == null || typeof answer !== "object") {
+    return answer;
+  }
+
+  if (Array.isArray(answer)) {
+    return answer.map(stripAnswerForAi);
+  }
+
+  const cleaned = {};
+
+  for (const [key, value] of Object.entries(answer)) {
+    if (key === "score" || isInternalIdKey(key)) {
+      continue;
+    }
+
+    cleaned[key] = stripAnswerForAi(value);
+  }
+
+  return cleaned;
+}
+
+function isMultiPersonCollectAllAnswer(answer) {
+  return (
+    answer &&
+    typeof answer === "object" &&
+    Array.isArray(answer.responses)
+  );
+}
+
+function isRadioCollectAllAnswer(answer) {
+  if (!isMultiPersonCollectAllAnswer(answer)) {
+    return false;
+  }
+
+  return answer.responses.some(
+    (entry) => entry && (entry.label != null || entry.value != null),
+  );
+}
+
+function formatCollectAllResponsesForAi(answer, { includeOptionFields }) {
+  return {
+    responses: answer.responses.map((entry) => {
+      const formatted = {
+        displayName: entry.displayName || "Respondent",
+      };
+
+      if (includeOptionFields) {
+        formatted.label = entry.label ?? "";
+        formatted.value = entry.value;
+      } else {
+        formatted.text = entry.text ?? "";
+      }
+
+      return formatted;
+    }),
+  };
+}
+
+function formatAnswerForAi(question) {
+  const answer = question.answer;
+  const unscoredQuestion = question.score == null;
+
+  if (unscoredQuestion && isRadioCollectAllAnswer(answer)) {
+    return formatCollectAllResponsesForAi(answer, {
+      includeOptionFields: true,
+    });
+  }
+
+  if (unscoredQuestion && isMultiPersonCollectAllAnswer(answer)) {
+    return formatCollectAllResponsesForAi(answer, {
+      includeOptionFields: false,
+    });
+  }
+
+  if (isRadioCollectAllAnswer(answer)) {
+    return answer.responses
+      .map((entry) => {
+        const name = entry.displayName || "Respondent";
+        const label = entry.label ?? entry.value ?? "";
+        return `${name}: ${label}`;
+      })
+      .join("\n\n");
+  }
+
+  if (isMultiPersonCollectAllAnswer(answer)) {
+    return answer.responses
+      .map((entry) => {
+        const name = entry.displayName || "Respondent";
+        return `${name}: ${entry.text ?? ""}`;
+      })
+      .join("\n\n");
+  }
+
+  return stripAnswerForAi(answer);
+}
+
+function formatQuestionForAi(question) {
+  const formatted = {
+    label: question.label,
+    answer: formatAnswerForAi(question),
+  };
+
+  if (question.score != null) {
+    formatted.score = question.score;
+  }
+
+  if (
+    question.score != null &&
+    question.weight != null &&
+    question.weight !== 0
+  ) {
+    formatted.weight = question.weight;
+  }
+
+  return formatted;
+}
+
+function formatCategoryForAi(category) {
+  const formatted = {
+    title: category.title,
+    questions: (category.questions || []).map(formatQuestionForAi),
+  };
+
+  if (category.score != null) {
+    formatted.score = category.score;
+  }
+
+  const children = category.children || [];
+
+  if (children.length > 0) {
+    formatted.children = children.map(formatCategoryForAi);
+  }
+
+  return formatted;
+}
+
 function buildFormResponsesForAi(formResponses = {}) {
   const categories = formResponses.categories || [];
 
   if (categories.length === 0) return null;
 
-  const formatCategory = (category) => ({
-    title: category.title,
-    ...(category.score != null ? { score: category.score } : {}),
-    questions: (category.questions || []).map((question) => ({
-      label: question.label,
-      answer: question.answer,
-      ...(question.score != null ? { score: question.score } : {}),
-      ...(question.weight != null ? { weight: question.weight } : {}),
-    })),
-    ...((category.children || []).length > 0
-      ? { children: category.children.map(formatCategory) }
-      : {}),
-  });
-
-  return {
-    ...(formResponses.overallScore != null
-      ? { overallScore: formResponses.overallScore }
-      : {}),
-    categories: categories.map(formatCategory),
+  const payload = {
+    categories: categories.map(formatCategoryForAi),
   };
+
+  if (formResponses.overallScore != null) {
+    payload.overallScore = formResponses.overallScore;
+  }
+
+  return payload;
 }
 
 function findSelectedOption(question, answer) {
@@ -123,7 +264,6 @@ function buildCategory(category, answers = {}, categoryScores) {
         };
 
         if (isValidScore(selectedOption.score)) {
-          selected.score = selectedOption.score;
           score = selectedOption.score;
         }
 
@@ -202,6 +342,100 @@ function buildCategory(category, answers = {}, categoryScores) {
   };
 }
 
+function canonicalizeTextAnswerForStorage(answer) {
+  if (!isMultiPersonCollectAllAnswer(answer)) {
+    return answer;
+  }
+
+  return {
+    responses: answer.responses.map((entry) => ({
+      displayName: entry.displayName || "Respondent",
+      text: entry.text ?? "",
+    })),
+  };
+}
+
+function canonicalizeRadioAnswerForStorage(answer) {
+  if (isRadioCollectAllAnswer(answer)) {
+    return {
+      responses: answer.responses.map((entry) => ({
+        displayName: entry.displayName || "Respondent",
+        label: entry.label ?? "",
+        value: entry.value,
+      })),
+    };
+  }
+
+  if (!answer || typeof answer !== "object" || Array.isArray(answer)) {
+    return answer;
+  }
+
+  const { score, ...rest } = answer;
+  return rest;
+}
+
+function canonicalizeQuestionForStorage(question) {
+  const stored = {
+    label: question.label,
+    answer: question.answer ?? null,
+  };
+
+  if (question.isScored === true) {
+    stored.isScored = true;
+  }
+
+  if (question.type === "TEXT") {
+    stored.answer = canonicalizeTextAnswerForStorage(question.answer);
+  } else if (question.type === "RADIO") {
+    stored.answer = canonicalizeRadioAnswerForStorage(question.answer);
+  }
+
+  if (question.score != null) {
+    stored.score = question.score;
+  }
+
+  if (question.weight != null && question.weight !== 0) {
+    stored.weight = question.weight;
+  }
+
+  return stored;
+}
+
+function canonicalizeCategoryForStorage(category) {
+  const stored = {
+    title: category.title,
+    questions: (category.questions || []).map(canonicalizeQuestionForStorage),
+  };
+
+  if (category.score != null) {
+    stored.score = category.score;
+  }
+
+  const children = (category.children || []).map(canonicalizeCategoryForStorage);
+
+  if (children.length > 0) {
+    stored.children = children;
+  }
+
+  return stored;
+}
+
+function canonicalizeProjectFormResponses(formResponses) {
+  if (!formResponses || typeof formResponses !== "object") {
+    return formResponses;
+  }
+
+  const stored = {
+    categories: (formResponses.categories || []).map(canonicalizeCategoryForStorage),
+  };
+
+  if (formResponses.overallScore != null) {
+    stored.overallScore = formResponses.overallScore;
+  }
+
+  return stored;
+}
+
 function flattenQuestions(categories) {
   const questions = [];
   const questionMap = new Map();
@@ -231,10 +465,13 @@ function flattenQuestions(categories) {
 module.exports = {
   buildFormattedResponses,
   buildFormResponsesForAi,
+  canonicalizeProjectFormResponses,
   findSelectedOption,
   hasScore,
   round,
   average,
+  calculateOverallScore,
+  isValidScore,
   buildCategory,
   flattenQuestions,
 };

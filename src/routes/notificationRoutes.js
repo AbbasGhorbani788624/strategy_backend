@@ -5,11 +5,13 @@ const { roleGuard } = require("../middleware/roleGuard");
 const {
   getUserNotificationsController,
   markNotificationAsReadController,
+  deleteNotificationController,
 } = require("../controllers/notificationController");
 
 //گرفتن notification
 router.get("/", auth, getUserNotificationsController);
 //read کردن notif
 router.patch("/:id/read", auth, markNotificationAsReadController);
+router.delete("/:id", auth, deleteNotificationController);
 
 module.exports = router;

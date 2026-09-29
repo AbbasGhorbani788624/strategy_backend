@@ -4,6 +4,7 @@ const auth = require("../middleware/auth");
 const { roleGuard } = require("../middleware/roleGuard");
 const requireMonitoringUnlocked = require("../middleware/requireMonitoringUnlocked");
 
+// همهٔ مسیرهای زیر: کاربر لاگین، نقش COMPANY یا MEMBER، و پایش برای شرکت باز باشد.
 router.use(auth, roleGuard(["COMPANY", "MEMBER"]), requireMonitoringUnlocked);
 const {
   createStrategyPlan,
@@ -67,27 +68,28 @@ const {
   strategyTranslationSchema,
 } = require("../validations/strategyTranslationValidation");
 
-// POST — ترجمه؛ body: { projectId }
+// ترجمهٔ متن تحلیل پروژه برای استفاده در فلو پایش — body: { projectId }
 router.post(
   "/strategy-translation",
   strategyTranslationSchema,
   translateStrategyAnalysis,
 );
 
-// POST — شروع flow؛ body: { projectId, framework, restart: true }
+// شروع یا راه‌اندازی مجدد برنامهٔ پایش — body: { projectId, framework, restart? }
 router.post(
   "/",
   createStrategyPlanSchema,
   createStrategyPlan,
 );
 
-// GET — plan فعال شرکت (از companyId توکن)؛ query: framework
+// دریافت برنامهٔ پایش فعال شرکت (شرکت از توکن) — query: framework
 router.get(
   "/active",
   strategyPlanByProjectQuerySchema,
   getActiveStrategyPlan,
 );
 
+// BSC — اعتبارسنجی نقشهٔ استراتژی ویرایش‌شده (plan فعال شرکت) — query: framework؛ body: editedMap
 router.post(
   "/active/map/validate",
   strategyPlanByProjectQuerySchema,
@@ -95,6 +97,7 @@ router.post(
   validateStrategyMapByActive,
 );
 
+// BSC — تأیید نقشهٔ نهایی و رفتن به مرحلهٔ بعد (plan فعال شرکت) — body: approvedMap
 router.post(
   "/active/map/approve",
   strategyPlanByProjectQuerySchema,
@@ -102,6 +105,7 @@ router.post(
   approveStrategyMapByActive,
 );
 
+// BSC — اعتبارسنجی KPIهای ویرایش‌شده (plan فعال شرکت)
 router.post(
   "/active/kpis/validate",
   strategyPlanByProjectQuerySchema,
@@ -109,6 +113,7 @@ router.post(
   validateStrategyKpisByActive,
 );
 
+// BSC — تأیید KPIها (plan فعال شرکت)
 router.post(
   "/active/kpis/approve",
   strategyPlanByProjectQuerySchema,
@@ -116,6 +121,7 @@ router.post(
   approveStrategyKpisByActive,
 );
 
+// OKR — اعتبارسنجی جدول/ساختار OKR ویرایش‌شده (plan فعال شرکت)
 router.post(
   "/active/table/validate",
   strategyPlanByProjectQuerySchema,
@@ -123,6 +129,7 @@ router.post(
   validateStrategyTableByActive,
 );
 
+// OKR — تأیید جدول OKR (plan فعال شرکت)
 router.post(
   "/active/table/approve",
   strategyPlanByProjectQuerySchema,
@@ -130,6 +137,7 @@ router.post(
   approveStrategyTableByActive,
 );
 
+// لیست شاخص‌های پایش (measures) برای برنامهٔ فعال شرکت
 router.get(
   "/active/measures",
   strategyPlanByProjectQuerySchema,
@@ -137,6 +145,7 @@ router.get(
   listStrategyPlanMeasuresByActive,
 );
 
+// همگام‌سازی شاخص‌های پایش با وضعیت فعلی برنامه (plan فعال شرکت)
 router.post(
   "/active/measures/sync",
   strategyPlanByProjectQuerySchema,
@@ -144,12 +153,15 @@ router.post(
 );
 
 // --- legacy: by-project (deprecated) ---
+
+// دریافت برنامهٔ پایش مرتبط با یک پروژه — params: projectId؛ query: framework
 router.get(
   "/by-project/:projectId",
   strategyPlanByProjectQuerySchema,
   getStrategyPlanByProject,
 );
 
+// BSC — اعتبارسنجی نقشه برای plan همان پروژه
 router.post(
   "/by-project/:projectId/map/validate",
   strategyPlanByProjectQuerySchema,
@@ -157,6 +169,7 @@ router.post(
   validateStrategyMapByProject,
 );
 
+// BSC — تأیید نقشه برای plan همان پروژه
 router.post(
   "/by-project/:projectId/map/approve",
   strategyPlanByProjectQuerySchema,
@@ -164,6 +177,7 @@ router.post(
   approveStrategyMapByProject,
 );
 
+// BSC — اعتبارسنجی KPI برای plan همان پروژه
 router.post(
   "/by-project/:projectId/kpis/validate",
   strategyPlanByProjectQuerySchema,
@@ -171,6 +185,7 @@ router.post(
   validateStrategyKpisByProject,
 );
 
+// BSC — تأیید KPI برای plan همان پروژه
 router.post(
   "/by-project/:projectId/kpis/approve",
   strategyPlanByProjectQuerySchema,
@@ -178,6 +193,7 @@ router.post(
   approveStrategyKpisByProject,
 );
 
+// OKR — اعتبارسنجی جدول برای plan همان پروژه
 router.post(
   "/by-project/:projectId/table/validate",
   strategyPlanByProjectQuerySchema,
@@ -185,6 +201,7 @@ router.post(
   validateStrategyTableByProject,
 );
 
+// OKR — تأیید جدول برای plan همان پروژه
 router.post(
   "/by-project/:projectId/table/approve",
   strategyPlanByProjectQuerySchema,
@@ -192,6 +209,7 @@ router.post(
   approveStrategyTableByProject,
 );
 
+// لیست measures برای plan همان پروژه
 router.get(
   "/by-project/:projectId/measures",
   strategyPlanByProjectQuerySchema,
@@ -199,6 +217,7 @@ router.get(
   listStrategyPlanMeasuresByProject,
 );
 
+// sync measures برای plan همان پروژه
 router.post(
   "/by-project/:projectId/measures/sync",
   strategyPlanByProjectQuerySchema,
@@ -206,53 +225,63 @@ router.post(
 );
 
 // --- legacy: strategyPlanId ---
+
+// BSC — اعتبارسنجی نقشه با شناسهٔ مستقیم StrategyPlan
 router.post(
   "/:strategyPlanId/map/validate",
   validateStrategyMapSchema,
   validateStrategyMap,
 );
 
+// BSC — تأیید نقشه با شناسهٔ مستقیم StrategyPlan
 router.post(
   "/:strategyPlanId/map/approve",
   approveStrategyMapSchema,
   approveStrategyMap,
 );
 
+// BSC — اعتبارسنجی KPI با شناسهٔ مستقیم StrategyPlan
 router.post(
   "/:strategyPlanId/kpis/validate",
   validateStrategyKpiSchema,
   validateStrategyKpis,
 );
 
+// BSC — تأیید KPI با شناسهٔ مستقیم StrategyPlan
 router.post(
   "/:strategyPlanId/kpis/approve",
   approveStrategyKpiSchema,
   approveStrategyKpis,
 );
 
+// OKR — اعتبارسنجی جدول با شناسهٔ مستقیم StrategyPlan
 router.post(
   "/:strategyPlanId/table/validate",
   validateStrategyTableSchema,
   validateStrategyTable,
 );
 
+// OKR — تأیید جدول با شناسهٔ مستقیم StrategyPlan
 router.post(
   "/:strategyPlanId/table/approve",
   approveStrategyTableSchema,
   approveStrategyTable,
 );
 
+// لیست measures برای یک StrategyPlan مشخص
 router.get(
   "/:strategyPlanId/measures",
   strategyPlanMeasuresListQuerySchema,
   listStrategyPlanMeasures,
 );
 
+// همگام‌سازی measures برای یک StrategyPlan مشخص
 router.post(
   "/:strategyPlanId/measures/sync",
   syncStrategyPlanMeasures,
 );
 
+// جزئیات کامل یک StrategyPlan — params: strategyPlanId
 router.get(
   "/:strategyPlanId",
   getStrategyPlan,

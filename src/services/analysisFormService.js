@@ -658,6 +658,8 @@ const handleConversationStepService = async (
         temperature,
         companyProfileData,
         readableFormResponses,
+        mode: project.mode,
+        sourceProjectSummaries,
       });
 
       const result = await generateAndPersistFinalAnalysis(

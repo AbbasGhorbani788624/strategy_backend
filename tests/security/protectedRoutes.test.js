@@ -11,6 +11,10 @@ const PROTECTED_ROUTES = [
   { method: "get", path: "/api/project/" },
   { method: "get", path: "/api/project/myproject" },
   { method: "get", path: "/api/project/tabs" },
+  {
+    method: "get",
+    path: "/api/project/strategy-flow?framework=OKR&page=1&limit=6",
+  },
   { method: "get", path: "/api/config/" },
   { method: "get", path: "/api/config/revenue-centers" },
   { method: "get", path: "/api/config/product-services" },

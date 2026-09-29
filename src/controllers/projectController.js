@@ -2,6 +2,7 @@ const {
   getProjectService,
   getAllProjectsService,
   getMultiProjectsService,
+  getStrategyFlowProjectsService,
   giveRateToProjectService,
   createAnalysisProjectService,
   grantProjectAccessService,
@@ -9,10 +10,10 @@ const {
   createStepAnalysisProjectService,
   getSelectableProjectsForMultiAnalysisService,
   getMyProjects,
-  getTopRatedProjectsByUser,
-  getAccessibleProjectsService,
-  getMostCommentedProjectsService,
+  
   deleteProjectService,
+  lockProjectDeletionService,
+  unlockProjectDeletionService,
   getProjectAnalysisStatusService,
 } = require("../services/projectService");
 const prisma = require("../prismaClient");
@@ -61,6 +62,7 @@ exports.getAllProjects = async (req, res, next) => {
   }
 };
 
+/** @deprecated Prefer GET /project/strategy-flow?framework=BSC for strategy flow project lists. */
 exports.getMultiProjects = async (req, res, next) => {
   try {
     const projects = await getMultiProjectsService(
@@ -73,6 +75,21 @@ exports.getMultiProjects = async (req, res, next) => {
     return successResponse(res, 200, projects);
   } catch (err) {
     console.error(err);
+    next(err);
+  }
+};
+
+exports.getStrategyFlowProjects = async (req, res, next) => {
+  try {
+    const projects = await getStrategyFlowProjectsService(
+      req.user.id,
+      req.user.role,
+      req.user.companyId,
+      req.query,
+    );
+
+    return successResponse(res, 200, projects);
+  } catch (err) {
     next(err);
   }
 };
@@ -212,51 +229,9 @@ exports.getSelectableProjectsForMultiAnalysisController = async (
   }
 };
 
-exports.getTopRatedProjectsHandler = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-    const limit = 10;
 
-    const projects = await getTopRatedProjectsByUser(userId, limit);
 
-    res.status(200).json({
-      success: true,
-      data: projects,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
 
-exports.getAccessibleProjectsController = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-
-    const projects = await getAccessibleProjectsService(userId);
-
-    res.status(200).json({
-      success: true,
-      data: projects,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-exports.getMostCommentedProjectsController = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-
-    const projects = await getMostCommentedProjectsService(userId);
-
-    res.status(200).json({
-      success: true,
-      data: projects,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
 
 exports.getCompanyMembers = async (req, res, next) => {
   try {
@@ -369,14 +344,59 @@ exports.getProjectAnalysisStatus = async (req, res, next) => {
 exports.deleteProject = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const force =
+      req.query.force === "true" ||
+      req.query.force === "1" ||
+      req.body?.force === true;
 
-    const userId = req.user.id;
+    const result = await deleteProjectService(id, req.user, { force });
 
-    await deleteProjectService(id, userId);
+    if (result.archived) {
+      return res.status(200).json({
+        success: true,
+        message: result.alreadyArchived
+          ? "پروژه از قبل بایگانی شده است"
+          : "پروژه به‌جای حذف، بایگانی شد (داده‌های پایش حفظ شد)",
+        ...result,
+      });
+    }
 
     return res.status(200).json({
       success: true,
       message: "پروژه با موفقیت حذف شد",
+      ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.lockProjectDeletion = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await lockProjectDeletionService(id, req.user, {
+      reason: req.body?.reason,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "قفل حذف پروژه فعال شد",
+      ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.unlockProjectDeletion = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await unlockProjectDeletionService(id, req.user);
+
+    return res.status(200).json({
+      success: true,
+      message: "قفل حذف پروژه برداشته شد",
+      ...result,
     });
   } catch (error) {
     next(error);

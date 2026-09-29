@@ -4,6 +4,7 @@ const {
   buildFormattedResponses,
   buildFormResponsesForAi,
 } = require("../src/utils/buildFormattedResponses");
+const { aggregateSubmissions } = require("../src/utils/aggregateFormSubmissions");
 
 const makeOption = (value, score) => ({
   value,
@@ -58,7 +59,12 @@ test("calculates weighted category and overall scores", () => {
 
   assert.equal(result.categories[0].score, 3.6);
   assert.equal(result.overallScore, 3.6);
-  assert.equal(result.categories[0].questions[0].answer.score, 5);
+  assert.equal(result.categories[0].questions[0].score, 5);
+  assert.deepEqual(result.categories[0].questions[0].answer, {
+    label: "five",
+    value: "five",
+  });
+  assert.equal("score" in result.categories[0].questions[0].answer, false);
   assert.equal(result.categories[0].questions[0].weight, 50);
 });
 
@@ -180,8 +186,10 @@ test("returns null scores when no weighted answer is available", () => {
 
   const result = buildFormattedResponses(form, {});
 
-  assert.equal(result.categories[0].score, null);
-  assert.equal(result.overallScore, null);
+  assert.equal("score" in result.categories[0], false);
+  assert.equal("overallScore" in result, false);
+  assert.equal("children" in result.categories[0], false);
+  assert.equal("id" in result.categories[0], false);
 });
 
 test("calculates overall score as the average of scored categories", () => {
@@ -286,4 +294,252 @@ test("removes internal question fields from AI form responses", () => {
 test("omits AI form responses when categories are empty", () => {
   assert.equal(buildFormResponsesForAi({ categories: [] }), null);
   assert.equal(buildFormResponsesForAi({}), null);
+});
+
+test("AI payload strips answer.score and internal ids from scored RADIO", () => {
+  const result = buildFormResponsesForAi({
+    formId: "form-hidden",
+    overallScore: 3,
+    categories: [
+      {
+        id: "cat-1",
+        title: "ارزیابی سریع",
+        score: 3,
+        questions: [
+          {
+            id: "q1",
+            questionId: "q1",
+            type: "RADIO",
+            label: "رضایت کلی",
+            score: 3,
+            weight: 10,
+            answer: {
+              id: "opt-1",
+              optionId: "opt-1",
+              label: "متوسط",
+              value: "sat_medium",
+              score: 3,
+            },
+            aggregation: { method: "MAJORITY", status: "OK" },
+          },
+        ],
+        children: [],
+      },
+    ],
+  });
+
+  assert.deepEqual(result, {
+    overallScore: 3,
+    categories: [
+      {
+        title: "ارزیابی سریع",
+        score: 3,
+        questions: [
+          {
+            label: "رضایت کلی",
+            answer: { label: "متوسط", value: "sat_medium" },
+            score: 3,
+            weight: 10,
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal("score" in result.categories[0].questions[0].answer, false);
+  assert.equal("id" in result.categories[0], false);
+  assert.equal("children" in result.categories[0], false);
+});
+
+test("AI payload omits null score and weight on unscored questions", () => {
+  const result = buildFormResponsesForAi({
+    categories: [
+      {
+        title: "اطلاعات عمومی",
+        score: null,
+        questions: [
+          {
+            id: "q-branches",
+            label: "تعداد شعب فعال",
+            type: "NUMBER",
+            score: null,
+            weight: null,
+            answer: 7,
+          },
+        ],
+        children: [],
+      },
+    ],
+  });
+
+  assert.deepEqual(result, {
+    categories: [
+      {
+        title: "اطلاعات عمومی",
+        questions: [
+          {
+            label: "تعداد شعب فعال",
+            answer: 7,
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal("overallScore" in result, false);
+  assert.equal("score" in result.categories[0], false);
+});
+
+test("AI payload omits weight zero", () => {
+  const result = buildFormResponsesForAi({
+    categories: [
+      {
+        title: "Cat",
+        questions: [
+          {
+            label: "Q",
+            type: "NUMBER",
+            score: null,
+            weight: 0,
+            answer: 5,
+          },
+        ],
+        children: [],
+      },
+    ],
+  });
+
+  assert.equal("weight" in result.categories[0].questions[0], false);
+});
+
+test("AI payload strips score from CHECKBOX answer items", () => {
+  const result = buildFormResponsesForAi({
+    categories: [
+      {
+        title: "Cat",
+        score: 4,
+        questions: [
+          {
+            label: "Topics",
+            score: 4,
+            weight: 5,
+            answer: [
+              { label: "A", value: "a", score: 4, optionId: "o1" },
+              { label: "B", value: "b", score: 5, optionId: "o2" },
+            ],
+          },
+        ],
+        children: [],
+      },
+    ],
+  });
+
+  assert.deepEqual(result.categories[0].questions[0].answer, [
+    { label: "A", value: "a" },
+    { label: "B", value: "b" },
+  ]);
+});
+
+test("AI RADIO COLLECT_ALL formats each respondent choice", () => {
+  const result = buildFormResponsesForAi({
+    categories: [
+      {
+        title: "Cat",
+        questions: [
+          {
+            type: "RADIO",
+            label: "Team",
+            answer: {
+              aggregationMethod: "COLLECT_ALL",
+              responses: [
+                { displayName: "علی", label: "خوب", value: "good" },
+                { displayName: "مریم", label: "متوسط", value: "medium" },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.deepEqual(result.categories[0].questions[0].answer, {
+    responses: [
+      { displayName: "علی", label: "خوب", value: "good" },
+      { displayName: "مریم", label: "متوسط", value: "medium" },
+    ],
+  });
+  assert.equal("weight" in result.categories[0].questions[0], false);
+});
+
+test("AI TEXT COLLECT_ALL uses displayName only without respondentId in payload", () => {
+  const result = buildFormResponsesForAi({
+    categories: [
+      {
+        title: "Cat",
+        questions: [
+          {
+            type: "TEXT",
+            label: "Note",
+            answer: {
+              aggregationMethod: "COLLECT_ALL",
+              responses: [
+                {
+                  respondentId: "user-1",
+                  displayName: "Ali",
+                  text: "hello",
+                },
+              ],
+            },
+          },
+        ],
+        children: [],
+      },
+    ],
+  });
+
+  assert.deepEqual(result.categories[0].questions[0].answer, {
+    responses: [{ displayName: "Ali", text: "hello" }],
+  });
+  assert.equal(JSON.stringify(result).includes("user-1"), false);
+  assert.equal(JSON.stringify(result).includes("respondentId"), false);
+});
+
+test("Self-fill and aggregate RADIO stored question shape match", () => {
+  const form = makeForm([
+    {
+      id: "q1",
+      label: "رضایت کلی",
+      type: "RADIO",
+      isScored: true,
+      weight: 10,
+      options: [makeOption("med", 3)],
+    },
+  ]);
+
+  const selfFillQuestion = buildFormattedResponses(form, { q1: "med" })
+    .categories[0].questions[0];
+
+  const aggregateQuestion = aggregateSubmissions(
+    [
+      {
+        respondentId: "a",
+        displayName: "a",
+        rawAnswers: { q1: "med" },
+        formattedResponses: buildFormattedResponses(form, { q1: "med" }, {
+          keepInternalFields: true,
+        }),
+        submittedAt: new Date(),
+      },
+      {
+        respondentId: "b",
+        displayName: "b",
+        rawAnswers: { q1: "med" },
+        formattedResponses: buildFormattedResponses(form, { q1: "med" }, {
+          keepInternalFields: true,
+        }),
+        submittedAt: new Date(),
+      },
+    ],
+    form,
+  ).formResponses.categories[0].questions[0];
+
+  assert.deepEqual(aggregateQuestion, selfFillQuestion);
 });

@@ -1,5 +1,8 @@
 const prisma = require("../prismaClient");
 const { createBadRequestError, buildProjectAccessWhere } = require("../utils");
+const {
+  buildStrategyCategoryProjectWhere,
+} = require("../utils/buildStrategyProjectQuery");
 
 const getAllProjects = async (userId, userRole, companyId, query) => {
   const {
@@ -14,6 +17,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     status,
     scoreFilter,
     strategyCategoryOnly,
+    sharedWithMe,
   } = query;
 
   const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
@@ -39,6 +43,13 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
 
   if (Object.keys(accessWhere).length) {
     filters.push(accessWhere);
+  }
+
+  if (sharedWithMe === "true" || sharedWithMe === true) {
+    filters.push({
+      accesses: { some: { userId } },
+      creatorId: { not: userId },
+    });
   }
 
   if (scoreFilter === "high") {
@@ -88,17 +99,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
   }
 
   if (strategyCategoryOnly) {
-    filters.push({
-      multiAnalysisForm: {
-        is: {
-          category: {
-            is: {
-              title: "استراتژی گذاری",
-            },
-          },
-        },
-      },
-    });
+    filters.push(buildStrategyCategoryProjectWhere());
   }
 
   if (status) {
@@ -373,6 +374,8 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     summaryAnalysis: project.summaryAnalysis,
 
     status: project.status,
+    deletionLockedAt: project.deletionLockedAt ?? null,
+    deletionLockReason: project.deletionLockReason ?? null,
     directFinalAnalysis: project.directFinalAnalysis,
     isShowText: project.isShowText,
     averageRating: project.averageRating,
