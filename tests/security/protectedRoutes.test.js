@@ -31,6 +31,7 @@ const PROTECTED_ROUTES = [
   { method: "get", path: "/api/featuredanalysis/" },
   { method: "get", path: "/api/analysis-categories/" },
   { method: "get", path: "/api/bookmark/" },
+  { method: "get", path: "/api/illustrated/" },
   { method: "get", path: "/api/chat/" },
   { method: "get", path: "/api/strategy-plans/active?framework=BSC" },
   { method: "get", path: "/api/strategy/measures/0/monitoring?framework=BSC" },

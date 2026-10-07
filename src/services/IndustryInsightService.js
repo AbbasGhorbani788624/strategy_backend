@@ -1,6 +1,6 @@
 const axios = require("axios");
 const prisma = require("../prismaClient");
-const INDUSTRY_INSIGHT_API_URL = "https://strategy.ratorai.com/ai/industry";
+const INDUSTRY_INSIGHT_API_URL = "http://127.0.0.1:8080/industry";
 
 const formatRegion = (region) => {
   if (region === "INTERNATIONAL") return "International";

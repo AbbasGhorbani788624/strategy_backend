@@ -14,8 +14,7 @@ const { successResponse } = require("../utils/responses");
 exports.submitFormAnswers = async (req, res, next) => {
   try {
     const { projectId, answers } = req.body;
-    const userId = req.user.id;
-    const result = await submitFormAnswersService(projectId, userId, answers);
+    const result = await submitFormAnswersService(projectId, req.user, answers);
     return successResponse(res, 201, result);
   } catch (err) {
     console.error(err);
@@ -27,11 +26,9 @@ exports.handleConversationStep = async (req, res, next) => {
   try {
     const { userInput = "", understood = false } = req.body || {};
     const { id } = req.params;
-    const userId = req.user.id;
-
     const { jobId, status } = await processConversationStepService({
       projectId: id,
-      userId,
+      user: req.user,
       userInput,
       understood,
     });

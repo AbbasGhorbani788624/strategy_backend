@@ -128,6 +128,9 @@ const getColleaguesService = async (userId, projectId) => {
       accesses: {
         select: {
           userId: true,
+          canView: true,
+          canAction: true,
+          canVisualize: true,
         },
       },
     },
@@ -141,8 +144,15 @@ const getColleaguesService = async (userId, projectId) => {
     throw createBadRequestError("این پروژه متعلق به شرکت شما نیست.", 403);
   }
 
-  const accessUserIds = new Set(
-    project.accesses.map((access) => access.userId),
+  if (project.creatorId !== userId) {
+    createBadRequestError(
+      "فقط مالک پروژه می‌تواند لیست دسترسی همکاران را مشاهده کند.",
+      403,
+    );
+  }
+
+  const accessByUserId = new Map(
+    project.accesses.map((access) => [access.userId, access]),
   );
 
   return {
@@ -150,10 +160,17 @@ const getColleaguesService = async (userId, projectId) => {
       id: userWithCompany.company.id,
       name: userWithCompany.company.name,
     },
-    colleagues: userWithCompany.company.members.map((member) => ({
-      ...member,
-      hasAccess: accessUserIds.has(member.id),
-    })),
+    colleagues: userWithCompany.company.members.map((member) => {
+      const grant = accessByUserId.get(member.id) ?? null;
+      return {
+        ...member,
+        hasAccess: grant != null && grant.canView,
+        canView: grant?.canView ?? false,
+        canAction: grant?.canAction ?? false,
+        canVisualize: grant?.canVisualize ?? false,
+        permission: grant?.canView ? "VIEW" : null,
+      };
+    }),
   };
 };
 

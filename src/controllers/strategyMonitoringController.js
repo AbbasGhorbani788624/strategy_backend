@@ -14,6 +14,11 @@ const {
   updateMonitoringPlanningByProjectService,
   confirmMonitoringByProjectService,
   recordPeriodMeasurementByProjectService,
+  startMonitoringByPlanService,
+  getMonitoringByPlanService,
+  updateMonitoringPlanningByPlanService,
+  confirmMonitoringByPlanService,
+  recordPeriodMeasurementByPlanService,
 } = require("../services/strategyMonitoringService");
 const { successResponse } = require("../utils/responses");
 
@@ -328,6 +333,85 @@ exports.recordPeriodMeasurementByProject = async (req, res, next) => {
       req.user,
       projectId,
       framework,
+      measureIndex,
+      periodIndex,
+      actualValue,
+    );
+    return successResponse(res, 200, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.startMonitoringByPlan = async (req, res, next) => {
+  try {
+    const { strategyPlanId, measureIndex } = req.params;
+    const result = await startMonitoringByPlanService(
+      req.user,
+      strategyPlanId,
+      measureIndex,
+    );
+    return successResponse(res, 201, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.getMonitoringByPlan = async (req, res, next) => {
+  try {
+    const { strategyPlanId, measureIndex } = req.params;
+    const result = await getMonitoringByPlanService(
+      req.user,
+      strategyPlanId,
+      measureIndex,
+    );
+    return successResponse(res, 200, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.updateMonitoringPlanningByPlan = async (req, res, next) => {
+  try {
+    const { strategyPlanId, measureIndex } = req.params;
+    const result = await updateMonitoringPlanningByPlanService(
+      req.user,
+      strategyPlanId,
+      measureIndex,
+      req.body,
+    );
+    return successResponse(res, 200, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.confirmMonitoringByPlan = async (req, res, next) => {
+  try {
+    const { strategyPlanId, measureIndex } = req.params;
+    const result = await confirmMonitoringByPlanService(
+      req.user,
+      strategyPlanId,
+      measureIndex,
+    );
+    return successResponse(res, 200, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.recordPeriodMeasurementByPlan = async (req, res, next) => {
+  try {
+    const { strategyPlanId, measureIndex, periodIndex } = req.params;
+    const { actualValue } = req.body;
+    const result = await recordPeriodMeasurementByPlanService(
+      req.user,
+      strategyPlanId,
       measureIndex,
       periodIndex,
       actualValue,

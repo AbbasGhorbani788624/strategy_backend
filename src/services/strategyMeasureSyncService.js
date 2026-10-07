@@ -9,7 +9,7 @@ const {
 } = require("../utils/measureDesirabilityUtils");
 
 const pickNormalizedKpi = (kpi) => ({
-  metric: kpi?.metric || kpi?.name,
+  metric: kpi?.metric || kpi?.name || kpi?.keyResult,
   formula: kpi?.formula,
   measurementPeriod: kpi?.measurementPeriod,
   unit: kpi?.unit,
@@ -17,7 +17,9 @@ const pickNormalizedKpi = (kpi) => ({
 });
 
 const isKpiRow = (row) =>
-  Boolean(row?.metric || row?.name) && !Array.isArray(row?.kpis);
+  Boolean(row?.metric || row?.name || row?.keyResult) &&
+  !Array.isArray(row?.kpis) &&
+  !Array.isArray(row?.keyResults);
 
 const isArrayLikeObject = (value) =>
   value &&
@@ -86,11 +88,13 @@ const normalizeBscKpiTable = (input) => {
     objective: row?.objective || row?.strategicObjective || null,
     kpis: Array.isArray(row?.kpis)
       ? row.kpis.map(pickNormalizedKpi)
-      : Array.isArray(row?.metrics)
-        ? row.metrics.map(pickNormalizedKpi)
-        : isKpiRow(row)
-          ? [pickNormalizedKpi(row)]
-          : [],
+      : Array.isArray(row?.keyResults)
+        ? row.keyResults.map(pickNormalizedKpi)
+        : Array.isArray(row?.metrics)
+          ? row.metrics.map(pickNormalizedKpi)
+          : isKpiRow(row)
+            ? [pickNormalizedKpi(row)]
+            : [],
   }));
 };
 

@@ -2,6 +2,10 @@ const prisma = require("../prismaClient");
 const conversationQueue = require("../queues/conversation.queue");
 const defaultJobOptions = conversationQueue.defaultJobOptions;
 const { createBadRequestError } = require("../utils");
+const {
+  PROJECT_WORKFLOW_ACTION,
+  assertProjectWorkflowAccess,
+} = require("../utils/projectWorkflowAuthorization");
 
 const ACTIVE_JOB_STATES = ["waiting", "active", "delayed", "paused", "prioritized"];
 const ALL_JOB_LOOKUP_STATES = [
@@ -38,7 +42,7 @@ const countConversationJobsForProject = async (projectId) => {
  */
 const enqueueConversationStep = async ({
   projectId,
-  userId,
+  user,
   userInput,
   understood,
   source = "unknown",
@@ -47,14 +51,22 @@ const enqueueConversationStep = async ({
     ...defaultJobOptions,
   };
 
+  await assertProjectWorkflowAccess(
+    user,
+    projectId,
+    PROJECT_WORKFLOW_ACTION.CONVERSATION_STEP,
+  );
+
   const project = await prisma.project.findFirst({
-    where: { id: projectId, creatorId: userId },
+    where: { id: projectId },
     select: { status: true },
   });
 
   if (!project) {
     createBadRequestError("پروژه یافت نشد", 404);
   }
+
+  const userId = user.id;
 
   let activeJobs = [];
   try {

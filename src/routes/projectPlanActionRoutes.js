@@ -13,31 +13,25 @@ const {
   updateProgressSchema,
 } = require("../validations/projectPlanValidation");
 
-const companyOnly = roleGuard(["COMPANY", "SUPER_ADMIN"]);
+router.use(auth, roleGuard(["COMPANY", "MEMBER", "SUPER_ADMIN"]));
 
 router.get(
   "/:actionId/progress-history",
-  auth,
-  companyOnly,
   getActionProgressHistory,
 );
 
 router.patch(
   "/:actionId/progress",
-  auth,
-  companyOnly,
   updateProgressSchema,
   updateActionProgress,
 );
 
 router.patch(
   "/:actionId",
-  auth,
-  companyOnly,
   updateActionSchema,
   updatePlanAction,
 );
 
-router.delete("/:actionId", auth, companyOnly, deletePlanAction);
+router.delete("/:actionId", deletePlanAction);
 
 module.exports = router;

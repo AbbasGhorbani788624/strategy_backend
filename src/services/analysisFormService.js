@@ -17,6 +17,10 @@ const {
 const prisma = require("../prismaClient");
 const { startAnalysisProcessing } = require("./analysisProcessor.service");
 const {
+  assertProjectAnalysisMutate,
+  resolveProjectAccess,
+} = require("./projectAccessService");
+const {
   onProjectFinalized,
   assertFormInEnabledTier,
 } = require("./companyAnalysisTierService");
@@ -121,7 +125,7 @@ const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {
   const payload = typeof prompt === "string" ? JSON.parse(prompt) : prompt;
 
   const endpoint = mode === "MULTI" ? "full_analyze" : "analyze";
-  const url = `https://strategy.ratorai.com/ai/${endpoint}`;
+  const url = `http://127.0.0.1:8080/${endpoint}`;
 
   console.log(
     [
@@ -168,7 +172,9 @@ const sendPromptToAnalyze = async (prompt, mode = "SINGLE") => {
   }
 };
 
-const submitFormAnswersService = async (projectId, userId, answers) => {
+const submitFormAnswersService = async (projectId, user, answers) => {
+  await assertProjectAnalysisMutate(user, projectId);
+
   const project = await prisma.project.findUnique({
     where: {
       id: projectId,
@@ -176,6 +182,7 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
 
     select: {
       id: true,
+      title: true,
       creatorId: true,
       companyId: true,
       mode: true,
@@ -189,15 +196,6 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
     createBadRequestError("پروژه یافت نشد", 404);
   }
 
-  if (project.creatorId !== userId) {
-    createBadRequestError("شما مجوز ویرایش این پروژه را ندارید", 401);
-  }
-
-  await assertFormInEnabledTier(project.companyId, {
-    formId: project.formId,
-    multiAnalysisFormId: project.multiAnalysisFormId,
-  });
-
   if (project.status !== "WAITING_FOR_FORM") {
     return {
       project,
@@ -206,6 +204,11 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
       message: getProjectStatusMessage(project.status),
     };
   }
+
+  await assertFormInEnabledTier(project.companyId, {
+    formId: project.formId,
+    multiAnalysisFormId: project.multiAnalysisFormId,
+  });
 
   const form = await getProjectForm(project);
 
@@ -253,7 +256,7 @@ const submitFormAnswersService = async (projectId, userId, answers) => {
   try {
     queueResult = await startAnalysisProcessing({
       projectId,
-      userId,
+      user,
       userInput: "",
       understood: false,
       source: "analysisFormService.submitFormAnswersService",
@@ -297,13 +300,25 @@ const extractPersistedAnalysisFields = (
 
 const handleConversationStepService = async (
   projectId,
-  userId,
+  user,
   userInput = "",
 ) => {
+  const {
+    PROJECT_WORKFLOW_ACTION,
+    assertProjectWorkflowAccess,
+  } = require("../utils/projectWorkflowAuthorization");
+
+  await assertProjectWorkflowAccess(
+    user,
+    projectId,
+    PROJECT_WORKFLOW_ACTION.CONVERSATION_STEP,
+  );
+
   const now = new Date();
+  const userId = user.id;
 
   const project = await prisma.project.findFirst({
-    where: { id: projectId, creatorId: userId },
+    where: { id: projectId },
     include: {
       company: { include: { companyAdminData: true } },
       form: {

@@ -37,7 +37,7 @@ const buildStrategyCategoryProjectWhere = () => ({
 });
 
 /**
- * List-query flags for strategy flow project picker (OKR = all accessible projects, BSC = multi + strategy category).
+ * List-query flags for strategy flow project picker (OKR = tier-4 analyses, BSC = multi + strategy category).
  */
 const buildStrategyProjectQuery = ({ framework }) => {
   const normalized = normalizeStrategyFlowFramework(framework);

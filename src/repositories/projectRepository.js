@@ -1,8 +1,20 @@
 const prisma = require("../prismaClient");
 const { createBadRequestError, buildProjectAccessWhere } = require("../utils");
 const {
+  formatAccessForProjectResponse,
+} = require("../services/projectAccessService");
+const {
   buildStrategyCategoryProjectWhere,
 } = require("../utils/buildStrategyProjectQuery");
+
+const illustratedFlagsFromProject = (project) => {
+  const totalMarks = project._count?.illustratedMarks ?? 0;
+  const myMarks = project.illustratedMarks?.length ?? 0;
+  return {
+    isIllustrated: totalMarks > 0,
+    isIllustratedByMe: myMarks > 0,
+  };
+};
 
 const getAllProjects = async (userId, userRole, companyId, query) => {
   const {
@@ -17,6 +29,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     status,
     scoreFilter,
     strategyCategoryOnly,
+    tier4ProjectWhere,
     sharedWithMe,
   } = query;
 
@@ -102,6 +115,10 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
     filters.push(buildStrategyCategoryProjectWhere());
   }
 
+  if (tier4ProjectWhere) {
+    filters.push(tier4ProjectWhere);
+  }
+
   if (status) {
     filters.push({ status });
   }
@@ -172,6 +189,7 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
       formId: true,
       multiAnalysisFormId: true,
       createdAt: true,
+      creatorId: true,
 
       averageRating: true,
       ratingCount: true,
@@ -181,6 +199,16 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
         select: {
           id: true,
           username: true,
+        },
+      },
+
+      accesses: {
+        where: { userId },
+        select: {
+          userId: true,
+          canView: true,
+          canAction: true,
+          canVisualize: true,
         },
       },
 
@@ -214,13 +242,47 @@ const getAllProjects = async (userId, userRole, companyId, query) => {
           id: true,
         },
       },
+
+      illustratedMarks: {
+        where: {
+          userId,
+        },
+        select: {
+          id: true,
+        },
+      },
+
+      _count: {
+        select: {
+          illustratedMarks: true,
+        },
+      },
     },
   });
 
-  const formattedProjects = projects.map(({ bookmarks, ...project }) => ({
-    ...project,
-    isBookmarked: bookmarks.length > 0,
-  }));
+  const formattedProjects = projects.map(
+    ({
+      bookmarks,
+      illustratedMarks,
+      _count,
+      accesses,
+      creatorId,
+      ...project
+    }) => {
+      const accessMeta = formatAccessForProjectResponse(
+        { id: userId, role: userRole, companyId },
+        { creatorId, accesses },
+      );
+      return {
+        ...project,
+        isBookmarked: bookmarks.length > 0,
+        ...illustratedFlagsFromProject({ illustratedMarks, _count }),
+        isOwner: accessMeta.isOwner,
+        permission: accessMeta.permission,
+        access: accessMeta.access,
+      };
+    },
+  );
 
   const totalItems = await prisma.project.count({
     where: whereClause,
@@ -252,6 +314,7 @@ const getProject = async (projectId, userId, userRole, companyId) => {
           accesses: {
             some: {
               userId: userId,
+              canView: true,
             },
           },
         },
@@ -309,6 +372,19 @@ const getProject = async (projectId, userId, userRole, companyId) => {
           adminAnswer: true,
           answeredAt: true,
           status: true,
+        },
+      },
+      bookmarks: {
+        where: { userId },
+        select: { id: true },
+      },
+      illustratedMarks: {
+        where: { userId },
+        select: { id: true },
+      },
+      _count: {
+        select: {
+          illustratedMarks: true,
         },
       },
     },
@@ -382,6 +458,8 @@ const getProject = async (projectId, userId, userRole, companyId) => {
     ratingCount: project.ratingCount,
     superAdminRating,
     riskPercentage: project.riskPercentage,
+    isBookmarked: (project.bookmarks?.length ?? 0) > 0,
+    ...illustratedFlagsFromProject(project),
   };
 };
 

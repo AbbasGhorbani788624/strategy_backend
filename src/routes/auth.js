@@ -12,13 +12,16 @@ const {
 } = require("../controllers/authController");
 const { loginSchema } = require("../validations/loginValidation");
 const {
+  verifyLoginRecaptcha,
+} = require("../middleware/verifyLoginRecaptcha");
+const {
   changePasswordSchema,
 } = require("../validations/changePasswordValidation");
 const {
   changeCredentialSchema,
 } = require("../validations/changeCredentialsValidations");
 
-router.post("/login", loginSchema, login);
+router.post("/login", loginSchema, /* verifyLoginRecaptcha, */ login);
 
 router.get("/me", auth, getMe);
 

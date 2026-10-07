@@ -9,6 +9,7 @@ const schema = yup.object().shape({
     .string()
     .min(3, "پسورد حداقل 3 کاراکتر باشد")
     .required("پسورد الزامی است"),
+  recaptchaToken: yup.string().optional(),
 });
 
 exports.loginSchema = async (req, res, next) => {

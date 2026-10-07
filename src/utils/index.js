@@ -74,12 +74,18 @@ const buildProjectAccessWhere = async ({
       whereClause.companyId = companyId;
     }
   } else if (userRole === "MEMBER") {
-    const accessCondition = {
-      accesses: {
-        some: {
-          userId,
+    const memberProjectAccessOr = {
+      OR: [
+        { creatorId: userId },
+        {
+          accesses: {
+            some: {
+              userId,
+              canView: true,
+            },
+          },
         },
-      },
+      ],
     };
 
     if (targetUserId) {
@@ -92,11 +98,11 @@ const buildProjectAccessWhere = async ({
         throw createBadRequestError("دسترسی غیرمجاز.", 401);
       }
 
-      whereClause.creatorId = targetUserId;
-    } else {
       whereClause = {
-        OR: [{ creatorId: userId }, accessCondition],
+        AND: [{ creatorId: targetUserId }, memberProjectAccessOr],
       };
+    } else {
+      whereClause = memberProjectAccessOr;
     }
   }
 

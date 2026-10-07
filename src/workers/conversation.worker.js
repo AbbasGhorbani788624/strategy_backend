@@ -22,9 +22,18 @@ const worker = new Worker(
     }
 
     try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, role: true, companyId: true },
+      });
+
+      if (!user) {
+        throw new Error(`User not found for conversation job: ${userId}`);
+      }
+
       return await handleConversationStepService(
         projectId,
-        userId,
+        user,
         userInput,
         understood,
       );

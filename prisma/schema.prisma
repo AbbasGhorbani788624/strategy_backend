@@ -51,9 +51,19 @@ enum ProjectStatus {
 
 enum NotificationType {
   PROJECT_ACCESS_GRANTED
+  PROJECT_COLLABORATOR_ACTIVITY
   FOLLOW_UP_ANSWERED
   FORM_COLLABORATION_INVITE
   FORM_COLLABORATION_RESPONSE_SUBMITTED
+  STRATEGY_PLAN_ACCESS_GRANTED
+  STRATEGY_PLAN_COLLABORATOR_ACTIVITY
+  PROJECT_PLAN_ACCESS_GRANTED
+  PROJECT_PLAN_COLLABORATOR_ACTIVITY
+}
+
+enum StrategyPlanPermission {
+  VIEW
+  EDIT
 }
 
 enum FormCollaborationStatus {
@@ -263,9 +273,11 @@ model User {
   refreshTokens       RefreshToken[]
   notifications       Notification[]
   projectAccesses     ProjectAccess[]
+  projectAccessGrants ProjectAccess[]        @relation("ProjectAccessGrantedBy")
   followUpRequests    FollowUpRequest[]      @relation("UserFollowUpRequests")
   answeredFollowUps   FollowUpRequest[]      @relation("AdminAnsweredFollowUps")
   bookmarkedProjects  ProjectBookmark[]
+  illustratedProjects ProjectIllustrated[]
 
   strategyMapsApproved       StrategyMap[]              @relation("StrategyMapApprovedBy")
   strategyMeasuresOwned      StrategyMeasure[]          @relation("StrategyMeasureOwner")
@@ -279,6 +291,10 @@ model User {
   formCollaborationResponses         FormCollaborationResponse[]
   formDelegationsReceived            FormCollaborationDelegation[]       @relation("DelegationAssignee")
   formDelegationsSent                FormCollaborationDelegation[]       @relation("DelegationSender")
+  strategyPlanAccesses               StrategyPlanAccess[]                @relation("StrategyPlanAccessUser")
+  strategyPlanAccessesGranted        StrategyPlanAccess[]                @relation("StrategyPlanAccessGrantedBy")
+  projectPlanAccesses                ProjectPlanAccess[]                 @relation("ProjectPlanAccessUser")
+  projectPlanAccessesGranted         ProjectPlanAccess[]                 @relation("ProjectPlanAccessGrantedBy")
 
   @@index([role])
   @@index([companyId])
@@ -436,6 +452,7 @@ model Project {
   selectedSourceProjects MultiAnalysisProjectSource[] @relation("MultiProjectSources")
   usedInMultiProjects    MultiAnalysisProjectSource[] @relation("SourceProjectUsedInMulti")
   bookmarks              ProjectBookmark[]
+  illustratedMarks       ProjectIllustrated[]
   strategyPlans StrategyPlan[]
   projectPlan            ProjectPlan?
 
@@ -526,6 +543,22 @@ model FormCollaborationDelegation {
 }
 
 model ProjectBookmark {
+  id String @id @default(uuid())
+
+  userId    String
+  projectId String
+
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([userId])
+  @@index([projectId])
+}
+
+model ProjectIllustrated {
   id String @id @default(uuid())
 
   userId    String
@@ -767,12 +800,18 @@ model Notification {
 }
 
 model ProjectAccess {
-  id        String   @id @default(uuid())
-  projectId String
-  userId    String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  id              String   @id @default(uuid())
+  projectId       String
+  userId          String
+  canView         Boolean  @default(true)
+  canAction       Boolean  @default(false)
+  canVisualize    Boolean  @default(false)
+  grantedByUserId String?
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy       User?    @relation("ProjectAccessGrantedBy", fields: [grantedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([projectId, userId])
   @@index([projectId])
@@ -1054,6 +1093,8 @@ model Company {
   resourceCapabilities CompanyResourceCapability[]
 
   strategyPlans StrategyPlan[]
+  strategyPlanAccesses StrategyPlanAccess[]
+  projectPlanAccesses ProjectPlanAccess[]
   monitoringUnlockedAt DateTime?
   analysisTierConfigs  CompanyAnalysisTierConfig[]
   analysisTierItems    CompanyAnalysisTierItem[]
@@ -1506,6 +1547,9 @@ model StrategyPlan {
 
   framework StrategyFramework
 
+  /// BSC: BSC:{companyId} — OKR: OKR:{companyId}:{projectId} — null when ARCHIVED
+  activeSlotKey String? @unique
+
   status StrategyStatus @default(DRAFT)
   state  StrategyState  @default(MAP_GENERATION)
 
@@ -1524,12 +1568,38 @@ model StrategyPlan {
 
   aiRuns     StrategyAiRun[]
   approvals  StrategyApproval[]
+  planAccesses StrategyPlanAccess[]
 
   @@index([projectId])
   @@index([companyId])
   @@index([framework])
   @@index([status])
   @@index([state])
+}
+
+model StrategyPlanAccess {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  planId String
+  plan   StrategyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User @relation("StrategyPlanAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  permission StrategyPlanPermission @default(EDIT)
+
+  grantedByUserId String
+  grantedBy       User @relation("StrategyPlanAccessGrantedBy", fields: [grantedByUserId], references: [id], onDelete: Cascade)
+
+  revokedAt DateTime?
+
+  @@index([planId, userId])
+  @@index([userId, companyId])
+  @@index([planId, revokedAt])
 }
 
 model StrategyMap {
@@ -1838,10 +1908,36 @@ model ProjectPlan {
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
 
-  project Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  actions ProjectPlanAction[]
+  project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actions      ProjectPlanAction[]
+  planAccesses ProjectPlanAccess[]
 
   @@index([status])
+}
+
+model ProjectPlanAccess {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  projectPlanId String
+  plan          ProjectPlan @relation(fields: [projectPlanId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User @relation("ProjectPlanAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  permission StrategyPlanPermission @default(EDIT)
+
+  grantedByUserId String
+  grantedBy       User @relation("ProjectPlanAccessGrantedBy", fields: [grantedByUserId], references: [id], onDelete: Cascade)
+
+  revokedAt DateTime?
+
+  @@index([projectPlanId, userId])
+  @@index([userId, companyId])
+  @@index([projectPlanId, revokedAt])
 }
 
 model ProjectPlanAction {

@@ -5,7 +5,6 @@ const {
   getStrategyFlowProjectsService,
   giveRateToProjectService,
   createAnalysisProjectService,
-  grantProjectAccessService,
   getProjectTabsService,
   createStepAnalysisProjectService,
   getSelectableProjectsForMultiAnalysisService,
@@ -15,7 +14,12 @@ const {
   lockProjectDeletionService,
   unlockProjectDeletionService,
   getProjectAnalysisStatusService,
+  retryProjectAnalysisService,
+  getProjectFormSchemaService,
 } = require("../services/projectService");
+const {
+  grantProjectCollaboratorsService,
+} = require("../services/projectAccessService");
 const prisma = require("../prismaClient");
 const { createBadRequestError, buildProjectAccessWhere } = require("../utils");
 const { successResponse } = require("../utils/responses");
@@ -134,9 +138,11 @@ exports.getAllProjectsAccess = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { id } = req.params;
-    const { colleagueIds } = req.body;
-
-    const result = await grantProjectAccessService(id, colleagueIds, userId);
+    const result = await grantProjectCollaboratorsService(
+      id,
+      req.body,
+      userId,
+    );
 
     res.status(200).json(result);
   } catch (error) {
@@ -230,29 +236,22 @@ exports.getSelectableProjectsForMultiAnalysisController = async (
 };
 
 
-
-
-
 exports.getCompanyMembers = async (req, res, next) => {
   try {
     const userRole = req.user.role;
     const companyId = req.user.companyId;
 
-    if (userRole !== "COMPANY" && userRole !== "SUPER_ADMIN") {
-      createBadRequestError("دسترسی غیرمجاز.", 401);
-    }
+    const whereClause = {
+      role: { not: "SUPER_ADMIN" },
+    };
 
-    let whereClause = {};
-
-    if (userRole === "COMPANY") {
-      whereClause = { companyId };
-    } else if (userRole === "SUPER_ADMIN") {
-      // SUPER_ADMIN می‌تواند با companyId در query به اعضای یک شرکت خاص محدود شود؛
-      // در غیر این صورت همه کاربران برگردانده می‌شوند.
+    if (userRole === "SUPER_ADMIN") {
       const { companyId: queryCompanyId } = req.query;
       if (queryCompanyId) {
-        whereClause = { companyId: queryCompanyId };
+        whereClause.companyId = queryCompanyId;
       }
+    } else if (companyId) {
+      whereClause.companyId = companyId;
     }
 
     const members = await prisma.user.findMany({
@@ -328,14 +327,39 @@ exports.globalSearch = async (req, res, next) => {
 exports.getProjectAnalysisStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
 
-    const result = await getProjectAnalysisStatusService(id, userId);
+    const result = await getProjectAnalysisStatusService(id, req.user);
 
     return res.status(200).json({
       success: true,
       ...result,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.retryProjectAnalysis = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await retryProjectAnalysisService(id, req.user);
+
+    return res.status(202).json({
+      success: true,
+      message: "تحلیل مجدداً در صف پردازش قرار گرفت.",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getProjectFormSchema = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await getProjectFormSchemaService(id, req.user);
+
+    return successResponse(res, 200, result);
   } catch (error) {
     next(error);
   }

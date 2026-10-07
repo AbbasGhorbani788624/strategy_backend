@@ -9,6 +9,11 @@ const {
   lockProjectPlan,
   deleteProjectPlan,
   bulkUpdatePlanActionCompletions,
+  listProjectPlanCollaborators,
+  grantProjectPlanCollaborator,
+  updateProjectPlanCollaborator,
+  revokeProjectPlanCollaborator,
+  listSharedProjectPlans,
 } = require("../controllers/projectPlanController");
 const {
   listPlansQuerySchema,
@@ -16,39 +21,64 @@ const {
   bulkUpdateActionCompletionsSchema,
   lockPlanSchema,
 } = require("../validations/projectPlanValidation");
+const {
+  grantCollaboratorSchema,
+  patchCollaboratorSchema,
+} = require("../validations/strategyPlanCollaboratorValidation");
 
 const companyOnly = roleGuard(["COMPANY", "SUPER_ADMIN"]);
+const planAccessRoles = roleGuard(["COMPANY", "MEMBER", "SUPER_ADMIN"]);
 
-router.get("/", auth, companyOnly, listPlansQuerySchema, listProjectPlans);
+router.use(auth, planAccessRoles);
 
-router.get("/:planId", auth, companyOnly, getProjectPlanDetails);
+router.get("/shared-with-me", listSharedProjectPlans);
+
+router.get("/", companyOnly, listPlansQuerySchema, listProjectPlans);
+
+router.get(
+  "/:planId/collaborators",
+  listProjectPlanCollaborators,
+);
+
+router.post(
+  "/:planId/collaborators",
+  grantCollaboratorSchema,
+  grantProjectPlanCollaborator,
+);
+
+router.patch(
+  "/:planId/collaborators/:userId",
+  patchCollaboratorSchema,
+  updateProjectPlanCollaborator,
+);
+
+router.delete(
+  "/:planId/collaborators/:userId",
+  revokeProjectPlanCollaborator,
+);
+
+router.get("/:planId", getProjectPlanDetails);
 
 router.patch(
   "/:planId/actions/completions",
-  auth,
-  companyOnly,
   bulkUpdateActionCompletionsSchema,
   bulkUpdatePlanActionCompletions,
 );
 
 router.patch(
   "/:planId/actions/descriptions",
-  auth,
-  companyOnly,
   bulkUpdateActionCompletionsSchema,
   bulkUpdatePlanActionCompletions,
 );
 
 router.post(
   "/:planId/actions",
-  auth,
-  companyOnly,
   createActionSchema,
   createPlanAction,
 );
 
-router.post("/:planId/lock", auth, companyOnly, lockPlanSchema, lockProjectPlan);
+router.post("/:planId/lock", lockPlanSchema, lockProjectPlan);
 
-router.delete("/:planId", auth, companyOnly, deleteProjectPlan);
+router.delete("/:planId", companyOnly, deleteProjectPlan);
 
 module.exports = router;

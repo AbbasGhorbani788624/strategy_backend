@@ -14,7 +14,23 @@ describe("conversation enqueue / retry duplicate debugging", () => {
   let originalAdd;
   let originalGetJobs;
   let originalFindFirst;
+  let originalFindUnique;
   let originalUpdate;
+
+  const testUser = {
+    id: "user-debug-1",
+    role: "MEMBER",
+    companyId: "company-debug-1",
+  };
+
+  const projectAccessStub = (projectId, userId = testUser.id) => ({
+    id: projectId,
+    creatorId: userId,
+    companyId: testUser.companyId,
+    status: "ANALYSIS_PENDING",
+    title: "Test",
+    accesses: [],
+  });
 
   beforeEach(() => {
     addedJobs = [];
@@ -22,10 +38,15 @@ describe("conversation enqueue / retry duplicate debugging", () => {
     originalAdd = conversationQueue.add;
     originalGetJobs = conversationQueue.getJobs;
     originalFindFirst = prisma.project.findFirst;
+    originalFindUnique = prisma.project.findUnique;
     originalUpdate = prisma.project.update;
 
+    prisma.project.findUnique = mock.fn(async ({ where }) =>
+      projectAccessStub(where.id),
+    );
+
     prisma.project.findFirst = mock.fn(async () => ({
-      status: "WAITING_FOR_FORM",
+      status: "ANALYSIS_PENDING",
     }));
     prisma.project.update = mock.fn(async () => ({
       id: "project-1",
@@ -51,6 +72,7 @@ describe("conversation enqueue / retry duplicate debugging", () => {
     conversationQueue.add = originalAdd;
     conversationQueue.getJobs = originalGetJobs;
     prisma.project.findFirst = originalFindFirst;
+    prisma.project.findUnique = originalFindUnique;
     prisma.project.update = originalUpdate;
   });
 
@@ -66,11 +88,10 @@ describe("conversation enqueue / retry duplicate debugging", () => {
 
   it("A: creates exactly one job when enqueueConversationStep is called once", async () => {
     const projectId = "project-debug-1";
-    const userId = "user-debug-1";
 
     const result = await enqueueConversationStep({
       projectId,
-      userId,
+      user: { ...testUser, id: "user-debug-1" },
       userInput: "",
       understood: false,
       source: "test.A",
@@ -89,11 +110,14 @@ describe("conversation enqueue / retry duplicate debugging", () => {
 
   it("B: second enqueue for same projectId is deduplicated (no second job)", async () => {
     const projectId = "project-debug-dup";
-    const userId = "user-debug-dup";
+    const user = { ...testUser, id: "user-debug-dup" };
+    prisma.project.findUnique = mock.fn(async () =>
+      projectAccessStub(projectId, user.id),
+    );
 
     const first = await enqueueConversationStep({
       projectId,
-      userId,
+      user,
       userInput: "",
       understood: false,
       source: "test.B.first",
@@ -101,7 +125,7 @@ describe("conversation enqueue / retry duplicate debugging", () => {
 
     const second = await enqueueConversationStep({
       projectId,
-      userId,
+      user,
       userInput: "correction",
       understood: false,
       source: "test.B.second",
@@ -115,7 +139,10 @@ describe("conversation enqueue / retry duplicate debugging", () => {
 
   it("C: retry keeps same jobId (attemptsMade++) while fresh enqueue after completion creates new job", async () => {
     const projectId = "project-debug-retry";
-    const userId = "user-debug-retry";
+    const user = { ...testUser, id: "user-debug-retry" };
+    prisma.project.findUnique = mock.fn(async () =>
+      projectAccessStub(projectId, user.id),
+    );
     let jobSeq = 0;
 
     conversationQueue.add = mock.fn(async (name, data, opts) => {
@@ -133,7 +160,7 @@ describe("conversation enqueue / retry duplicate debugging", () => {
 
     const first = await enqueueConversationStep({
       projectId,
-      userId,
+      user,
       userInput: "",
       understood: false,
       source: "test.C.first",
@@ -154,7 +181,7 @@ describe("conversation enqueue / retry duplicate debugging", () => {
 
     const second = await enqueueConversationStep({
       projectId,
-      userId,
+      user,
       userInput: "",
       understood: false,
       source: "test.C.second-enqueue",

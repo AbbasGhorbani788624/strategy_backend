@@ -23,11 +23,27 @@ const {
 } = require("../repositories/projectRepository");
 const { startAnalysisProcessing } = require("./analysisProcessor.service");
 const { getFormById } = require("../repositories/analysisFormRepository");
-const { assertFormInEnabledTier } = require("./companyAnalysisTierService");
+const {
+  assertFormInEnabledTier,
+  getTier4AnalysisFormIds,
+  buildTier4ProjectWhere,
+} = require("./companyAnalysisTierService");
 const {
   formatFormForClient,
   analysisFormHasQuestions,
 } = require("./submitFormAnalysisService");
+const {
+  formatAccessForProjectResponse,
+  resolveProjectAccess,
+  assertProjectAccess,
+  assertProjectOwner,
+  PROJECT_CAPABILITY,
+} = require("./projectAccessService");
+const { getFormForUserService } = require("./submitFormAnalysisService");
+const {
+  PROJECT_WORKFLOW_ACTION,
+  assertProjectWorkflowAccess,
+} = require("../utils/projectWorkflowAuthorization");
 
 const createAnalysisProjectService = async (currentUser, payload) => {
   const { formId, goalIds, domain, projectTitle } = payload;
@@ -113,7 +129,7 @@ const createAnalysisProjectService = async (currentUser, payload) => {
   if (!hasForm) {
     queueResult = await startAnalysisProcessing({
       projectId: project.id,
-      userId: currentUser.id,
+      user: currentUser,
       userInput: "",
       understood: false,
       source: "projectService.createAnalysisProjectService",
@@ -173,11 +189,18 @@ const getStrategyFlowProjectsService = async (
   const listQuery = validateStrategyFlowListQuery(query);
   const { framework, ...rest } = listQuery;
 
+  let tier4ProjectWhere;
+  if (framework === "OKR" && companyId) {
+    const tier4FormIds = await getTier4AnalysisFormIds(companyId);
+    tier4ProjectWhere = buildTier4ProjectWhere(tier4FormIds);
+  }
+
   return getAllProjectsService(userId, userRole, companyId, {
     ...rest,
     page: listQuery.page,
     limit: listQuery.limit,
     ...buildStrategyProjectQuery({ framework }),
+    ...(tier4ProjectWhere ? { tier4ProjectWhere } : {}),
   });
 };
 
@@ -335,6 +358,8 @@ const buildSelectableProjectCard = (project) => ({
   averageRating: project.averageRating,
   ratingCount: project.ratingCount,
   isBookmarked: (project.bookmarks?.length ?? 0) > 0,
+  isIllustrated: (project._count?.illustratedMarks ?? 0) > 0,
+  isIllustratedByMe: (project.illustratedMarks?.length ?? 0) > 0,
 });
 
 const resolveActiveRequiredForm = (
@@ -557,6 +582,19 @@ const getSelectableProjectsForMultiAnalysisService = async (
                   id: true,
                 },
               },
+              illustratedMarks: {
+                where: {
+                  userId: currentUser.id,
+                },
+                select: {
+                  id: true,
+                },
+              },
+              _count: {
+                select: {
+                  illustratedMarks: true,
+                },
+              },
             },
 
             orderBy: {
@@ -632,17 +670,45 @@ const getProjectService = async (projectId, userId, userRole, companyId) => {
     createBadRequestError("پروژه وجود ندارد", 404);
   }
 
-  const project = await getProject(projectId, userId, userRole, companyId);
+  let project = await getProject(projectId, userId, userRole, companyId);
+
+  if (!project && userRole === "MEMBER") {
+    const { canAccessProject } = require("./strategyPlanAccessService");
+    const lineageAllowed = await canAccessProject(
+      { id: userId, role: userRole, companyId },
+      projectId,
+    );
+    if (lineageAllowed) {
+      project = await getProject(projectId, userId, "COMPANY", companyId);
+    }
+  }
 
   if (!project) {
     createBadRequestError("شما به این پروژه دسترسی ندارید", 403);
   }
 
-  const creatorId = project.creator.id;
-
-  project.isOwner = Boolean(
-    creatorId && creatorId.toString() === userId.toString(),
+  const accessMeta = formatAccessForProjectResponse(
+    { id: userId, role: userRole, companyId },
+    {
+      creatorId: project.creator?.id,
+      accesses:
+        userRole === "MEMBER" && project.creator?.id !== userId
+          ? await prisma.projectAccess.findMany({
+              where: { projectId, userId },
+              select: {
+                userId: true,
+                canView: true,
+                canAction: true,
+                canVisualize: true,
+              },
+            })
+          : [],
+    },
   );
+
+  project.isOwner = accessMeta.isOwner;
+  project.permission = accessMeta.permission;
+  project.access = accessMeta.access;
 
   const analysisFormId = project.formId || project.multiAnalysisFormId;
   let form = null;
@@ -668,143 +734,6 @@ const giveRateToProjectService = async (userId, projectId, body) => {
   }
 
   await giveRateAndProject(userId, projectId, body);
-};
-
-const grantProjectAccessService = async (
-  projectId,
-  colleagueIds,
-  currentUserId,
-) => {
-  if (!projectId) {
-    createBadRequestError("شناسه پروژه الزامی است.", 400);
-  }
-
-  if (!Array.isArray(colleagueIds)) {
-    createBadRequestError("لیست همکاران نامعتبر است.", 400);
-  }
-
-  const normalizedColleagueIds = [...new Set(colleagueIds.filter(Boolean))];
-
-  const project = await prisma.project.findUnique({
-    where: {
-      id: projectId,
-    },
-    select: {
-      id: true,
-      title: true,
-      creatorId: true,
-      companyId: true,
-      accesses: {
-        select: {
-          userId: true,
-        },
-      },
-      creator: {
-        select: {
-          id: true,
-          username: true,
-        },
-      },
-    },
-  });
-
-  if (!project) {
-    createBadRequestError("پروژه یافت نشد.", 404);
-  }
-
-  if (project.creatorId !== currentUserId) {
-    createBadRequestError(
-      "فقط مالک پروژه می‌تواند دسترسی‌ها را مدیریت کند.",
-      403,
-    );
-  }
-
-  if (!project.companyId) {
-    createBadRequestError("این پروژه به هیچ شرکتی متصل نیست.", 400);
-  }
-
-  const validColleagues = await prisma.user.findMany({
-    where: {
-      id: {
-        in: normalizedColleagueIds,
-      },
-      companyId: project.companyId,
-    },
-    select: {
-      id: true,
-    },
-  });
-
-  const validColleagueIds = validColleagues.map((user) => user.id);
-
-  if (validColleagueIds.length !== normalizedColleagueIds.length) {
-    createBadRequestError(
-      "بعضی از کاربران انتخاب‌شده عضو شرکت این پروژه نیستند.",
-      400,
-    );
-  }
-
-  if (validColleagueIds.includes(project.creatorId)) {
-    createBadRequestError("مالک پروژه نیازی به ثبت در لیست دسترسی ندارد.", 400);
-  }
-
-  const currentAccessIds = project.accesses.map((access) => access.userId);
-
-  const idsToAdd = validColleagueIds.filter(
-    (id) => !currentAccessIds.includes(id),
-  );
-
-  const idsToRemove = currentAccessIds.filter(
-    (id) => !validColleagueIds.includes(id),
-  );
-
-  const grantedByName = project.creator?.username || "مدیر پروژه";
-
-  await prisma.$transaction([
-    ...(idsToAdd.length
-      ? [
-          prisma.projectAccess.createMany({
-            data: idsToAdd.map((colleagueId) => ({
-              projectId,
-              userId: colleagueId,
-            })),
-            skipDuplicates: true,
-          }),
-        ]
-      : []),
-    ...(idsToRemove.length
-      ? [
-          prisma.projectAccess.deleteMany({
-            where: {
-              projectId,
-              userId: {
-                in: idsToRemove,
-              },
-            },
-          }),
-        ]
-      : []),
-    ...(idsToAdd.length
-      ? [
-          prisma.notification.createMany({
-            data: idsToAdd.map((colleagueId) => ({
-              userId: colleagueId,
-              type: "PROJECT_ACCESS_GRANTED",
-              title: "دسترسی به پروژه جدید",
-              message: `${grantedByName} به شما در پروژه «${project.title}» دسترسی داد.`,
-              referenceId: projectId,
-              referenceType: "PROJECT",
-              isRead: false,
-            })),
-          }),
-        ]
-      : []),
-  ]);
-
-  return {
-    message: "دسترسی‌های پروژه با موفقیت بروزرسانی شد.",
-    accessUserIds: validColleagueIds,
-  };
 };
 
 const createStepAnalysisProjectService = async (
@@ -981,7 +910,7 @@ const createStepAnalysisProjectService = async (
   if (!hasForm) {
     queueResult = await startAnalysisProcessing({
       projectId: project.id,
-      userId: currentUser.id,
+      user: currentUser,
       userInput: "",
       understood: false,
       source: "projectService.createStepAnalysisProjectService",
@@ -1094,9 +1023,112 @@ const unlockProjectDeletionService = async (projectId, user) => {
   return { projectId, deletionLocked: false };
 };
 
-const getProjectAnalysisStatusService = async (projectId, userId) => {
+const resolveResumeStatusAfterFailure = (project) => {
+  if (project.initialAnalysis) {
+    return "REVIEWING";
+  }
+  return "ANALYSIS_PENDING";
+};
+
+const retryProjectAnalysisService = async (projectId, user) => {
+  await assertProjectOwner(user, projectId);
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      id: true,
+      status: true,
+      initialAnalysis: true,
+    },
+  });
+
+  if (!project) {
+    createBadRequestError("پروژه یافت نشد", 404);
+  }
+
+  if (project.status !== "FAILED") {
+    createBadRequestError(
+      "تلاش مجدد تحلیل فقط برای پروژه‌های با وضعیت خطا (FAILED) مجاز است.",
+      400,
+    );
+  }
+
+  const resumeStatus = resolveResumeStatusAfterFailure(project);
+
+  await prisma.project.update({
+    where: { id: projectId },
+    data: { status: resumeStatus },
+  });
+
+  const queueResult = await startAnalysisProcessing({
+    projectId,
+    user,
+    userInput: "",
+    understood: false,
+    source: "projectService.retryProjectAnalysisService",
+  });
+
+  return {
+    projectId,
+    previousStatus: "FAILED",
+    resumeStatus,
+    jobId: queueResult?.jobId ?? null,
+    status: queueResult?.status ?? "AI_PROCESSING",
+    deduplicated: Boolean(queueResult?.deduplicated),
+  };
+};
+
+const getProjectFormSchemaService = async (projectId, user) => {
+  await assertProjectAccess(user, projectId, PROJECT_CAPABILITY.VIEW);
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      formId: true,
+      multiAnalysisFormId: true,
+      companyId: true,
+      mode: true,
+    },
+  });
+
+  if (!project) {
+    createBadRequestError("پروژه یافت نشد", 404);
+  }
+
+  const analysisFormId = project.formId || project.multiAnalysisFormId;
+  if (!analysisFormId) {
+    createBadRequestError("فرم تحلیل برای این پروژه تعریف نشده است.", 404);
+  }
+
+  let form = null;
+  if (project.companyId) {
+    form = await getFormForUserService(project.companyId, analysisFormId);
+  }
+
+  return {
+    projectId: project.id,
+    projectTitle: project.title,
+    projectStatus: project.status,
+    mode: project.mode,
+    formId: project.formId,
+    multiAnalysisFormId: project.multiAnalysisFormId,
+    analysisFormId,
+    form,
+  };
+};
+
+const getProjectAnalysisStatusService = async (projectId, user) => {
+  await assertProjectWorkflowAccess(
+    user,
+    projectId,
+    PROJECT_WORKFLOW_ACTION.READ_ANALYSIS_STATUS,
+  );
+
   const project = await prisma.project.findFirst({
-    where: { id: projectId, creatorId: userId },
+    where: { id: projectId },
     select: {
       status: true,
       directFinalAnalysis: true,
@@ -1226,7 +1258,6 @@ module.exports = {
   getProjectService,
   giveRateToProjectService,
   createAnalysisProjectService,
-  grantProjectAccessService,
   getProjectTabsService,
   createStepAnalysisProjectService,
   getSelectableProjectsForMultiAnalysisService,
@@ -1235,5 +1266,7 @@ module.exports = {
   lockProjectDeletionService,
   unlockProjectDeletionService,
   getProjectAnalysisStatusService,
+  retryProjectAnalysisService,
+  getProjectFormSchemaService,
   attachProjectsToFeaturedAnalyses,
 };

@@ -14,6 +14,20 @@ const {
   getProjectForm,
 } = require("./formCollaborationFormLoader");
 const { getFormForUserService } = require("./submitFormAnalysisService");
+const {
+  parseInboxDirection,
+  toCounterparty,
+  mapProjectRef,
+} = require("../utils/inboxItemMappers");
+const {
+  buildFormCollaborationInvitePayload,
+  buildFormCollaborationResponseSubmittedPayload,
+  FORM_COLLABORATION_ACTIVITY_ACTION,
+  createNotification,
+} = require("./notificationDispatchService");
+const {
+  shouldSkipCollaboratorActivityDedupe,
+} = require("../utils/collaboratorActivityDedupe");
 
 async function assertProjectForCollaboration(projectId, userId) {
   const project = await prisma.project.findUnique({
@@ -247,12 +261,23 @@ function resolveDelegationDisplayStatus({
   return "PENDING";
 }
 
+function resolveProjectAnalysisFormId(project) {
+  return project?.formId || project?.multiAnalysisFormId || null;
+}
+
 function resolveInboxViewMode({
   mode,
   canSubmit,
   myResponse,
   readOnlyContent,
+  displayStatus,
+  viewerRole,
+  hasFormSchema,
 }) {
+  if (displayStatus === "CLOSED" || displayStatus === "CANCELLED") {
+    return "CLOSED";
+  }
+
   if (mode === "READ_ONLY") {
     return "READ_ONLY_SNAPSHOT";
   }
@@ -265,7 +290,13 @@ function resolveInboxViewMode({
     return "SUBMITTED_READONLY";
   }
 
-  if (readOnlyContent) {
+  if (viewerRole === "SENDER") {
+    if (readOnlyContent || hasFormSchema || displayStatus === "PENDING") {
+      return "READ_ONLY_SNAPSHOT";
+    }
+  }
+
+  if (readOnlyContent || hasFormSchema) {
     return "READ_ONLY_SNAPSHOT";
   }
 
@@ -396,31 +427,37 @@ const submitMyCollaborationResponseService = async (
       });
     }
 
-    if (userId !== project.creatorId) {
+    const granterId = delegation?.senderId;
+    if (granterId && granterId !== userId) {
       const respondent = await prisma.user.findUnique({
         where: { id: userId },
         select: { username: true },
       });
 
       const respondentUsername = respondent?.username || "همکار";
+      const type = "FORM_COLLABORATION_RESPONSE_SUBMITTED";
 
-      await prisma.notification.create({
-        data: {
-          userId: project.creatorId,
-          type: "FORM_COLLABORATION_RESPONSE_SUBMITTED",
-          title: "پاسخ فرم همکاری",
-          message: `${respondentUsername} پاسخ فرم پروژه «${project.title}» را ثبت کرد.`,
-          referenceId: collaboration.id,
-          referenceType: "FORM_COLLABORATION",
-          metadata: {
-            projectId: project.id,
-            collaborationId: collaboration.id,
-            projectTitle: project.title,
-            respondentUsername,
-          },
-          isRead: false,
-        },
+      const skip = await shouldSkipCollaboratorActivityDedupe({
+        recipientId: granterId,
+        type,
+        referenceId: project.id,
+        actorUserId: userId,
+        action: FORM_COLLABORATION_ACTIVITY_ACTION,
       });
+
+      if (!skip) {
+        await createNotification(
+          buildFormCollaborationResponseSubmittedPayload({
+            userId: granterId,
+            projectId: project.id,
+            projectTitle: project.title,
+            assigneeUserId: userId,
+            assigneeUsername: respondentUsername,
+            collaborationId: collaboration.id,
+            delegationId: delegation?.id,
+          }),
+        );
+      }
     }
   }
 
@@ -508,25 +545,16 @@ const createDelegationsService = async (
 
     created.push(delegation);
 
-    await prisma.notification.create({
-      data: {
+    await createNotification(
+      buildFormCollaborationInvitePayload({
         userId: colleague.id,
-        type: "FORM_COLLABORATION_INVITE",
-        title: mode === "FILL" ? "درخواست تکمیل فرم" : "فرم برای مطالعه",
-        message: `${senderName} فرم پروژه «${project.title}» را برای شما ارسال کرد.`,
-        referenceId: delegation.id,
-        referenceType: "FORM_COLLABORATION_DELEGATION",
-        metadata: {
-          projectId: project.id,
-          collaborationId: collaboration.id,
-          delegationId: delegation.id,
-          projectTitle: project.title,
-          senderUsername: senderName,
-          mode,
-        },
-        isRead: false,
-      },
-    });
+        delegationId: delegation.id,
+        projectId: project.id,
+        projectTitle: project.title,
+        mode,
+        senderUsername: senderName,
+      }),
+    );
   }
 
   return { delegations: created };
@@ -534,12 +562,17 @@ const createDelegationsService = async (
 
 const listFormDelegationInboxService = async (userId, query = {}) => {
   const { page = 1, limit = 10, search, mode, status } = query;
+  const direction = parseInboxDirection(query);
 
   const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
   const parsedLimit = Math.max(parseInt(limit, 10) || 10, 1);
   const skip = (parsedPage - 1) * parsedLimit;
 
-  const filters = [{ assigneeId: userId }];
+  const filters = [
+    direction === "sent"
+      ? { senderId: userId }
+      : { assigneeId: userId },
+  ];
 
   if (mode === "FILL" || mode === "READ_ONLY") {
     filters.push({ mode });
@@ -551,15 +584,47 @@ const listFormDelegationInboxService = async (userId, query = {}) => {
 
   if (search) {
     filters.push({
-      collaboration: {
-        project: {
-          title: { contains: search },
+      OR: [
+        {
+          collaboration: {
+            project: {
+              title: { contains: search },
+            },
+          },
         },
-      },
+        ...(direction === "received"
+          ? [{ sender: { username: { contains: search } } }]
+          : [{ assignee: { username: { contains: search } } }]),
+      ],
     });
   }
 
   const where = { AND: filters };
+
+  const collaborationInclude = {
+    project: {
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        formId: true,
+        mode: true,
+      },
+    },
+    ...(direction === "received"
+      ? {
+          responses: {
+            where: { respondentId: userId },
+            take: 1,
+            select: {
+              id: true,
+              status: true,
+              submittedAt: true,
+            },
+          },
+        }
+      : {}),
+  };
 
   const [items, totalItems] = await Promise.all([
     prisma.formCollaborationDelegation.findMany({
@@ -569,27 +634,9 @@ const listFormDelegationInboxService = async (userId, query = {}) => {
       orderBy: { createdAt: "desc" },
       include: {
         sender: { select: { id: true, username: true } },
+        assignee: { select: { id: true, username: true } },
         collaboration: {
-          include: {
-            project: {
-              select: {
-                id: true,
-                title: true,
-                status: true,
-                formId: true,
-                mode: true,
-              },
-            },
-            responses: {
-              where: { respondentId: userId },
-              take: 1,
-              select: {
-                id: true,
-                status: true,
-                submittedAt: true,
-              },
-            },
-          },
+          include: collaborationInclude,
         },
       },
     }),
@@ -597,7 +644,10 @@ const listFormDelegationInboxService = async (userId, query = {}) => {
   ]);
 
   const enrichedItems = items.map((item) => {
-    const myResponse = item.collaboration.responses?.[0] ?? null;
+    const myResponse =
+      direction === "sent"
+        ? null
+        : item.collaboration.responses?.[0] ?? null;
     const { responses, ...collaborationWithoutResponses } = item.collaboration;
 
     const displayStatus = resolveDelegationDisplayStatus({
@@ -608,8 +658,15 @@ const listFormDelegationInboxService = async (userId, query = {}) => {
       projectStatus: item.collaboration.project.status,
     });
 
+    const projectRef = mapProjectRef(item.collaboration.project);
+    const counterparty =
+      direction === "received"
+        ? toCounterparty(item.sender)
+        : toCounterparty(item.assignee);
+
     return {
       id: item.id,
+      direction,
       collaborationId: item.collaborationId,
       assigneeId: item.assigneeId,
       senderId: item.senderId,
@@ -621,12 +678,52 @@ const listFormDelegationInboxService = async (userId, query = {}) => {
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       sender: item.sender,
+      assignee: item.assignee,
+      resource: projectRef,
+      project: projectRef,
+      counterparty,
       collaboration: collaborationWithoutResponses,
       responseStatus: myResponse?.status ?? null,
       submittedAt: myResponse?.submittedAt ?? null,
       displayStatus,
     };
   });
+
+  if (direction === "sent") {
+    const assigneeIds = [...new Set(items.map((i) => i.assigneeId))];
+    if (assigneeIds.length) {
+      const assigneeResponses = await prisma.formCollaborationResponse.findMany({
+        where: {
+          collaborationId: { in: items.map((i) => i.collaborationId) },
+          respondentId: { in: assigneeIds },
+        },
+        select: {
+          collaborationId: true,
+          respondentId: true,
+          status: true,
+          submittedAt: true,
+        },
+      });
+      const responseKey = (collaborationId, respondentId) =>
+        `${collaborationId}:${respondentId}`;
+      const responseMap = new Map(
+        assigneeResponses.map((r) => [
+          responseKey(r.collaborationId, r.respondentId),
+          r,
+        ]),
+      );
+      for (let i = 0; i < enrichedItems.length; i += 1) {
+        const row = items[i];
+        const resp = responseMap.get(
+          `${row.collaborationId}:${row.assigneeId}`,
+        );
+        if (resp) {
+          enrichedItems[i].responseStatus = resp.status;
+          enrichedItems[i].submittedAt = resp.submittedAt;
+        }
+      }
+    }
+  }
 
   return {
     items: enrichedItems,
@@ -662,6 +759,7 @@ const getFormDelegationInboxItemService = async (
     where: { id: delegationId },
     include: {
       sender: { select: { id: true, username: true } },
+      assignee: { select: { id: true, username: true } },
       collaboration: {
         select: {
           id: true,
@@ -678,6 +776,7 @@ const getFormDelegationInboxItemService = async (
               multiAnalysisFormId: true,
               mode: true,
               companyId: true,
+              company: { select: { id: true, name: true } },
             },
           },
         },
@@ -685,7 +784,10 @@ const getFormDelegationInboxItemService = async (
     },
   });
 
-  if (!delegationRecord || delegationRecord.assigneeId !== userId) {
+  const isAssignee = delegationRecord?.assigneeId === userId;
+  const isSender = delegationRecord?.senderId === userId;
+
+  if (!delegationRecord || (!isAssignee && !isSender)) {
     createBadRequestError("دعوتنامه یافت نشد.", 404);
   }
 
@@ -698,6 +800,7 @@ const getFormDelegationInboxItemService = async (
   let delegationStatus = delegationRecord.status;
 
   if (
+    isAssignee &&
     markReadOnlyViewed &&
     delegationRecord.mode === "READ_ONLY" &&
     delegationStatus === "PENDING"
@@ -715,26 +818,47 @@ const getFormDelegationInboxItemService = async (
   const delegationActive =
     delegationStatus !== "CANCELLED" && delegationStatus !== "EXPIRED";
 
-  const myResponse = await prisma.formCollaborationResponse.findUnique({
+  const responseSelect = {
+    id: true,
+    status: true,
+    rawAnswers: true,
+    formattedResponses: true,
+    submittedAt: true,
+    updatedAt: true,
+  };
+
+  const assigneeResponse = await prisma.formCollaborationResponse.findUnique({
     where: {
       collaborationId_respondentId: {
         collaborationId: collaboration.id,
-        respondentId: userId,
+        respondentId: delegationRecord.assigneeId,
       },
     },
-    select: {
-      id: true,
-      status: true,
-      rawAnswers: true,
-      formattedResponses: true,
-      submittedAt: true,
-      updatedAt: true,
-    },
+    select: responseSelect,
   });
 
-  const alreadyAnswered = isDelegationAnswered(delegationRecord, myResponse);
+  const senderResponse = isSender
+    ? await prisma.formCollaborationResponse.findUnique({
+        where: {
+          collaborationId_respondentId: {
+            collaborationId: collaboration.id,
+            respondentId: delegationRecord.senderId,
+          },
+        },
+        select: responseSelect,
+      })
+    : null;
+
+  const myResponse = isAssignee ? assigneeResponse : null;
+  const responseForStatus = isAssignee ? myResponse : assigneeResponse;
+
+  const alreadyAnswered = isDelegationAnswered(
+    delegationRecord,
+    responseForStatus,
+  );
 
   const canSubmit =
+    isAssignee &&
     delegationRecord.mode === "FILL" &&
     collaborationOpen &&
     projectWaitingForForm &&
@@ -746,7 +870,7 @@ const getFormDelegationInboxItemService = async (
   const displayStatus = resolveDelegationDisplayStatus({
     mode: delegationRecord.mode,
     delegationStatus,
-    myResponse,
+    myResponse: responseForStatus,
     collaborationStatus: collaboration.status,
     projectStatus: project.status,
   });
@@ -757,30 +881,59 @@ const getFormDelegationInboxItemService = async (
       : null;
 
   const submittedView =
-    delegationRecord.mode === "FILL" && myResponse?.status === "SUBMITTED"
+    delegationRecord.mode === "FILL" &&
+    responseForStatus?.status === "SUBMITTED"
       ? {
-          rawAnswers: myResponse.rawAnswers,
-          formattedResponses: myResponse.formattedResponses,
-          submittedAt: myResponse.submittedAt,
+          rawAnswers: responseForStatus.rawAnswers,
+          formattedResponses: responseForStatus.formattedResponses,
+          submittedAt: responseForStatus.submittedAt,
         }
       : null;
 
-  const shouldLoadForm =
-    includeForm &&
-    canSubmit &&
+  const analysisFormId = resolveProjectAnalysisFormId(project);
+  const viewerRole = isAssignee ? "ASSIGNEE" : "SENDER";
+  const workflowOpenForFill =
     delegationRecord.mode === "FILL" &&
-    project.formId &&
+    collaborationOpen &&
+    projectWaitingForForm &&
+    delegationActive &&
+    displayStatus !== "CLOSED";
+
+  const shouldLoadFormForAssignee =
+    includeForm &&
+    isAssignee &&
+    canSubmit &&
+    analysisFormId &&
     companyId;
 
-  const form = shouldLoadForm
-    ? await getFormForUserService(companyId, project.formId)
-    : null;
+  const shouldLoadFormForSender =
+    includeForm &&
+    isSender &&
+    workflowOpenForFill &&
+    analysisFormId &&
+    companyId;
+
+  const shouldLoadForm = shouldLoadFormForAssignee || shouldLoadFormForSender;
+
+  let form = null;
+  if (shouldLoadForm) {
+    try {
+      form = await getFormForUserService(companyId, analysisFormId);
+    } catch (error) {
+      if (error.statusCode !== 404 && error.statusCode !== 403) {
+        throw error;
+      }
+    }
+  }
 
   const viewMode = resolveInboxViewMode({
     mode: delegationRecord.mode,
     canSubmit,
-    myResponse,
+    myResponse: responseForStatus,
     readOnlyContent,
+    displayStatus,
+    viewerRole,
+    hasFormSchema: Boolean(form),
   });
 
   const delegation = {
@@ -796,11 +949,25 @@ const getFormDelegationInboxItemService = async (
     createdAt: delegationRecord.createdAt,
     updatedAt: delegationRecord.updatedAt,
     sender: delegationRecord.sender,
+    assignee: delegationRecord.assignee,
+  };
+
+  const projectPayload = {
+    id: project.id,
+    title: project.title,
+    status: project.status,
+    mode: project.mode,
+    formId: project.formId,
+    multiAnalysisFormId: project.multiAnalysisFormId,
+    analysisFormId,
+    analysisTitle: form?.title ?? null,
+    formTitle: form?.title ?? null,
+    companyName: project.company?.name ?? null,
   };
 
   return {
     delegation,
-    project,
+    project: projectPayload,
     collaboration: {
       id: collaboration.id,
       projectId: collaboration.projectId,
@@ -811,7 +978,9 @@ const getFormDelegationInboxItemService = async (
     form,
     readOnlyContent,
     submittedView,
-    myResponse,
+    myResponse: isAssignee ? myResponse : null,
+    senderResponse: isSender ? senderResponse : undefined,
+    assigneeResponse: isSender ? assigneeResponse : undefined,
     meta: {
       canSubmit,
       canEditResponse,
@@ -819,18 +988,20 @@ const getFormDelegationInboxItemService = async (
       viewMode,
       projectId: project.id,
       collaborationId: collaboration.id,
-      formId: project.formId,
-      responseStatus: myResponse?.status ?? null,
+      formId: analysisFormId,
+      responseStatus: responseForStatus?.status ?? null,
+      viewerRole,
       readOnlySnapshotMissing:
         delegationRecord.mode === "READ_ONLY" && readOnlyContent == null,
       reasonsDisabled: canSubmit
         ? []
         : buildDelegationDisabledReasons({
+            viewerRole,
             mode: delegationRecord.mode,
             collaborationOpen,
             projectWaitingForForm,
             delegationActive,
-            hasFormId: Boolean(project.formId),
+            hasFormId: Boolean(analysisFormId),
             alreadyAnswered,
           }),
     },
@@ -838,6 +1009,7 @@ const getFormDelegationInboxItemService = async (
 };
 
 function buildDelegationDisabledReasons({
+  viewerRole,
   mode,
   collaborationOpen,
   projectWaitingForForm,
@@ -846,6 +1018,11 @@ function buildDelegationDisabledReasons({
   alreadyAnswered,
 }) {
   const reasons = [];
+
+  if (viewerRole === "SENDER") {
+    reasons.push("NOT_ASSIGNEE");
+    return reasons;
+  }
 
   if (mode !== "FILL") {
     reasons.push("NOT_FILL_MODE");
@@ -1049,9 +1226,14 @@ const applyAggregatedFormService = async (projectId, userId) => {
   let queueResult = null;
 
   try {
+    const queueUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, companyId: true },
+    });
+
     queueResult = await startAnalysisProcessing({
       projectId,
-      userId,
+      user: queueUser,
       userInput: "",
       understood: false,
       source: "formCollaborationService.applyAggregatedFormService",
@@ -1081,4 +1263,6 @@ module.exports = {
   applyAggregatedFormService,
   assertCanSubmitResponse,
   buildSubmissionPool,
+  resolveInboxViewMode,
+  resolveProjectAnalysisFormId,
 };

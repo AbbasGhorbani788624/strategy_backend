@@ -27,6 +27,7 @@ describe("AI failure matrix (mocked)", () => {
     const originalAdd = conversationQueue.add;
     const originalGetJobs = conversationQueue.getJobs;
     const originalFindFirst = prisma.project.findFirst;
+    const originalFindUnique = prisma.project.findUnique;
     const originalUpdate = prisma.project.update;
 
     conversationQueue.getJobs = async () => jobs;
@@ -35,23 +36,34 @@ describe("AI failure matrix (mocked)", () => {
       jobs.push(job);
       return job;
     };
+    prisma.project.findUnique = async () => ({
+      id: "p1",
+      creatorId: "u1",
+      companyId: "c1",
+      status: "ANALYSIS_PENDING",
+      title: "T",
+      accesses: [],
+    });
     prisma.project.findFirst = async () => ({ status: "ANALYSIS_PENDING" });
     prisma.project.update = async ({ data }) => ({ id: "p1", ...data });
 
+    const user = { id: "u1", role: "MEMBER", companyId: "c1" };
+
     const first = await enqueueConversationStep({
       projectId: "p1",
-      userId: "u1",
+      user,
       userInput: "hello",
     });
     const second = await enqueueConversationStep({
       projectId: "p1",
-      userId: "u1",
+      user,
       userInput: "hello again",
     });
 
     conversationQueue.add = originalAdd;
     conversationQueue.getJobs = originalGetJobs;
     prisma.project.findFirst = originalFindFirst;
+    prisma.project.findUnique = originalFindUnique;
     prisma.project.update = originalUpdate;
 
     assert.equal(first.deduplicated, false);

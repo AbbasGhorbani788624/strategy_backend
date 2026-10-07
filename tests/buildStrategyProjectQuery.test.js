@@ -20,7 +20,7 @@ describe("buildStrategyProjectQuery", () => {
     });
   });
 
-  it("OKR does not restrict to strategy category or MULTI mode", () => {
+  it("OKR list flags are empty; tier-4 filter is applied in getStrategyFlowProjectsService", () => {
     assert.deepEqual(buildStrategyProjectQuery({ framework: "OKR" }), {});
     assert.deepEqual(buildStrategyProjectQuery({ framework: "okr" }), {});
   });

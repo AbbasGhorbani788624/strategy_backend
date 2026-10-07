@@ -13,10 +13,28 @@ const {
   validatePrerequisiteOwnership,
   validateOrderValues,
 } = require("../utils/projectPlanDependencyUtils");
+const { createStrategyFlowError } = require("../utils/strategyPlanResume");
+const {
+  PLAN_PERMISSION,
+  assertProjectPlanAccess,
+  assertCompanyProjectPlanRole,
+  formatAccessForResponse,
+  assertCompanyOwnership,
+  resolveProjectPlanAccess,
+} = require("./projectPlanAccessService");
+const { resolveProjectAccess } = require("./projectAccessService");
+const {
+  assertProjectAccess,
+  PROJECT_CAPABILITY,
+} = require("./projectAccessService");
+const {
+  fireAndForgetProjectPlanActivity,
+  PROJECT_PLAN_COLLABORATOR_ACTION,
+} = require("./planCollaboratorNotificationService");
 
 const PROJECT_PLAN_AI_URL =
   process.env.PROJECT_PLAN_AI_URL ||
-  "https://strategy.ratorai.com/ai/actions";
+  "http://127.0.0.1:8080/actions";
 
 const PROJECT_FOR_AI_INCLUDE = {
   id: true,
@@ -114,21 +132,8 @@ const ACTION_INCLUDE = {
   },
 };
 
-const assertCompanyManager = (user) => {
-  if (!["COMPANY", "SUPER_ADMIN"].includes(user.role)) {
-    createBadRequestError("دسترسی غیرمجاز", 403);
-  }
-};
-
-const assertCompanyOwnership = (user, projectCompanyId) => {
-  if (user.role === "SUPER_ADMIN") {
-    return;
-  }
-
-  if (!user.companyId || user.companyId !== projectCompanyId) {
-    createBadRequestError("دسترسی به این برنامه مجاز نیست", 403);
-  }
-};
+const isCompanyManager = (user) =>
+  user.role === "COMPANY" || user.role === "SUPER_ADMIN";
 
 const loadProjectForPlan = async (projectId) => {
   const project = await prisma.project.findUnique({
@@ -288,21 +293,33 @@ const fetchAiSuggestedPlanActions = async (project) => {
   }
 };
 
-const loadPlanForUser = async (planId, user) => {
+const loadPlanForUser = async (
+  planId,
+  user,
+  required = PLAN_PERMISSION.VIEW,
+) => {
   const plan = await prisma.projectPlan.findUnique({
     where: { id: planId },
     include: PLAN_INCLUDE,
   });
 
   if (!plan) {
-    createBadRequestError("برنامه پروژه یافت نشد", 404);
+    createStrategyFlowError(
+      "PROJECT_PLAN_NOT_FOUND",
+      "برنامه پروژه یافت نشد",
+      404,
+    );
   }
 
-  assertCompanyOwnership(user, plan.project.companyId);
+  await assertProjectPlanAccess(user, planId, required);
   return plan;
 };
 
-const loadActionForUser = async (actionId, user) => {
+const loadActionForUser = async (
+  actionId,
+  user,
+  required = PLAN_PERMISSION.VIEW,
+) => {
   const action = await prisma.projectPlanAction.findUnique({
     where: { id: actionId },
     include: ACTION_INCLUDE,
@@ -312,8 +329,22 @@ const loadActionForUser = async (actionId, user) => {
     createBadRequestError("اقدام یافت نشد", 404);
   }
 
-  assertCompanyOwnership(user, action.plan.project.companyId);
+  await assertProjectPlanAccess(user, action.planId, required);
   return action;
+};
+
+const buildPlanDetailEnvelope = async (user, plan) => {
+  const access = await formatAccessForResponse(user, plan.id);
+  const companyManager = isCompanyManager(user);
+
+  return {
+    plan: formatPlanResponse(plan),
+    access,
+    canCreatePlan: false,
+    canDeletePlan: companyManager,
+    canLock:
+      access?.permission === PLAN_PERMISSION.EDIT && plan.status === "DRAFT",
+  };
 };
 
 const validateExecutor = async (executorId, projectCompanyId) => {
@@ -619,11 +650,34 @@ const syncPlanStatusFromActions = async (planId, tx = prisma) => {
   }
 };
 
-const createProjectPlan = async (user, projectId) => {
-  assertCompanyManager(user);
+const assertCanCreateProjectPlan = async (user, project) => {
+  if (isCompanyManager(user)) {
+    assertCompanyOwnership(user, project.companyId);
+    return;
+  }
 
+  if (user.role === "MEMBER") {
+    if (!user.companyId || user.companyId !== project.companyId) {
+      createStrategyFlowError(
+        "PLAN_ACCESS_DENIED",
+        "به این برنامه پروژه دسترسی ندارید",
+        403,
+      );
+    }
+    await assertProjectAccess(user, project.id, PROJECT_CAPABILITY.ACTION);
+    return;
+  }
+
+  createStrategyFlowError(
+    "PROJECT_PLAN_COMPANY_ONLY",
+    "این عملیات فقط برای مدیر شرکت مجاز است",
+    403,
+  );
+};
+
+const createProjectPlan = async (user, projectId) => {
   const project = await loadProjectForPlan(projectId);
-  assertCompanyOwnership(user, project.companyId);
+  await assertCanCreateProjectPlan(user, project);
 
   if (project.projectPlan) {
     createBadRequestError("برنامه پروژه از قبل وجود دارد", 400);
@@ -646,35 +700,116 @@ const createProjectPlan = async (user, projectId) => {
     });
   });
 
-  return formatPlanResponse(plan);
+  const access =
+    (await formatAccessForResponse(user, plan.id)) ?? {
+      permission: PLAN_PERMISSION.EDIT,
+      isOwner: isCompanyManager(user),
+    };
+
+  return {
+    plan: formatPlanResponse(plan),
+    access,
+    canCreatePlan: false,
+    canDeletePlan: isCompanyManager(user),
+    canLock:
+      access.permission === PLAN_PERMISSION.EDIT && plan.status === "DRAFT",
+  };
+};
+
+const memberCanUseProjectPlanHub = async (user, projectId, plan) => {
+  const projectAccess = await resolveProjectAccess(user, projectId);
+  const hasProjectAction =
+    projectAccess.allowed && Boolean(projectAccess.capabilities?.canAction);
+
+  if (hasProjectAction) {
+    return true;
+  }
+
+  if (plan) {
+    const planAccess = await resolveProjectPlanAccess(user, plan.id);
+    return Boolean(planAccess.allowed);
+  }
+
+  return false;
+};
+
+const assertMemberProjectPlanHubAccess = async (user, projectId, plan) => {
+  const allowed = await memberCanUseProjectPlanHub(user, projectId, plan);
+  if (allowed) {
+    return;
+  }
+
+  if (!plan) {
+    await assertProjectAccess(user, projectId, PROJECT_CAPABILITY.ACTION);
+    return;
+  }
+
+  createStrategyFlowError(
+    "PLAN_ACCESS_DENIED",
+    "به این برنامه پروژه دسترسی ندارید",
+    403,
+  );
 };
 
 const getProjectPlanByProject = async (user, projectId) => {
-  assertCompanyManager(user);
-
   const project = await loadProjectForPlan(projectId);
-  assertCompanyOwnership(user, project.companyId);
 
   const plan = await prisma.projectPlan.findUnique({
     where: { projectId },
     include: PLAN_INCLUDE,
   });
 
-  if (!plan) {
-    createBadRequestError("برنامه پروژه یافت نشد", 404);
+  if (isCompanyManager(user)) {
+    assertCompanyOwnership(user, project.companyId);
+  } else if (!user.companyId || user.companyId !== project.companyId) {
+    createStrategyFlowError(
+      "PLAN_ACCESS_DENIED",
+      "به این برنامه پروژه دسترسی ندارید",
+      403,
+    );
+  } else if (user.role === "MEMBER") {
+    await assertMemberProjectPlanHubAccess(user, projectId, plan);
   }
 
-  return formatPlanResponse(plan);
+  if (!plan) {
+    if (isCompanyManager(user)) {
+      return {
+        plan: null,
+        access: { permission: PLAN_PERMISSION.EDIT, isOwner: true },
+        canCreatePlan: true,
+        canDeletePlan: false,
+        canLock: false,
+      };
+    }
+
+    if (user.role === "MEMBER") {
+      return {
+        plan: null,
+        access: { permission: PLAN_PERMISSION.EDIT, isOwner: false },
+        canCreatePlan: true,
+        canDeletePlan: false,
+        canLock: false,
+      };
+    }
+
+    createStrategyFlowError(
+      "PROJECT_PLAN_NOT_FOUND",
+      "برنامه پروژه یافت نشد",
+      404,
+    );
+  }
+
+  await assertProjectPlanAccess(user, plan.id, PLAN_PERMISSION.VIEW);
+  return buildPlanDetailEnvelope(user, plan);
 };
 
 const getProjectPlanDetails = async (user, planId) => {
-  assertCompanyManager(user);
-  const plan = await loadPlanForUser(planId, user);
-  return formatPlanResponse(plan);
+  const plan = await loadPlanForUser(planId, user, PLAN_PERMISSION.VIEW);
+  return buildPlanDetailEnvelope(user, plan);
 };
 
 const listProjectPlans = async (user, query) => {
-  assertCompanyManager(user);
+  assertCompanyProjectPlanRole(user);
 
   const {
     page = 1,
@@ -781,9 +916,7 @@ const getNextActionOrder = async (planId, tx = prisma) => {
 };
 
 const createPlanAction = async (user, planId, payload) => {
-  assertCompanyManager(user);
-
-  const plan = await loadPlanForUser(planId, user);
+  const plan = await loadPlanForUser(planId, user, PLAN_PERMISSION.EDIT);
   assertDraftPlan(plan);
   assertPlanNotCompleted(plan);
 
@@ -847,6 +980,12 @@ const createPlanAction = async (user, planId, payload) => {
     include: PLAN_INCLUDE,
   });
 
+  fireAndForgetProjectPlanActivity(
+    user.id,
+    planId,
+    PROJECT_PLAN_COLLABORATOR_ACTION.ACTION_CREATED,
+  );
+
   return {
     action: enrichActionWithSchedule(action),
     plan: formatPlanResponse(updatedPlan),
@@ -854,9 +993,7 @@ const createPlanAction = async (user, planId, payload) => {
 };
 
 const updatePlanAction = async (user, actionId, payload) => {
-  assertCompanyManager(user);
-
-  const existing = await loadActionForUser(actionId, user);
+  const existing = await loadActionForUser(actionId, user, PLAN_PERMISSION.EDIT);
   assertDraftPlan(existing.plan);
   assertPlanNotCompleted(existing.plan);
 
@@ -953,6 +1090,12 @@ const updatePlanAction = async (user, actionId, payload) => {
     include: PLAN_INCLUDE,
   });
 
+  fireAndForgetProjectPlanActivity(
+    user.id,
+    planId,
+    PROJECT_PLAN_COLLABORATOR_ACTION.ACTION_UPDATED,
+  );
+
   return {
     action: enrichActionWithSchedule(action),
     plan: formatPlanResponse(updatedPlan),
@@ -960,9 +1103,7 @@ const updatePlanAction = async (user, actionId, payload) => {
 };
 
 const deletePlanAction = async (user, actionId) => {
-  assertCompanyManager(user);
-
-  const existing = await loadActionForUser(actionId, user);
+  const existing = await loadActionForUser(actionId, user, PLAN_PERMISSION.EDIT);
   assertDraftPlan(existing.plan);
   assertPlanNotCompleted(existing.plan);
 
@@ -974,6 +1115,12 @@ const deletePlanAction = async (user, actionId) => {
     where: { id: existing.planId },
     include: PLAN_INCLUDE,
   });
+
+  fireAndForgetProjectPlanActivity(
+    user.id,
+    existing.planId,
+    PROJECT_PLAN_COLLABORATOR_ACTION.ACTION_DELETED,
+  );
 
   return formatPlanResponse(updatedPlan);
 };
@@ -1088,9 +1235,7 @@ const applyLockActionUpdates = async (plan, actionsPayload = []) => {
 };
 
 const lockProjectPlan = async (user, planId, payload = {}) => {
-  assertCompanyManager(user);
-
-  let plan = await loadPlanForUser(planId, user);
+  let plan = await loadPlanForUser(planId, user, PLAN_PERMISSION.EDIT);
 
   if (plan.status !== "DRAFT") {
     createBadRequestError("فقط برنامه‌های پیش‌نویس قابل قفل شدن هستند", 400);
@@ -1164,9 +1309,7 @@ const applyActionProgressUpdate = async (
 };
 
 const updateActionProgress = async (user, actionId, progress) => {
-  assertCompanyManager(user);
-
-  const existing = await loadActionForUser(actionId, user);
+  const existing = await loadActionForUser(actionId, user, PLAN_PERMISSION.EDIT);
   assertPlanAllowsProgressUpdates(existing.plan);
 
   const parsedProgress = parseAndValidateProgress(progress);
@@ -1190,13 +1333,17 @@ const updateActionProgress = async (user, actionId, progress) => {
     };
   });
 
+  fireAndForgetProjectPlanActivity(
+    user.id,
+    existing.planId,
+    PROJECT_PLAN_COLLABORATOR_ACTION.PROGRESS_UPDATED,
+  );
+
   return result;
 };
 
 const getActionProgressHistory = async (user, actionId) => {
-  assertCompanyManager(user);
-
-  const existing = await loadActionForUser(actionId, user);
+  const existing = await loadActionForUser(actionId, user, PLAN_PERMISSION.VIEW);
 
   const history = await prisma.projectPlanActionProgressHistory.findMany({
     where: { actionId },
@@ -1224,9 +1371,7 @@ const getActionProgressHistory = async (user, actionId) => {
 };
 
 const bulkUpdatePlanActionCompletions = async (user, planId, payload) => {
-  assertCompanyManager(user);
-
-  const plan = await loadPlanForUser(planId, user);
+  const plan = await loadPlanForUser(planId, user, PLAN_PERMISSION.EDIT);
 
   const updates = payload.actions || [];
 
@@ -1325,9 +1470,22 @@ const bulkUpdatePlanActionCompletions = async (user, planId, payload) => {
 };
 
 const deleteProjectPlan = async (user, planId) => {
-  assertCompanyManager(user);
+  assertCompanyProjectPlanRole(user);
 
-  const plan = await loadPlanForUser(planId, user);
+  const plan = await prisma.projectPlan.findUnique({
+    where: { id: planId },
+    include: PLAN_INCLUDE,
+  });
+
+  if (!plan) {
+    createStrategyFlowError(
+      "PROJECT_PLAN_NOT_FOUND",
+      "برنامه پروژه یافت نشد",
+      404,
+    );
+  }
+
+  assertCompanyOwnership(user, plan.project.companyId);
 
   await prisma.projectPlan.delete({
     where: { id: plan.id },

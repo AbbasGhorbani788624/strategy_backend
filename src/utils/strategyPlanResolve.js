@@ -1,8 +1,10 @@
 const prisma = require("../prismaClient");
 const { createBadRequestError } = require("../utils");
 const {
+  INACTIVE_STRATEGY_STATUSES,
   buildActivePlanWhere,
   buildActiveCompanyPlanWhere,
+  createStrategyFlowError,
 } = require("./strategyPlanResume");
 
 const PROJECT_ACCESS_SELECT = {
@@ -93,11 +95,11 @@ const buildStrategyPlanAccessWhere = (user) => {
   if (user.role === "MEMBER") {
     return {
       companyId: user.companyId,
-      project: {
-        OR: [
-          { creatorId: user.id },
-          { accesses: { some: { userId: user.id } } },
-        ],
+      planAccesses: {
+        some: {
+          userId: user.id,
+          revokedAt: null,
+        },
       },
     };
   }
@@ -105,55 +107,20 @@ const buildStrategyPlanAccessWhere = (user) => {
   createBadRequestError("دسترسی غیرمجاز", 403);
 };
 
+const { assertProjectReadOnLoaded } = require("../services/projectAccessService");
+
 const assertProjectAccess = (project, user) => {
-  if (!user.companyId || project.companyId !== user.companyId) {
-    createBadRequestError("شما اجازه دسترسی به این پروژه را ندارید", 403);
-  }
-
-  if (user.role === "COMPANY") {
-    return;
-  }
-
-  if (user.role === "MEMBER") {
-    const isCreator = project.creatorId === user.id;
-    const hasAccess = project.accesses?.some(
-      (access) => access.userId === user.id,
-    );
-
-    if (!isCreator && !hasAccess) {
-      createBadRequestError("شما به این پروژه دسترسی ندارید", 403);
-    }
-    return;
-  }
-
-  createBadRequestError("دسترسی غیرمجاز", 403);
+  assertProjectReadOnLoaded(project, user);
 };
 
-const assertStrategyPlanAccess = (plan, user) => {
-  if (!user.companyId || plan.companyId !== user.companyId) {
-    createBadRequestError(
-      "شما اجازه دسترسی به این برنامه استراتژی را ندارید",
-      403,
-    );
-  }
-
-  if (user.role === "COMPANY") {
-    return;
-  }
-
-  if (user.role === "MEMBER") {
-    const isCreator = plan.project?.creatorId === user.id;
-    const hasAccess = plan.project?.accesses?.some(
-      (access) => access.userId === user.id,
-    );
-
-    if (!isCreator && !hasAccess) {
-      createBadRequestError("شما به این برنامه استراتژی دسترسی ندارید", 403);
-    }
-    return;
-  }
-
-  createBadRequestError("دسترسی غیرمجاز", 403);
+const assertStrategyPlanAccess = async (plan, user, required = "VIEW") => {
+  const {
+    assertPlanAccessOnLoadedPlan,
+    PLAN_PERMISSION,
+  } = require("../services/strategyPlanAccessService");
+  const level =
+    required === PLAN_PERMISSION.EDIT ? PLAN_PERMISSION.EDIT : PLAN_PERMISSION.VIEW;
+  await assertPlanAccessOnLoadedPlan(user, plan, level);
 };
 
 const loadProjectForUser = async (user, projectId) => {
@@ -177,20 +144,29 @@ const findActiveStrategyPlanForCompany = async (
 ) => {
   const accessWhere = buildStrategyPlanAccessWhere(user);
 
+  if (!framework) {
+    createBadRequestError("framework الزامی است", 400);
+  }
+
+  if (framework === "OKR") {
+    createStrategyFlowError(
+      "AMBIGUOUS_OKR_PLAN",
+      "برای OKR از GET /strategy-plans/workspace یا GET /strategy-plans/:planId استفاده کنید.",
+      400,
+    );
+  }
+
   const plan = await prisma.strategyPlan.findFirst({
     where: {
       ...accessWhere,
       ...buildActiveCompanyPlanWhere({
         companyId: user.companyId,
       }),
+      framework,
     },
     include,
     orderBy: { updatedAt: "desc" },
   });
-
-  if (plan && framework && plan.framework !== framework) {
-    return null;
-  }
 
   return plan;
 };
@@ -218,11 +194,40 @@ const findActiveStrategyPlan = async (
   return plan;
 };
 
+const findStrategyPlanByProject = async (
+  user,
+  projectId,
+  framework,
+  { include = ACTIVE_STRATEGY_PLAN_INCLUDE } = {},
+) => {
+  if (!user.companyId) {
+    createBadRequestError("کاربر به شرکت متصل نیست", 403);
+  }
+
+  const accessWhere = buildStrategyPlanAccessWhere(user);
+
+  return prisma.strategyPlan.findFirst({
+    where: {
+      ...accessWhere,
+      ...buildActivePlanWhere({
+        projectId,
+        companyId: user.companyId,
+      }),
+      framework,
+    },
+    include,
+    orderBy: { updatedAt: "desc" },
+  });
+};
+
 const loadActiveStrategyPlan = async (
   user,
   framework,
   { includeAiRuns = false, requirePlan = true } = {},
 ) => {
+  const { assertCompanyStrategyRole } = require("../services/strategyPlanAccessService");
+  assertCompanyStrategyRole(user);
+
   const include = {
     ...ACTIVE_STRATEGY_PLAN_INCLUDE,
     ...(includeAiRuns
@@ -250,7 +255,7 @@ const loadActiveStrategyPlan = async (
     return null;
   }
 
-  assertStrategyPlanAccess(plan, user);
+  await assertStrategyPlanAccess(plan, user);
   return plan;
 };
 
@@ -270,8 +275,32 @@ const loadStrategyPlanByProject = async (
   { includeAiRuns = false } = {},
 ) => {
   await loadProjectForUser(user, projectId);
-  const plan = await loadActiveStrategyPlan(user, framework, { includeAiRuns });
-  assertLegacyProjectMatchesActivePlan(plan, projectId);
+
+  const include = {
+    ...ACTIVE_STRATEGY_PLAN_INCLUDE,
+    ...(includeAiRuns
+      ? {
+          aiRuns: {
+            where: { success: true },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+          },
+        }
+      : {}),
+  };
+
+  const plan = await findStrategyPlanByProject(user, projectId, framework, {
+    include,
+  });
+
+  if (!plan) {
+    createBadRequestError(
+      "برنامه استراتژی فعالی برای این پروژه یافت نشد",
+      404,
+    );
+  }
+
+  await assertStrategyPlanAccess(plan, user);
   return plan;
 };
 
@@ -301,13 +330,68 @@ const deleteStrategyPlansForCompany = async (companyId) => {
   });
 };
 
-const resolveMeasureIdForActivePlan = async (
+const deleteStrategyPlansForSlot = async ({ companyId, framework, projectId }) => {
+  if (framework === "BSC") {
+    await prisma.strategyPlan.deleteMany({
+      where: {
+        companyId,
+        framework: "BSC",
+        status: { notIn: INACTIVE_STRATEGY_STATUSES },
+      },
+    });
+    return;
+  }
+
+  if (framework === "OKR") {
+    if (!projectId) {
+      createBadRequestError("projectId برای حذف plan OKR الزامی است", 400);
+    }
+    await prisma.strategyPlan.deleteMany({
+      where: {
+        companyId,
+        projectId,
+        framework: "OKR",
+        status: { notIn: INACTIVE_STRATEGY_STATUSES },
+      },
+    });
+    return;
+  }
+
+  createBadRequestError("framework نامعتبر است", 400);
+};
+
+const resolveMeasureIdForPlan = async (
   user,
-  framework,
+  strategyPlanId,
   measureIndexRaw,
+  required = "VIEW",
 ) => {
   const measureIndex = parseMeasureIndex(measureIndexRaw);
-  const plan = await loadActiveStrategyPlan(user, framework);
+
+  const { assertPlanAccess, PLAN_PERMISSION } = require("../services/strategyPlanAccessService");
+  const level =
+    required === PLAN_PERMISSION.EDIT ? PLAN_PERMISSION.EDIT : PLAN_PERMISSION.VIEW;
+  await assertPlanAccess(user, strategyPlanId, level);
+
+  const plan = await prisma.strategyPlan.findUnique({
+    where: { id: strategyPlanId },
+    include: {
+      project: {
+        select: {
+          id: true,
+          creatorId: true,
+          companyId: true,
+          accesses: { select: { userId: true } },
+        },
+      },
+    },
+  });
+
+  if (!plan) {
+    createBadRequestError("برنامه استراتژی یافت نشد", 404);
+  }
+
+  await assertStrategyPlanAccess(plan, user);
 
   const measures = await prisma.strategyMeasure.findMany({
     where: { strategyPlanId: plan.id },
@@ -326,6 +410,15 @@ const resolveMeasureIdForActivePlan = async (
   };
 };
 
+const resolveMeasureIdForActivePlan = async (
+  user,
+  framework,
+  measureIndexRaw,
+) => {
+  const plan = await loadActiveStrategyPlan(user, framework);
+  return resolveMeasureIdForPlan(user, plan.id, measureIndexRaw);
+};
+
 module.exports = {
   PROJECT_ACCESS_SELECT,
   ACTIVE_STRATEGY_PLAN_PROJECT_SELECT,
@@ -338,10 +431,13 @@ module.exports = {
   loadProjectForUser,
   findActiveStrategyPlanForCompany,
   findActiveStrategyPlan,
+  findStrategyPlanByProject,
   loadActiveStrategyPlan,
   loadStrategyPlanByProject,
   parseMeasureIndex,
   parsePeriodIndex,
   deleteStrategyPlansForCompany,
+  deleteStrategyPlansForSlot,
+  resolveMeasureIdForPlan,
   resolveMeasureIdForActivePlan,
 };

@@ -4,11 +4,16 @@ const {
   createStrategyFlowError,
 } = require("../utils/strategyPlanResume");
 const {
+  assertPlanAccessOnLoadedPlan,
+  PLAN_PERMISSION,
+} = require("./strategyPlanAccessService");
+const {
   loadStrategyPlanByProject,
   loadActiveStrategyPlan,
   parseMeasureIndex,
   parsePeriodIndex,
   resolveMeasureIdForActivePlan,
+  resolveMeasureIdForPlan,
 } = require("../utils/strategyPlanResolve");
 const {
   generateMonitoringPeriods,
@@ -83,7 +88,11 @@ const loadExistingDraftMonitoring = async (measureId) => {
   return null;
 };
 
-const loadMeasureForUser = async (measureId, user) => {
+const loadMeasureForUser = async (
+  measureId,
+  user,
+  { requiredPermission = PLAN_PERMISSION.VIEW } = {},
+) => {
   const measure = await prisma.strategyMeasure.findUnique({
     where: { id: measureId },
     include: {
@@ -133,38 +142,17 @@ const loadMeasureForUser = async (measureId, user) => {
     createBadRequestError("سنجه استراتژی یافت نشد", 404);
   }
 
-  assertMeasureAccess(measure, user);
+  await assertMeasureAccess(measure, user, requiredPermission);
   assertMeasureReadyForMonitoring(measure);
 
   return measure;
 };
 
-const assertMeasureAccess = (measure, user) => {
-  const plan = measure.strategyPlan;
-
-  if (!user.companyId || plan.companyId !== user.companyId) {
-    createBadRequestError("شما اجازه دسترسی به این سنجه را ندارید", 403);
-  }
-
-  if (user.role === "COMPANY") {
-    return;
-  }
-
-  if (user.role === "MEMBER") {
-    const project = plan.project;
-    const isCreator = project?.creatorId === user.id;
-    const hasAccess = project?.accesses?.some(
-      (access) => access.userId === user.id,
-    );
-
-    if (!isCreator && !hasAccess) {
-      createBadRequestError("شما به این سنجه دسترسی ندارید", 403);
-    }
-    return;
-  }
-
-  createBadRequestError("دسترسی غیرمجاز", 403);
-};
+const assertMeasureAccess = async (
+  measure,
+  user,
+  required = PLAN_PERMISSION.VIEW,
+) => assertPlanAccessOnLoadedPlan(user, measure.strategyPlan, required);
 
 const assertMeasureReadyForMonitoring = (measure) => {
   const hasMeasuresApproval = measure.strategyPlan.approvals?.some(
@@ -353,8 +341,8 @@ const resolveMeasureIdByProject = async (
   framework,
   measureIndexRaw,
 ) => {
-  await loadStrategyPlanByProject(user, projectId, framework);
-  return resolveMeasureIdForActivePlan(user, framework, measureIndexRaw);
+  const plan = await loadStrategyPlanByProject(user, projectId, framework);
+  return resolveMeasureIdForPlan(user, plan.id, measureIndexRaw);
 };
 
 const startMonitoringByActiveService = async (
@@ -451,7 +439,9 @@ const listStrategyPlanMeasuresByActiveService = async (
 };
 
 const startMonitoringService = async (user, measureId, measureIndex = null) => {
-  let measure = await loadMeasureForUser(measureId, user);
+  let measure = await loadMeasureForUser(measureId, user, {
+    requiredPermission: PLAN_PERMISSION.EDIT,
+  });
 
   if (measure.monitoringStatus === "LOCKED") {
     createBadRequestError("Planning این سنجه قبلاً قفل شده است", 400);
@@ -609,7 +599,9 @@ const updateMonitoringPlanningService = async (
   { ownerId, ownerName, finalTarget, periods },
   measureIndex = null,
 ) => {
-  const measure = await loadMeasureForUser(monitoringId, user);
+  const measure = await loadMeasureForUser(monitoringId, user, {
+    requiredPermission: PLAN_PERMISSION.EDIT,
+  });
   assertMonitoringEditable(measure);
 
   if (!measure.monitoringStatus) {
@@ -709,7 +701,9 @@ const confirmMonitoringService = async (
   monitoringId,
   measureIndex = null,
 ) => {
-  const measure = await loadMeasureForUser(monitoringId, user);
+  const measure = await loadMeasureForUser(monitoringId, user, {
+    requiredPermission: PLAN_PERMISSION.EDIT,
+  });
   assertMonitoringEditable(measure);
 
   if (!measure.monitoringStatus) {
@@ -773,7 +767,9 @@ const recordPeriodMeasurementService = async (
   actualValue,
   { measureIndex = null, usePeriodIndex = false } = {},
 ) => {
-  const measure = await loadMeasureForUser(monitoringId, user);
+  const measure = await loadMeasureForUser(monitoringId, user, {
+    requiredPermission: PLAN_PERMISSION.EDIT,
+  });
   assertMonitoringLocked(measure);
 
   let target;
@@ -980,6 +976,89 @@ const listStrategyPlanMeasuresByProjectService = async (
   return listStrategyPlanMeasuresService(user, plan.id, query);
 };
 
+const startMonitoringByPlanService = async (
+  user,
+  strategyPlanId,
+  measureIndexRaw,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdForPlan(
+    user,
+    strategyPlanId,
+    measureIndexRaw,
+    PLAN_PERMISSION.EDIT,
+  );
+  return startMonitoringService(user, measureId, measureIndex);
+};
+
+const getMonitoringByPlanService = async (
+  user,
+  strategyPlanId,
+  measureIndexRaw,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdForPlan(
+    user,
+    strategyPlanId,
+    measureIndexRaw,
+  );
+  return getMonitoringService(user, measureId, measureIndex);
+};
+
+const updateMonitoringPlanningByPlanService = async (
+  user,
+  strategyPlanId,
+  measureIndexRaw,
+  body,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdForPlan(
+    user,
+    strategyPlanId,
+    measureIndexRaw,
+    PLAN_PERMISSION.EDIT,
+  );
+  return updateMonitoringPlanningService(
+    user,
+    measureId,
+    body,
+    measureIndex,
+  );
+};
+
+const confirmMonitoringByPlanService = async (
+  user,
+  strategyPlanId,
+  measureIndexRaw,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdForPlan(
+    user,
+    strategyPlanId,
+    measureIndexRaw,
+    PLAN_PERMISSION.EDIT,
+  );
+  return confirmMonitoringService(user, measureId, measureIndex);
+};
+
+const recordPeriodMeasurementByPlanService = async (
+  user,
+  strategyPlanId,
+  measureIndexRaw,
+  periodIndexRaw,
+  actualValue,
+) => {
+  const { measureId, measureIndex } = await resolveMeasureIdForPlan(
+    user,
+    strategyPlanId,
+    measureIndexRaw,
+    PLAN_PERMISSION.EDIT,
+  );
+  return recordPeriodMeasurementService(
+    user,
+    measureId,
+    periodIndexRaw,
+    actualValue,
+    { measureIndex, usePeriodIndex: true },
+  );
+};
+
 const listStrategyPlanMeasuresService = async (user, strategyPlanId, query = {}) => {
   const plan = await prisma.strategyPlan.findUnique({
     where: { id: strategyPlanId },
@@ -1000,7 +1079,8 @@ const listStrategyPlanMeasuresService = async (user, strategyPlanId, query = {})
     createBadRequestError("برنامه استراتژی یافت نشد", 404);
   }
 
-  assertMeasureAccess({ strategyPlan: plan }, user);
+  const { assertPlanAccess } = require("./strategyPlanAccessService");
+  await assertPlanAccess(user, strategyPlanId, PLAN_PERMISSION.VIEW);
 
   const hasMeasuresApproval = plan.approvals.some(
     (approval) => approval.type === "MEASURES",
@@ -1069,6 +1149,11 @@ module.exports = {
   confirmMonitoringByProjectService,
   recordPeriodMeasurementByProjectService,
   listStrategyPlanMeasuresByProjectService,
+  startMonitoringByPlanService,
+  getMonitoringByPlanService,
+  updateMonitoringPlanningByPlanService,
+  confirmMonitoringByPlanService,
+  recordPeriodMeasurementByPlanService,
   fetchMonitoringForPlan,
   formatMeasureListItem,
 };

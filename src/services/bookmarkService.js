@@ -1,6 +1,6 @@
 const prisma = require("../prismaClient");
 
-const { createBadRequestError } = require("../utils");
+const { createBadRequestError, buildProjectAccessWhere } = require("../utils");
 
 const addBookmarkService = async (userId, projectId) => {
   const project = await prisma.project.findFirst({
@@ -47,12 +47,14 @@ const removeBookmarkService = async (userId, projectId) => {
   return true;
 };
 
-const getBookmarksService = async (userId, query) => {
+const getBookmarksService = async (user, query) => {
+  const userId = user.id;
   const {
     page = 1,
     limit = 10,
     search,
     formId,
+    targetUserId,
     sortBy = "createdAt",
     sortOrder = "desc",
     scoreFilter,
@@ -103,10 +105,26 @@ const getBookmarksService = async (userId, query) => {
 
   if (search) {
     projectFilters.push({
-      title: {
-        contains: search,
-      },
+      OR: [
+        { title: { contains: search } },
+        { creator: { username: { contains: search } } },
+        {
+          accesses: {
+            some: { user: { username: { contains: search } } },
+          },
+        },
+      ],
     });
+  }
+
+  if (targetUserId) {
+    await buildProjectAccessWhere({
+      userId,
+      userRole: user.role,
+      companyId: user.companyId,
+      targetUserId,
+    });
+    projectFilters.push({ creatorId: targetUserId });
   }
 
   if (formId) {

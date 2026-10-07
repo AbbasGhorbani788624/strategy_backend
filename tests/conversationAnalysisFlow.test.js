@@ -19,14 +19,34 @@ describe("conversation analysis production flow", () => {
   let originalAdd;
   let originalGetJobs;
   let originalFindFirst;
+  let originalFindUnique;
   let originalUpdate;
+
+  const testUser = {
+    id: "user-dup-1",
+    role: "MEMBER",
+    companyId: "company-1",
+  };
 
   beforeEach(() => {
     addedJobs = [];
     originalAdd = conversationQueue.add;
     originalGetJobs = conversationQueue.getJobs;
     originalFindFirst = prisma.project.findFirst;
+    originalFindUnique = prisma.project.findUnique;
     originalUpdate = prisma.project.update;
+
+    prisma.project.findUnique = mock.fn(async ({ where }) => {
+      const projectId = where.id;
+      return {
+        id: projectId,
+        creatorId: testUser.id,
+        companyId: testUser.companyId,
+        status: "ANALYSIS_PENDING",
+        title: "Test",
+        accesses: [],
+      };
+    });
 
     prisma.project.findFirst = mock.fn(async () => ({
       status: "ANALYSIS_PENDING",
@@ -54,6 +74,7 @@ describe("conversation analysis production flow", () => {
     conversationQueue.add = originalAdd;
     conversationQueue.getJobs = originalGetJobs;
     prisma.project.findFirst = originalFindFirst;
+    prisma.project.findUnique = originalFindUnique;
     prisma.project.update = originalUpdate;
   });
 
@@ -99,11 +120,10 @@ describe("conversation analysis production flow", () => {
 
   it("Case 3: duplicate enqueue for same projectId creates only one active job", async () => {
     const projectId = "project-dup-1";
-    const userId = "user-dup-1";
 
     const first = await enqueueConversationStep({
       projectId,
-      userId,
+      user: testUser,
       userInput: "",
       understood: false,
       source: "test.case3.first",
@@ -111,7 +131,7 @@ describe("conversation analysis production flow", () => {
 
     const second = await enqueueConversationStep({
       projectId,
-      userId,
+      user: testUser,
       userInput: "",
       understood: false,
       source: "test.case3.second",
@@ -133,9 +153,19 @@ describe("conversation analysis production flow", () => {
   });
 
   it("uses attempts=3 with exponential backoff on newly enqueued jobs", async () => {
+    const user = { ...testUser, id: "user-retry-opts" };
+    prisma.project.findUnique = mock.fn(async ({ where }) => ({
+      id: where.id,
+      creatorId: user.id,
+      companyId: user.companyId,
+      status: "ANALYSIS_PENDING",
+      title: "Test",
+      accesses: [],
+    }));
+
     await enqueueConversationStep({
       projectId: "project-retry-opts",
-      userId: "user-retry-opts",
+      user,
       userInput: "",
       understood: false,
       source: "test.retry-opts",

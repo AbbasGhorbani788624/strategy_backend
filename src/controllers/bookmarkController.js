@@ -29,7 +29,7 @@ exports.removeBookmark = async (req, res, next) => {
 
 exports.getBookmarks = async (req, res, next) => {
   try {
-    const result = await getBookmarksService(req.user.id, req.query);
+    const result = await getBookmarksService(req.user, req.query);
 
     return successResponse(res, 200, result);
   } catch (error) {

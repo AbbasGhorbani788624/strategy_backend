@@ -97,6 +97,9 @@ async function cleanupQaData() {
     await prisma.projectBookmark.deleteMany({
       where: { userId: { in: userIds } },
     });
+    await prisma.projectIllustrated.deleteMany({
+      where: { userId: { in: userIds } },
+    });
     await prisma.followUpRequest.deleteMany({
       where: { userId: { in: userIds } },
     });

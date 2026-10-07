@@ -21,6 +21,8 @@ const {
   lockProjectDeletion,
   unlockProjectDeletion,
   getProjectAnalysisStatus,
+  retryProjectAnalysis,
+  getProjectFormSchema,
 } = require("../controllers/projectController");
 const {
   rateCommentSchema,
@@ -33,11 +35,6 @@ const {
   getProjectPlanByProject,
 } = require("../controllers/projectPlanController");
 const formCollaborationRoutes = require("./formCollaborationRoutes");
-
-
-
-
-
 
 //گرفتن اعضای شرکت برای فیلتر
 router.get("/members", auth, getCompanyMembers);
@@ -59,7 +56,7 @@ router.post(
 //گرفتن همه پروژه ها
 router.get("/", auth, getAllProjects);
 
-// لیست paginated پروژه برای flow استراتژی (OKR = همه پروژه‌ها، BSC = دسته استراتژی‌گذاری)
+// لیست paginated پروژه برای flow استراتژی (OKR = تحلیل‌های طبقه ۴، BSC = MULTI + دسته استراتژی‌گذاری)
 router.get("/strategy-flow", auth, getStrategyFlowProjects);
 
 /** @deprecated Use GET /strategy-flow?framework=BSC — backward compatibility only. POST /multi unchanged. */
@@ -86,10 +83,26 @@ router.use("/:id/form-collaboration", formCollaborationRoutes);
 //گرفتن وضعیت تحلیل پروژه
 router.get("/:id/analysis-status", auth, getProjectAnalysisStatus);
 
-// Project Planning & Control — برنامه پروژه
-router.post("/:projectId/plan", auth, companyOnly, createProjectPlan);
+// تلاش مجدد تحلیل پس از FAILED (مالک یا همکار EDIT)
+router.post("/:id/analysis-retry", auth, retryProjectAnalysis);
 
-router.get("/:projectId/plan", auth, companyOnly, getProjectPlanByProject);
+// schema فرم تحلیل با چک دسترسی پروژه (بدون GET /analysis/:formId)
+router.get("/:id/form-schema", auth, getProjectFormSchema);
+
+// Project Planning & Control — برنامه پروژه
+router.post(
+  "/:projectId/plan",
+  auth,
+  roleGuard(["COMPANY", "MEMBER", "SUPER_ADMIN"]),
+  createProjectPlan,
+);
+
+router.get(
+  "/:projectId/plan",
+  auth,
+  roleGuard(["COMPANY", "MEMBER", "SUPER_ADMIN"]),
+  getProjectPlanByProject,
+);
 
 router.post("/:id/deletion-lock", auth, companyOnly, lockProjectDeletion);
 router.delete("/:id/deletion-lock", auth, companyOnly, unlockProjectDeletion);

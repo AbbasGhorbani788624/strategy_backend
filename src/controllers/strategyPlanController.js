@@ -3,6 +3,7 @@ const {
   translateStrategyAnalysisService,
   getActiveStrategyPlanService,
   getStrategyPlanByProjectService,
+  getStrategyPlansWorkspaceService,
   getStrategyPlanService,
   validateBscMapService,
   approveBscMapAndGenerateKpisService,
@@ -31,6 +32,13 @@ const {
   listStrategyPlanMeasuresByActiveService,
   listStrategyPlanMeasuresByProjectService,
 } = require("../services/strategyMonitoringService");
+const {
+  listCollaboratorsService,
+  grantCollaboratorService,
+  updateCollaboratorService,
+  revokeCollaboratorService,
+  listSharedWithMeService,
+} = require("../services/strategyPlanCollaboratorsService");
 const { successResponse } = require("../utils/responses");
 
 exports.createStrategyPlan = async (req, res, next) => {
@@ -84,6 +92,16 @@ exports.getActiveStrategyPlan = async (req, res, next) => {
   try {
     const { framework } = req.query;
     const result = await getActiveStrategyPlanService(req.user, framework);
+    return successResponse(res, 200, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.getStrategyPlansWorkspace = async (req, res, next) => {
+  try {
+    const result = await getStrategyPlansWorkspaceService(req.user, req.query);
     return successResponse(res, 200, result);
   } catch (err) {
     console.error(err);
@@ -499,6 +517,70 @@ exports.syncStrategyPlanMeasuresByProject = async (req, res, next) => {
       framework,
     );
     return successResponse(res, 200, { items: result });
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.listSharedStrategyPlans = async (req, res, next) => {
+  try {
+    const result = await listSharedWithMeService(req.user, req.query);
+    return successResponse(res, 200, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.listStrategyPlanCollaborators = async (req, res, next) => {
+  try {
+    const { strategyPlanId } = req.params;
+    const result = await listCollaboratorsService(req.user, strategyPlanId);
+    return successResponse(res, 200, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.grantStrategyPlanCollaborator = async (req, res, next) => {
+  try {
+    const { strategyPlanId } = req.params;
+    const result = await grantCollaboratorService(
+      req.user,
+      strategyPlanId,
+      req.body,
+    );
+    const status = result.existing ? 200 : 201;
+    return successResponse(res, status, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.updateStrategyPlanCollaborator = async (req, res, next) => {
+  try {
+    const { strategyPlanId, userId } = req.params;
+    const result = await updateCollaboratorService(
+      req.user,
+      strategyPlanId,
+      userId,
+      req.body,
+    );
+    return successResponse(res, 200, result);
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.revokeStrategyPlanCollaborator = async (req, res, next) => {
+  try {
+    const { strategyPlanId, userId } = req.params;
+    await revokeCollaboratorService(req.user, strategyPlanId, userId);
+    return successResponse(res, 204, null);
   } catch (err) {
     console.error(err);
     next(err);

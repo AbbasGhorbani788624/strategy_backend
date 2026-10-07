@@ -5,14 +5,14 @@ const { enqueueConversationStep } = require("./conversation.queue.service");
  */
 const startAnalysisProcessing = async ({
   projectId,
-  userId,
+  user,
   source,
   userInput = "",
   understood = false,
 }) => {
   const result = await enqueueConversationStep({
     projectId,
-    userId,
+    user,
     userInput,
     understood,
     source,
@@ -30,13 +30,13 @@ const startAnalysisProcessing = async ({
  */
 const processConversationStepService = async ({
   projectId,
-  userId,
+  user,
   userInput = "",
   understood = false,
 }) => {
   return startAnalysisProcessing({
     projectId,
-    userId,
+    user,
     userInput,
     understood,
     source:

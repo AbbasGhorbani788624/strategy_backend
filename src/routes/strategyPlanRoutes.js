@@ -10,6 +10,7 @@ const {
   createStrategyPlan,
   translateStrategyAnalysis,
   getActiveStrategyPlan,
+  getStrategyPlansWorkspace,
   getStrategyPlanByProject,
   getStrategyPlan,
   validateStrategyMap,
@@ -36,6 +37,11 @@ const {
   approveStrategyTableByProject,
   listStrategyPlanMeasuresByProject,
   syncStrategyPlanMeasuresByProject,
+  listSharedStrategyPlans,
+  listStrategyPlanCollaborators,
+  grantStrategyPlanCollaborator,
+  updateStrategyPlanCollaborator,
+  revokeStrategyPlanCollaborator,
 } = require("../controllers/strategyPlanController");
 const {
   createStrategyPlanSchema,
@@ -67,6 +73,13 @@ const {
 const {
   strategyTranslationSchema,
 } = require("../validations/strategyTranslationValidation");
+const {
+  strategyPlanWorkspaceQuerySchema,
+} = require("../validations/strategyPlanWorkspaceQueryValidation");
+const {
+  grantCollaboratorSchema,
+  patchCollaboratorSchema,
+} = require("../validations/strategyPlanCollaboratorValidation");
 
 // ترجمهٔ متن تحلیل پروژه برای استفاده در فلو پایش — body: { projectId }
 router.post(
@@ -88,6 +101,15 @@ router.get(
   strategyPlanByProjectQuerySchema,
   getActiveStrategyPlan,
 );
+
+// لیست hub KPI / پایش — query: section=kpi|monitoring, page, limit, search
+router.get(
+  "/workspace",
+  strategyPlanWorkspaceQuerySchema,
+  getStrategyPlansWorkspace,
+);
+
+router.get("/shared-with-me", listSharedStrategyPlans);
 
 // BSC — اعتبارسنجی نقشهٔ استراتژی ویرایش‌شده (plan فعال شرکت) — query: framework؛ body: editedMap
 router.post(
@@ -225,6 +247,28 @@ router.post(
 );
 
 // --- legacy: strategyPlanId ---
+
+router.get(
+  "/:strategyPlanId/collaborators",
+  listStrategyPlanCollaborators,
+);
+
+router.post(
+  "/:strategyPlanId/collaborators",
+  grantCollaboratorSchema,
+  grantStrategyPlanCollaborator,
+);
+
+router.patch(
+  "/:strategyPlanId/collaborators/:userId",
+  patchCollaboratorSchema,
+  updateStrategyPlanCollaborator,
+);
+
+router.delete(
+  "/:strategyPlanId/collaborators/:userId",
+  revokeStrategyPlanCollaborator,
+);
 
 // BSC — اعتبارسنجی نقشه با شناسهٔ مستقیم StrategyPlan
 router.post(

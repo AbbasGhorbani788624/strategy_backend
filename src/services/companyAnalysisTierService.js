@@ -57,19 +57,22 @@ const getItemFormKey = (item) => {
   return null;
 };
 
-const formatTierItem = (item) => {
+const formatTierItem = (item, projectCountByKey) => {
   const isSingle = Boolean(item.analysisFormId);
   const form = isSingle ? item.analysisForm : item.multiAnalysisForm;
+  const key = getItemFormKey(item);
+  const projectCount = key ? projectCountByKey.get(key) ?? 0 : 0;
 
   return {
     id: isSingle ? item.analysisFormId : item.multiAnalysisFormId,
     type: isSingle ? 1 : 2,
     title: form?.title || "",
     titleFa: form?.titleFa || null,
+    projectCount,
   };
 };
 
-const loadCompletedFormKeysForCompany = async (companyId) => {
+const loadCompletedProjectCountByFormKey = async (companyId) => {
   const completedProjects = await prisma.project.findMany({
     where: {
       companyId,
@@ -81,16 +84,20 @@ const loadCompletedFormKeysForCompany = async (companyId) => {
     },
   });
 
-  const keys = new Set();
+  const counts = new Map();
 
   for (const project of completedProjects) {
-    if (project.formId) keys.add(buildFormKey("single", project.formId));
+    if (project.formId) {
+      const key = buildFormKey("single", project.formId);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
     if (project.multiAnalysisFormId) {
-      keys.add(buildFormKey("multi", project.multiAnalysisFormId));
+      const key = buildFormKey("multi", project.multiAnalysisFormId);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
 
-  return keys;
+  return counts;
 };
 
 const bootstrapCompanyTierConfigs = async (companyId) => {
@@ -173,6 +180,54 @@ const assertFormInEnabledTier = async (
 
 const assertAnalysisFormAllowed = async (companyId, formId, formType) => {
   await assertFormInEnabledTier(companyId, toTierFormParams(formId, formType));
+};
+
+const getTier4AnalysisFormIds = async (companyId) => {
+  if (!companyId) {
+    return { singleFormIds: [], multiFormIds: [] };
+  }
+
+  await ensureCompanyTierConfigs(companyId);
+
+  const tier4 = await prisma.companyAnalysisTierConfig.findUnique({
+    where: {
+      companyId_tier: {
+        companyId,
+        tier: "TIER_4",
+      },
+    },
+    select: {
+      items: {
+        select: {
+          analysisFormId: true,
+          multiAnalysisFormId: true,
+        },
+      },
+    },
+  });
+
+  const singleFormIds = (tier4?.items ?? [])
+    .map((item) => item.analysisFormId)
+    .filter(Boolean);
+  const multiFormIds = (tier4?.items ?? [])
+    .map((item) => item.multiAnalysisFormId)
+    .filter(Boolean);
+
+  return { singleFormIds, multiFormIds };
+};
+
+const buildTier4ProjectWhere = ({ singleFormIds, multiFormIds }) => {
+  const OR = [];
+  if (singleFormIds.length) {
+    OR.push({ formId: { in: singleFormIds } });
+  }
+  if (multiFormIds.length) {
+    OR.push({ multiAnalysisFormId: { in: multiFormIds } });
+  }
+  if (!OR.length) {
+    return { id: { in: [] } };
+  }
+  return { OR };
 };
 
 const isMonitoringUnlocked = async (companyId) => {
@@ -287,17 +342,20 @@ const getCompanyAnalysisTiersService = async (companyId) => {
     createBadRequestError("کاربر عضو سازمان نیست", 404);
   }
 
-  const [configs, completedFormKeys, monitoringUnlocked] = await Promise.all([
+  const [configs, projectCountByKey, monitoringUnlocked] = await Promise.all([
     loadCompanyTierConfigs(companyId),
-    loadCompletedFormKeysForCompany(companyId),
+    loadCompletedProjectCountByFormKey(companyId),
     isMonitoringUnlocked(companyId),
   ]);
 
   const tiers = configs.map((config) => {
-    const analyses = config.items.map((item) => formatTierItem(item));
-    const completedCount = config.items.filter((item) =>
-      completedFormKeys.has(getItemFormKey(item)),
-    ).length;
+    const analyses = config.items.map((item) =>
+      formatTierItem(item, projectCountByKey),
+    );
+    const completedCount = config.items.filter((item) => {
+      const key = getItemFormKey(item);
+      return key && (projectCountByKey.get(key) ?? 0) > 0;
+    }).length;
 
     return {
       tier: config.tier,
@@ -329,6 +387,8 @@ module.exports = {
   isFormInEnabledTier,
   assertFormInEnabledTier,
   assertAnalysisFormAllowed,
+  getTier4AnalysisFormIds,
+  buildTier4ProjectWhere,
   isMonitoringUnlocked,
   assertMonitoringUnlocked,
   onProjectFinalized,

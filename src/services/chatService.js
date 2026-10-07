@@ -88,7 +88,7 @@ const processChatMessageService = async ({
 
   try {
     response = await axios.post(
-      "https://strategy.ratorai.com/ai/chatbot/chatbot",
+      "http://127.0.0.1:8080/chatbot/chatbot",
       payload,
       {
         timeout: 300000,
@@ -160,7 +160,7 @@ const getChatJobStatusService = async ({ jobId, conversationId }) => {
 
 const getChatService = async ({ conversationId }) => {
   const response = await axios.get(
-    `https://strategy.ratorai.com/ai/chatbot/history/${conversationId}`,
+    `http://127.0.0.1:8080/chatbot/history/${conversationId}`,
     {
       params: {
         organization_id: conversationId,

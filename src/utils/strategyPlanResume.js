@@ -17,7 +17,7 @@ const isReadyForMonitoring = (plan, hasMeasuresApproval = false) =>
     (plan?.state === "READY_FOR_MONITORING" || plan?.state === "MONITORING"),
   );
 
-const resolveContinueAction = (state) => {
+const resolveContinueStep = (state) => {
   const mapping = {
     MAP_GENERATION: "MAP_VALIDATION",
     MAP_VALIDATION: "MAP_VALIDATION",
@@ -31,6 +31,39 @@ const resolveContinueAction = (state) => {
   };
 
   return mapping[state] || state;
+};
+
+/** @deprecated use resolvePlanContinueAction */
+const resolveContinueAction = resolveContinueStep;
+
+const resolveContinueTarget = (framework, state, hasMeasuresApproval = false) => {
+  const ready =
+    hasMeasuresApproval &&
+    (state === "READY_FOR_MONITORING" || state === "MONITORING");
+
+  if (ready || state === "MONITORING") {
+    return "monitoring";
+  }
+
+  if (
+    framework === "BSC" &&
+    (state === "MAP_GENERATION" || state === "MAP_VALIDATION")
+  ) {
+    return "bsc_analysis";
+  }
+
+  return "kpi";
+};
+
+const resolvePlanContinueAction = (plan, hasMeasuresApproval = false) => {
+  const step = resolveContinueStep(plan?.state);
+  return {
+    type: "NAVIGATE",
+    step,
+    planId: plan?.id ?? null,
+    target: resolveContinueTarget(plan?.framework, plan?.state, hasMeasuresApproval),
+    framework: plan?.framework ?? null,
+  };
 };
 
 const resolveStageInfo = (state, hasMeasuresApproval = false) => {
@@ -68,6 +101,10 @@ const resolveStageInfo = (state, hasMeasuresApproval = false) => {
 
 const buildResumeMessage = (framework, continueAction) => {
   const frameworkLabel = framework === "BSC" ? "BSC" : "OKR";
+  const step =
+    typeof continueAction === "string"
+      ? continueAction
+      : continueAction?.step || continueAction?.target;
 
   const actionMessages = {
     MAP_VALIDATION: `با این پروژه و روش ${frameworkLabel} قبلاً تا مرحله نقشه استراتژی پیش رفته‌اید.`,
@@ -79,7 +116,7 @@ const buildResumeMessage = (framework, continueAction) => {
   };
 
   return (
-    actionMessages[continueAction] ||
+    actionMessages[step] ||
     `برنامه استراتژی ${frameworkLabel} برای این پروژه از قبل وجود دارد.`
   );
 };
@@ -116,6 +153,8 @@ module.exports = {
   buildActiveCompanyPlanWhere,
   isReadyForMonitoring,
   resolveContinueAction,
+  resolveContinueStep,
+  resolvePlanContinueAction,
   resolveStageInfo,
   buildResumeMessage,
   createStrategyFlowError,

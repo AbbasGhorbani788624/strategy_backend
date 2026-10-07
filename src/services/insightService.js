@@ -9,7 +9,7 @@ const {
 } = require("./companyAnalysisTierService");
 const axios = require("axios");
 
-const AI_INSIGHT_API_URL = "https://strategy.ratorai.com/ai/insights";
+const AI_INSIGHT_API_URL = "http://127.0.0.1:8080/insights";
 
 const enrichSuggestedAnalysesWithTitleFa = async (
   suggestedAnalyses,

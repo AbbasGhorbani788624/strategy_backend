@@ -8,6 +8,9 @@ const {
   QA_PREFIX,
 } = require("../helpers/testFixtures");
 const { STRATEGY_PLANNING_CATEGORY_TITLE } = require("../../src/utils/buildStrategyProjectQuery");
+const {
+  ensureCompanyTierConfigs,
+} = require("../../src/services/companyAnalysisTierService");
 
 describe("GET /api/project/strategy-flow", { concurrency: false }, () => {
   let scenario;
@@ -17,6 +20,7 @@ describe("GET /api/project/strategy-flow", { concurrency: false }, () => {
   let bscProjectId;
   let okrOnlyMultiProjectId;
   let okrSingleProjectId;
+  let okrTier4SecondProjectId;
 
   before(async () => {
     scenario = await createTwoCompanyScenario();
@@ -55,6 +59,31 @@ describe("GET /api/project/strategy-flow", { concurrency: false }, () => {
     const companyId = scenario.companyA.id;
     const creatorId = scenario.companyUserA.user.id;
 
+    await ensureCompanyTierConfigs(companyId);
+    const tier4Config = await prisma.companyAnalysisTierConfig.findUnique({
+      where: {
+        companyId_tier: { companyId, tier: "TIER_4" },
+      },
+      select: { id: true },
+    });
+    await prisma.companyAnalysisTierItem.upsert({
+      where: {
+        companyId_multiAnalysisFormId: {
+          companyId,
+          multiAnalysisFormId: strategyMultiFormId,
+        },
+      },
+      create: {
+        companyId,
+        configId: tier4Config.id,
+        multiAnalysisFormId: strategyMultiFormId,
+        sortOrder: 0,
+      },
+      update: {
+        configId: tier4Config.id,
+      },
+    });
+
     const bscProject = await prisma.project.create({
       data: {
         title: `${QA_PREFIX}bsc_flow`,
@@ -92,6 +121,19 @@ describe("GET /api/project/strategy-flow", { concurrency: false }, () => {
       select: { id: true },
     });
     okrSingleProjectId = okrSingle.id;
+
+    const okrTier4Second = await prisma.project.create({
+      data: {
+        title: `${QA_PREFIX}okr_tier4_second`,
+        creatorId,
+        companyId,
+        mode: "MULTI",
+        multiAnalysisFormId: strategyMultiFormId,
+        status: "FINAL_ANALYSIS",
+      },
+      select: { id: true },
+    });
+    okrTier4SecondProjectId = okrTier4Second.id;
   });
 
   after(async () => {
@@ -119,7 +161,7 @@ describe("GET /api/project/strategy-flow", { concurrency: false }, () => {
     assert.equal(res.status, 400);
   });
 
-  it("framework=OKR includes all company projects; BSC is a subset", async () => {
+  it("framework=OKR lists tier-4 analysis projects only; BSC is MULTI + strategy category", async () => {
     const okrRes = await companyGet(
       "/api/project/strategy-flow?framework=OKR&page=1&limit=50",
     );
@@ -128,8 +170,9 @@ describe("GET /api/project/strategy-flow", { concurrency: false }, () => {
 
     const okrIds = okrRes.body.data.projects.map((p) => p.id);
     assert.ok(okrIds.includes(bscProjectId));
-    assert.ok(okrIds.includes(okrOnlyMultiProjectId));
-    assert.ok(okrIds.includes(okrSingleProjectId));
+    assert.ok(okrIds.includes(okrTier4SecondProjectId));
+    assert.ok(!okrIds.includes(okrOnlyMultiProjectId));
+    assert.ok(!okrIds.includes(okrSingleProjectId));
 
     const bscRes = await companyGet(
       "/api/project/strategy-flow?framework=BSC&page=1&limit=50",
@@ -137,6 +180,7 @@ describe("GET /api/project/strategy-flow", { concurrency: false }, () => {
     assert.equal(bscRes.status, 200);
     const bscIds = bscRes.body.data.projects.map((p) => p.id);
     assert.ok(bscIds.includes(bscProjectId));
+    assert.ok(bscIds.includes(okrTier4SecondProjectId));
     assert.ok(!bscIds.includes(okrOnlyMultiProjectId));
     assert.ok(!bscIds.includes(okrSingleProjectId));
 
@@ -152,7 +196,8 @@ describe("GET /api/project/strategy-flow", { concurrency: false }, () => {
         title: `${QA_PREFIX}member_project`,
         creatorId: scenario.memberA.user.id,
         companyId: scenario.companyA.id,
-        mode: "SINGLE",
+        mode: "MULTI",
+        multiAnalysisFormId: strategyMultiFormId,
         status: "FINAL_ANALYSIS",
       },
       select: { id: true },

@@ -21,6 +21,11 @@ const {
   updateMonitoringPlanningByProject,
   confirmMonitoringByProject,
   recordPeriodMeasurementByProject,
+  startMonitoringByPlan,
+  getMonitoringByPlan,
+  updateMonitoringPlanningByPlan,
+  confirmMonitoringByPlan,
+  recordPeriodMeasurementByPlan,
 } = require("../controllers/strategyMonitoringController");
 const {
   updateMonitoringPlanningSchema,
@@ -29,6 +34,35 @@ const {
 const {
   strategyPlanByProjectQuerySchema,
 } = require("../validations/strategyPlanByProjectQueryValidation");
+
+// --- StrategyPlan مشخص + measureIndex ---
+
+router.post(
+  "/plans/:strategyPlanId/measures/:measureIndex/monitoring",
+  startMonitoringByPlan,
+);
+
+router.get(
+  "/plans/:strategyPlanId/measures/:measureIndex/monitoring",
+  getMonitoringByPlan,
+);
+
+router.patch(
+  "/plans/:strategyPlanId/measures/:measureIndex/monitoring/planning",
+  updateMonitoringPlanningSchema,
+  updateMonitoringPlanningByPlan,
+);
+
+router.post(
+  "/plans/:strategyPlanId/measures/:measureIndex/monitoring/confirm",
+  confirmMonitoringByPlan,
+);
+
+router.patch(
+  "/plans/:strategyPlanId/measures/:measureIndex/monitoring/periods/:periodIndex/measurement",
+  recordPeriodMeasurementSchema,
+  recordPeriodMeasurementByPlan,
+);
 
 // --- plan فعال شرکت (از companyId توکن) + measureIndex ---
 
